@@ -1,4 +1,6 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { createPortal } from "react-dom";
+import Archive from "lucide-react/dist/esm/icons/archive";
 import ChevronRight from "lucide-react/dist/esm/icons/chevron-right";
 import Folder from "lucide-react/dist/esm/icons/folder";
 import MessageSquare from "lucide-react/dist/esm/icons/message-square";
@@ -10,6 +12,7 @@ type ThreadInfo = {
   label: string;
   updatedAt: number;
   turnCount?: number;
+  status?: string;
 };
 
 type Props = {
@@ -24,12 +27,9 @@ type Props = {
   activeThreadId: string | null;
   onSelectThread: (id: string) => void;
   onNewThread: (workspaceId: string) => void;
+  onArchiveThread: (workspaceId: string, threadId: string) => void;
   onRemoveWorkspace: (workspaceId: string) => void;
 };
-
-function compactThreadId(id: string): string {
-  return id.length > 8 ? `${id.slice(0, 8)}…` : id;
-}
 
 export default function Workspaces({
   workspaces,
@@ -42,10 +42,25 @@ export default function Workspaces({
   activeThreadId,
   onSelectThread,
   onNewThread,
+  onArchiveThread,
   onRemoveWorkspace,
 }: Props) {
   const [createName, setCreateName] = useState("");
   const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [pendingArchive, setPendingArchive] = useState<{
+    workspaceId: string;
+    threadId: string;
+    label: string;
+  } | null>(null);
+
+  useEffect(() => {
+    if (!pendingArchive) return;
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setPendingArchive(null);
+    };
+    window.addEventListener("keydown", closeOnEscape);
+    return () => window.removeEventListener("keydown", closeOnEscape);
+  }, [pendingArchive]);
 
   const toggleExpand = (wsId: string) => {
     setExpandedId(prev => (prev === wsId ? null : wsId));
@@ -157,9 +172,26 @@ export default function Workspaces({
                     className={`web-ws-thread${t.id === activeThreadId ? " web-ws-thread-active" : ""}`}
                     onClick={() => onSelectThread(t.id)}
                   >
-                    <MessageSquare size={12} className="web-ws-thread-icon" />
+                    <span
+                      className={`web-ws-thread-status${t.status === "active" || t.status === "running" || t.status === "reconnecting" ? " is-running" : ""}`}
+                      aria-label={t.status === "active" || t.status === "running" || t.status === "reconnecting" ? "Running" : "Idle"}
+                    >
+                      <MessageSquare size={12} className="web-ws-thread-icon" />
+                    </span>
                     <span className="web-ws-thread-label">{t.label}</span>
-                    <span className="web-ws-thread-time" title={t.id}>{compactThreadId(t.id)}</span>
+                    <button
+                      type="button"
+                      className="web-ws-thread-archive"
+                      aria-label={`Archive thread ${t.label}`}
+                      title="Archive thread"
+                      disabled={busy || t.status === "active" || t.status === "running" || t.status === "reconnecting"}
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        setPendingArchive({ workspaceId: ws.id, threadId: t.id, label: t.label });
+                      }}
+                    >
+                      <Archive size={12} aria-hidden="true" />
+                    </button>
                   </div>
                 ))}
 
@@ -168,6 +200,40 @@ export default function Workspaces({
           );
         })}
       </div>
+      {pendingArchive && createPortal(
+        <div
+          className="web-settings-backdrop"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget) setPendingArchive(null);
+          }}
+        >
+          <section className="web-archive-modal" role="alertdialog" aria-modal="true" aria-labelledby="web-archive-title" aria-describedby="web-archive-description">
+            <div className="web-archive-modal-icon"><Archive size={18} aria-hidden="true" /></div>
+            <div className="web-archive-modal-copy">
+              <h2 id="web-archive-title">Archive thread?</h2>
+              <p id="web-archive-description">
+                “{pendingArchive.label}” will leave this list, but its history remains recoverable in Codex.
+              </p>
+            </div>
+            <div className="web-archive-modal-actions">
+              <button type="button" onClick={() => setPendingArchive(null)}>Cancel</button>
+              <button
+                type="button"
+                className="is-primary"
+                autoFocus
+                disabled={busy}
+                onClick={() => {
+                  onArchiveThread(pendingArchive.workspaceId, pendingArchive.threadId);
+                  setPendingArchive(null);
+                }}
+              >
+                Archive
+              </button>
+            </div>
+          </section>
+        </div>,
+        document.body,
+      )}
     </div>
   );
 }

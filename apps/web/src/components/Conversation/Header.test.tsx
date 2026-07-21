@@ -21,4 +21,18 @@ describe("Header", () => {
     expect(screen.queryByTitle("Terminal integration is not available in Web mode")).toBeNull();
     expect(screen.queryByTitle("Thread link")).toBeNull();
   });
+
+  it("shows the thread name without exposing its id", () => {
+    render(
+      <Header
+        workspaceName="workspace"
+        threadTitle="Generated title"
+        threadStatus="idle"
+        sidebarCollapsed={false}
+        onToggleSidebar={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByText("Generated title")).toBeTruthy();
+  });
 });

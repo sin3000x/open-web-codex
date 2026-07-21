@@ -30,6 +30,7 @@ function statusDotClass(status: string): string {
 
 export default function Header({
   workspaceName,
+  threadTitle,
   threadStatus,
   threadSettings,
   sidebarCollapsed,
@@ -59,6 +60,12 @@ export default function Header({
         <ChevronRight size={14} className="web-chat-header-sep" aria-hidden="true" />
         <span className="web-chat-workspace">{workspaceName ?? "Select a project"}</span>
         {workspaceName ? <ChevronDown size={13} className="web-chat-workspace-chevron" aria-hidden="true" /> : null}
+        {threadTitle ? (
+          <>
+            <ChevronRight size={13} className="web-chat-header-sep" aria-hidden="true" />
+            <span className="web-chat-title">{threadTitle}</span>
+          </>
+        ) : null}
         {threadStatus && threadStatus !== "idle" && (
           <span className={`web-status-dot ${statusDotClass(threadStatus)}`} title={`Thread: ${threadStatus}`} />
         )}

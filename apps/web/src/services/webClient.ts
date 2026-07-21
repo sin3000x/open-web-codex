@@ -185,8 +185,29 @@ export class CodexMonitorWebClient {
     return turns.reverse();
   }
 
-  listThreads(workspaceId: string) {
-    return this.rpc<Record<string, unknown>>("list_threads", { workspaceId, limit: 50 });
+  async listThreads(workspaceId: string) {
+    const threads: Record<string, unknown>[] = [];
+    let cursor: string | null = null;
+    do {
+      const raw = await this.rpc<Record<string, unknown>>("list_threads", {
+        workspaceId,
+        limit: 100,
+        sortKey: "updated_at",
+        ...(cursor ? { cursor } : {}),
+      });
+      const page = unwrapRpcResult(raw);
+      if (Array.isArray(page.data)) {
+        threads.push(...page.data.filter(isRecord));
+      }
+      cursor = typeof page.nextCursor === "string" && page.nextCursor
+        ? page.nextCursor
+        : null;
+    } while (cursor);
+    return { data: threads };
+  }
+
+  archiveThread(workspaceId: string, threadId: string) {
+    return this.rpc<Record<string, unknown>>("archive_thread", { workspaceId, threadId });
   }
 
   listWorkspaceFiles(workspaceId: string) {

@@ -20,6 +20,7 @@ describe("Sidebar settings", () => {
         activeThreadId={null}
         onSelectThread={vi.fn()}
         onNewThread={vi.fn()}
+        onArchiveThread={vi.fn()}
         onRemoveWorkspace={vi.fn()}
         baseUrl="http://127.0.0.1:4733"
         token=""
@@ -30,6 +31,8 @@ describe("Sidebar settings", () => {
         rateLimits={null}
         currentProviderId={null}
         busy={false}
+        theme="dark"
+        onToggleTheme={vi.fn()}
       />,
     );
 
@@ -39,6 +42,73 @@ describe("Sidebar settings", () => {
 
     fireEvent.keyDown(window, { key: "Escape" });
     expect(screen.queryByRole("dialog", { name: "Settings" })).toBeNull();
+  });
+
+  it("toggles between dark and light themes", () => {
+    const onToggleTheme = vi.fn();
+    const { rerender } = render(
+      <Sidebar
+        gatewayState="online"
+        gatewayVersion="1.0.0"
+        workspaces={[]}
+        activeWorkspaceId={null}
+        onSelectWorkspace={vi.fn()}
+        onCreateWorkspace={vi.fn()}
+        onLoadWorkspaces={vi.fn()}
+        onConnectWorkspace={vi.fn()}
+        threadsByWorkspace={{}}
+        activeThreadId={null}
+        onSelectThread={vi.fn()}
+        onNewThread={vi.fn()}
+        onArchiveThread={vi.fn()}
+        onRemoveWorkspace={vi.fn()}
+        baseUrl="http://127.0.0.1:4733"
+        token=""
+        onBaseUrlChange={vi.fn()}
+        onTokenChange={vi.fn()}
+        onCheckGateway={vi.fn()}
+        mcpServers={{}}
+        rateLimits={null}
+        currentProviderId={null}
+        busy={false}
+        theme="dark"
+        onToggleTheme={onToggleTheme}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Switch to light theme" }));
+    expect(onToggleTheme).toHaveBeenCalledTimes(1);
+
+    rerender(
+      <Sidebar
+        gatewayState="online"
+        gatewayVersion="1.0.0"
+        workspaces={[]}
+        activeWorkspaceId={null}
+        onSelectWorkspace={vi.fn()}
+        onCreateWorkspace={vi.fn()}
+        onLoadWorkspaces={vi.fn()}
+        onConnectWorkspace={vi.fn()}
+        threadsByWorkspace={{}}
+        activeThreadId={null}
+        onSelectThread={vi.fn()}
+        onNewThread={vi.fn()}
+        onArchiveThread={vi.fn()}
+        onRemoveWorkspace={vi.fn()}
+        baseUrl="http://127.0.0.1:4733"
+        token=""
+        onBaseUrlChange={vi.fn()}
+        onTokenChange={vi.fn()}
+        onCheckGateway={vi.fn()}
+        mcpServers={{}}
+        rateLimits={null}
+        currentProviderId={null}
+        busy={false}
+        theme="light"
+        onToggleTheme={onToggleTheme}
+      />,
+    );
+    expect(screen.getByRole("button", { name: "Switch to dark theme" })).toBeTruthy();
   });
 
   it("renders Codex quota windows above the settings control", () => {
@@ -56,6 +126,7 @@ describe("Sidebar settings", () => {
         activeThreadId={null}
         onSelectThread={vi.fn()}
         onNewThread={vi.fn()}
+        onArchiveThread={vi.fn()}
         onRemoveWorkspace={vi.fn()}
         baseUrl="http://127.0.0.1:4733"
         token=""
@@ -70,6 +141,8 @@ describe("Sidebar settings", () => {
         }}
         currentProviderId={"openai"}
         busy={false}
+        theme="dark"
+        onToggleTheme={vi.fn()}
       />,
     );
 
@@ -95,6 +168,7 @@ describe("Sidebar settings", () => {
         activeThreadId={null}
         onSelectThread={vi.fn()}
         onNewThread={vi.fn()}
+        onArchiveThread={vi.fn()}
         onRemoveWorkspace={vi.fn()}
         baseUrl="http://127.0.0.1:4733"
         token=""
@@ -108,6 +182,8 @@ describe("Sidebar settings", () => {
         }}
         currentProviderId={"deepseek"}
         busy={false}
+        theme="dark"
+        onToggleTheme={vi.fn()}
       />,
     );
 

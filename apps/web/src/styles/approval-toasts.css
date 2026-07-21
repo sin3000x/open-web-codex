@@ -13,6 +13,11 @@
 
 .approval-toast {
   --ds-toast-enter-duration: 0.2s;
+  --ds-toast-bg: var(--surface-approval);
+  --ds-toast-border: var(--border-strong);
+  --ds-toast-title: var(--status-warning);
+  --ds-toast-body: var(--text-primary);
+  color: var(--text-primary);
 }
 
 .approval-toast-header {
@@ -31,6 +36,7 @@
 }
 
 .approval-toast-method {
+  color: var(--text-strong);
   font-size: 12px;
   font-weight: 600;
   margin-bottom: 8px;
@@ -57,6 +63,7 @@
 }
 
 .approval-toast-detail-value {
+  color: var(--text-primary);
   font-size: 12px;
   overflow-wrap: anywhere;
   word-break: break-word;
@@ -64,6 +71,9 @@
 
 .approval-toast-detail-code {
   max-height: 160px;
+  border: 1px solid var(--border-subtle);
+  color: var(--text-primary);
+  background: var(--surface-command);
 }
 
 .approval-toast-detail-empty {
@@ -73,6 +83,21 @@
 
 .approval-toast-remember {
   white-space: nowrap;
+}
+
+:root[data-theme="light"] .approval-toast {
+  --ds-toast-shadow: 0 18px 42px rgba(40, 52, 72, 0.18);
+}
+
+:root[data-theme="light"] .approval-toast .secondary {
+  border: 1px solid var(--border-strong);
+  color: var(--text-strong);
+  background: var(--surface-card-strong);
+}
+
+:root[data-theme="light"] .approval-toast .ghost {
+  color: var(--text-muted);
+  background: rgba(255, 255, 255, 0.72);
 }
 
 @media (max-width: 960px) {

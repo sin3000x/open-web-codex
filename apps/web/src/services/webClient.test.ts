@@ -2,6 +2,49 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { CodexMonitorWebClient } from "./webClient";
 
+describe("CodexMonitorWebClient threads", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("loads every historical thread page", async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        result: { result: { data: [{ id: "thread-2" }], nextCursor: "older" } },
+      }), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        result: { result: { data: [{ id: "thread-1" }], nextCursor: null } },
+      }), { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const client = new CodexMonitorWebClient({ baseUrl: "http://gateway.test" });
+    await expect(client.listThreads("workspace-1")).resolves.toEqual({
+      data: [{ id: "thread-2" }, { id: "thread-1" }],
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("passes the selected model on every message turn and archives deleted threads", async () => {
+    const fetchMock = vi.fn(async (_input: RequestInfo | URL, _init?: RequestInit) =>
+      new Response(JSON.stringify({ result: {} }), { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+    const client = new CodexMonitorWebClient({ baseUrl: "http://gateway.test" });
+
+    await client.sendUserMessage("workspace-1", "thread-1", "hello", "gpt-next");
+    await client.archiveThread("workspace-1", "thread-1");
+
+    const requests = fetchMock.mock.calls.map((call) => JSON.parse(String(call[1]?.body)));
+    expect(requests[0]).toMatchObject({
+      method: "send_user_message",
+      params: { workspaceId: "workspace-1", threadId: "thread-1", model: "gpt-next" },
+    });
+    expect(requests[1]).toMatchObject({
+      method: "archive_thread",
+      params: { workspaceId: "workspace-1", threadId: "thread-1" },
+    });
+  });
+});
+
 describe("CodexMonitorWebClient.listThreadTurns", () => {
   afterEach(() => {
     vi.unstubAllGlobals();

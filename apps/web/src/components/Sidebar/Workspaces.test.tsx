@@ -26,6 +26,7 @@ describe("Web workspace actions", () => {
         activeThreadId={null}
         onSelectThread={vi.fn()}
         onNewThread={vi.fn()}
+        onArchiveThread={vi.fn()}
         onRemoveWorkspace={onRemoveWorkspace}
       />,
     );
@@ -36,5 +37,48 @@ describe("Web workspace actions", () => {
 
     fireEvent.click(remove);
     expect(onRemoveWorkspace).toHaveBeenCalledWith("ws-1");
+  });
+
+  it("shows running state and confirms before archiving a thread", () => {
+    const onArchiveThread = vi.fn();
+    render(
+      <Workspaces
+        workspaces={[{
+          id: "ws-1",
+          name: "Demo",
+          path: "/tmp/demo",
+          connected: true,
+          settings: { sidebarCollapsed: false },
+        }]}
+        activeId="ws-1"
+        onSelect={vi.fn()}
+        onCreate={vi.fn()}
+        onConnect={vi.fn()}
+        onLoad={vi.fn()}
+        busy={false}
+        threadsByWorkspace={{
+          "ws-1": [
+            { id: "running-thread", label: "Running", updatedAt: 2, status: "running" },
+            { id: "idle-thread", label: "Idle", updatedAt: 1, status: "idle" },
+          ],
+        }}
+        activeThreadId={null}
+        onSelectThread={vi.fn()}
+        onNewThread={vi.fn()}
+        onArchiveThread={onArchiveThread}
+        onRemoveWorkspace={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByLabelText("Running")).toBeTruthy();
+    expect(screen.queryByText("running-…")).toBeNull();
+    expect(screen.queryByText("idle-thr…")).toBeNull();
+    expect((screen.getByRole("button", { name: "Archive thread Running" }) as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.click(screen.getByRole("button", { name: "Archive thread Idle" }));
+    expect(screen.getByRole("alertdialog", { name: "Archive thread?" })).toBeTruthy();
+    expect(onArchiveThread).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "Archive" }));
+    expect(onArchiveThread).toHaveBeenCalledWith("ws-1", "idle-thread");
+    expect(screen.queryByRole("alertdialog", { name: "Archive thread?" })).toBeNull();
   });
 });

@@ -465,6 +465,10 @@
   white-space: nowrap;
 }
 
+.main-header .workspace-title {
+  color: var(--text-strong);
+}
+
 .workspace-separator {
   color: var(--text-faint);
   font-size: 10px;
