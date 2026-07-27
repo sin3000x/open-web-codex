@@ -1,4 +1,3 @@
-import ChevronDown from "lucide-react/dist/esm/icons/chevron-down";
 import ChevronRight from "lucide-react/dist/esm/icons/chevron-right";
 import FolderOpen from "lucide-react/dist/esm/icons/folder-open";
 import PanelLeftClose from "lucide-react/dist/esm/icons/panel-left-close";
@@ -56,10 +55,7 @@ export default function Header({
         >
           {sidebarCollapsed ? <PanelLeftOpen size={16} /> : <PanelLeftClose size={16} />}
         </button>
-        <span className="web-chat-product">CodexMonitor</span>
-        <ChevronRight size={14} className="web-chat-header-sep" aria-hidden="true" />
         <span className="web-chat-workspace">{workspaceName ?? "Select a project"}</span>
-        {workspaceName ? <ChevronDown size={13} className="web-chat-workspace-chevron" aria-hidden="true" /> : null}
         {threadTitle ? (
           <>
             <ChevronRight size={13} className="web-chat-header-sep" aria-hidden="true" />

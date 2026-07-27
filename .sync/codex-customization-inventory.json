@@ -3,19 +3,19 @@
   "purpose": "Tracks the current official-tree comparison and convergence classification progress for codex/.",
   "comparison": {
     "upstreamRef": "codex-upstream/main",
-    "upstreamCommit": "1bbdb32789e1f79932df44941236ea3658f6e965",
+    "upstreamCommit": "cba0e2701c9e3e67a877a16dbbd7a577d477a630",
     "localTree": "HEAD:codex",
-    "observedAt": "2026-07-15T14:01:57Z",
-    "differenceCount": 111,
-    "addedLocally": 24,
-    "modified": 87,
-    "missingLocally": 0,
-    "upstreamOnly": 0,
-    "localOnly": 111,
-    "diverged": 0
+    "observedAt": "2026-07-25T00:10:19Z",
+    "differenceCount": 919,
+    "addedLocally": 46,
+    "modified": 803,
+    "missingLocally": 70,
+    "upstreamOnly": 790,
+    "localOnly": 70,
+    "diverged": 59
   },
   "progress": {
-    "state": "core-seams-replayed-and-validated",
+    "state": "integrated-base-validated-upstream-update-available",
     "classificationSource": "docs/custom-codex-patch-map.md",
     "classifiedRetainCore": [
       "provider-chat-transport",
@@ -25,30 +25,40 @@
       "legacy-response-tool-history",
       "capability-manifest"
     ],
-    "sourceCandidates": {
-      "nonGeneratedLocalOnly": 75,
-      "upstreamFirstReplayCandidates": 0
+    "classification": {
+      "classifiedLocalOnlyPaths": 70,
+      "unclassifiedSourcePaths": 0,
+      "temporaryUpstreamedFixes": 0
     },
     "completed": [
-      "Separated pending official updates from candidate local changes using the integrated upstream base.",
-      "Mapped the first-pass non-generated source candidates to retained seams, upstream-first replay, or verification.",
-      "Classified Turn-level Provider override and Provider propagation followers as retained; classified missing-CODEX_HOME auto-creation as Platform Host work to move out of codex/.",
-      "Completed first-pass classification of all non-generated local-only and diverged source candidates; generated artifacts and focused tests follow their owning seam.",
-      "Added apps/web Profile Host provisioning before the transitional app-server spawn so Codex can return to official missing-CODEX_HOME validation semantics.",
-      "Provisioned Profile Home from the native Platform Server startup path via apps/web/crates/profile-host.",
-      "Restored codex/utils/home-dir to official missing-CODEX_HOME rejection semantics.",
-      "Synchronized the Codex subtree through official commit 1bbdb32789e1f79932df44941236ea3658f6e965 and replayed the documented core seams."
+      "The Codex subtree is integrated through 6e5a2d6b8d14 with the six documented retained seams; 126 later official commits await a dedicated sync branch.",
+      "All 70 currently local-only paths follow the classified seams; the 59 diverged paths require upstream-first replay during the next sync.",
+      "Profile lifecycle, encrypted credentials, authorization, durable approvals, Git workspaces, Run leases, browser DTOs, and event delivery are owned by apps/web.",
+      "The browser uses typed REST and authenticated WebSocket transport; Tauri, desktop sidecars, raw browser RPC, desktop release chains, and desktop build dependencies are absent.",
+      "Provider configuration, event payloads, model context and onboarding implementation live in dedicated TUI Provider modules; high-churn upstream parent files retain only narrow attachments.",
+      "The protocol ToolName implementation matches official Codex; Chat namespace flattening is isolated in codex-api.",
+      "Generated contracts reproduce without drift and the current binary passes the real app-server Capability Manifest smoke."
     ],
     "validation": {
       "format": "passed",
-      "appServerSchema": "passed",
-      "protocolTests": "passed",
-      "providerAndTuiTests": "passed",
-      "realAppServerSmoke": "passed",
-      "webContractCheck": "passed"
+      "clippyFix": "passed for retained Rust seams",
+      "appServerSchema": "passed; no generated drift",
+      "protocolTests": "288 passed",
+      "chatTransportTests": "175 codex-api tests and 17 focused Core Chat tests passed",
+      "providerTests": "26 Provider metadata, 57 Provider transport, 41 model-manager, 27 focused Core Provider, 5 app-server model-list tests, and the existing-Thread Provider hot-switch regression passed",
+      "configTests": "221 passed",
+      "mcpTests": "110 passed",
+      "coreSkillsTests": "124 passed",
+      "appServerTests": "981 app-server assertions passed across the full matrix and auxiliary-binary reruns; 19 latest thread-fork tests passed",
+      "tuiTests": "3233 passed; 4 skipped",
+      "networkProxyTests": "all 207 network-proxy tests passed across local-port and network-isolated runs; the new CLI sandbox cases are Linux-only and not applicable on the macOS validation host",
+      "latestUpstreamTests": "159 login, 60 PathUri, 86 apply-patch, 24 Core turn-diff and 19 app-server thread-fork tests passed",
+      "realAppServerSmoke": "passed against the current locally built CLI; 18 capability declarations",
+      "webContractCheck": "passed",
+      "platformTests": "frontend, Rust workspace, PostgreSQL integration, Profile restart, Provider isolation, Git Runtime, Run lease, two-organization security, and fake-server HTTP/WebSocket checks passed"
     },
-    "validatedAgainstUpstream": "1bbdb32789e1f79932df44941236ea3658f6e965",
-    "validatedAtCommit": "26329a12767414ec0a1b6d0f0c9c7c5a65147529",
-    "nextAction": "Complete Batch 1 manifest policy generation (M0-B03/B04) and Web bundle consumption while keeping codex/ differences classified."
+    "validatedAgainstUpstream": "6e5a2d6b8d148a5554fdceb6f399ca45bd1c78d9",
+    "validatedAtCommit": "a9bae7be4fba81c242308cf6d824e487da85c593",
+    "nextAction": "Create a dedicated codex/sync-upstream-* branch for the 126 pending official commits, accept upstream structure first, then replay only the six retained seams and rerun the contract/provider matrix."
   }
 }

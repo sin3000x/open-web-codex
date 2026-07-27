@@ -1,158 +1,139 @@
 # open-web-codex Agent Guide
 
-All product and planning documentation must describe current live state. Do not
-keep historical commentary in canonical documents.
+This guide supplements the user-level engineering principles with rules that
+are specific to this repository. Component guides may add implementation
+details, but must preserve the ownership and contracts defined here.
 
-## Project north star
+## North star
 
-Build a self-hosted, browser-first, multi-user Codex workbench that reuses the
-official Codex runtime instead of reimplementing it. Each user must have an
-isolated persistent Profile, including identity, `CODEX_HOME`, configuration,
-Threads, memory, skills, plugins, MCP state and model/provider selection. Each
-Run must have an authorized, isolated Git workspace. The browser reaches Codex
-only through the authenticated Web platform and a versioned app-server bridge.
+Build a self-hosted, browser-first, multi-user Codex workbench by reusing the
+official Codex Runtime rather than reimplementing it.
 
-Codex remains the owner of Thread/Turn semantics, context compaction, memory,
-multi-agent coordination, tools, skills, plugins and MCP. The Web platform owns
-users, authorization, durable workflow state, Profile/Runner lifecycle, Git,
-approvals, audit and browser projections. Preserve this boundary so `codex/`
-can continue to synchronize with `openai/codex` using the smallest possible
-product-specific seam.
+Each user owns an isolated, persistent Profile containing identity,
+`CODEX_HOME`, configuration, Threads, memory, Skills, Plugins, MCP state and
+Provider/model selection. A Workspace is an independently authorized execution
+root, not storage owned by a Thread or Run. Codex owns each Thread's current
+`cwd`; the platform validates that directory against the user's authorized
+Workspaces. Multiple Threads may use the same Workspace. A Run is only a
+scheduling and audit attempt and never provisions or owns a checkout.
 
-## Codex customization convergence
+The browser reaches Codex only through the authenticated Web platform and a
+versioned app-server bridge. Keep product-specific Codex changes narrow,
+explicit and replayable so the `codex/` subtree can continue to synchronize
+with `openai/codex`.
 
-The target is not a zero-diff Codex subtree. The target is a small, explicit,
-replayable set of third-party Provider and TUI extensions that can be carried
-through each official Codex subtree update. Treat all other product behavior as
-Web-platform work unless the official runtime has no suitable boundary.
+## Ownership
 
-### Retained Runtime and TUI core
+| Layer | Owns | Must not own |
+| --- | --- | --- |
+| Browser WebApp | Presentation, interaction, optimistic UI, accessibility and safe rendering of typed platform DTOs | Thread/Turn semantics, model context, tool or MCP discovery, credentials, filesystem authority, raw app-server protocol or product persistence |
+| Platform Server | Users, organizations, authorization, durable workflow state, Profile/Runner lifecycle, approvals, audit, Git orchestration, Secret injection, browser DTOs and durable event projections | Reasoning, context compaction, memory, tool execution, Skills/Plugins/MCP lifecycle or Provider transport internals |
+| Profile Host / adapter | Isolated persistent `CODEX_HOME`, one primary app-server process per Profile, typed request bridging and safe Runtime event normalization | Product UI behavior, browser contracts, Runtime emulation or a second store for Thread state |
+| Codex app-server / Runtime | Thread, Turn, Item and context semantics; compaction, memory, agents, tools, Skills, Plugins, MCP and Provider execution | Web sessions, organizations, browser authorization, browser DTOs, deployment policy or Workspace provisioning |
+| Workspace / Runner / Git | Authorized execution roots, explicit managed clone/worktree lifecycle, repository operations, Run scheduling, leases, recovery and delivery | Model-visible conversation state or implicit checkout ownership by a Thread or Run |
+| Skill / Plugin / MCP package | Model-visible capability instructions, declarations, tools and resources consumed through Codex discovery | Hidden Profile mutation, Web command interception or platform authorization |
+| Contract layer | Generated Codex protocol facts internally and stable, bounded platform DTOs externally | Hand-maintained claims about Runtime support or raw protocol passthrough to the browser |
 
-These are intentional, product-critical `codex/` changes. Do not remove,
-replace with Web-only behavior, or broaden without preserving their tests and
-the corresponding app-server contract:
+Codex is the authoritative owner of model-visible conversation state. Platform
+events, database projections and browser caches are rebuildable views, never a
+second Thread, memory or agent system.
 
-- Third-party Chat Completions transport: request translation, streaming/SSE
-  translation, tool-call translation, and the narrow Core transport dispatch.
-- Provider metadata and configuration: `WireApi::Chat`, provider-scoped model
-  metadata, provider identity, and selection semantics.
-- Provider model discovery and caching: scoped catalog retrieval, refresh,
-  normalization, and isolation between Providers.
-- Versioned app-server Provider API: Provider listing, provider-scoped model
-  listing, controlled configuration writes, model refresh, and selected
-  Provider/model propagation.
-- TUI Provider workflows: Provider selection, model selection, onboarding,
-  configuration updates, refresh, and error states. TUI parity is a core
-  requirement, not an optional Web migration artifact.
+## Non-negotiable boundaries
 
-Keep this code concentrated in Provider-specific modules. In particular, place
-Chat translation in `codex-api`, Provider facts in Provider crates, app-server
-wire types in `app-server-protocol`, request handling in the app-server, and
-TUI presentation in dedicated TUI Provider modules. `core` may contain only
-the minimal transport-selection seam; it must not acquire Web, Profile,
-authorization, or browser-state logic.
+- Do not recreate Codex capabilities in the WebApp, server routes, startup
+  scripts or database. Runtime-facing behavior goes through Codex discovery or
+  a typed app-server contract.
+- Do not expose raw JSON-RPC, app-server request IDs, local paths, credentials,
+  configuration key paths or unbounded Runtime payloads to the browser.
+- Do not add a desktop shell, Tauri layer, sidecar daemon, loopback proxy or a
+  second browser-to-Runtime gateway.
+- Resolve every Profile and authorized Workspace through authenticated platform
+  records. Browser input is never trusted as a server-local path, and every
+  Runtime `cwd` must fall within an authorized execution root.
+- Scope processes, caches, subscriptions, model catalogs, Secrets, Workspace
+  grants and events by their authoritative identity. Cross-user access denial
+  is a release requirement.
+- Persist durable platform events and approvals before browser fan-out.
+  Reconnect may replay missing projections, but projections never replace
+  authoritative Codex history.
+- Codex-generated JSON Schema, TypeScript and capability data are protocol
+  truth. Regenerate them from Rust types; never hand-edit generated artifacts
+  or manually claim unsupported capabilities.
 
-### Product boundaries and legacy code
+## Retained Codex customization
 
-- `apps/web` owns Profile lifecycle, credentials injection, authorization,
-  Provider CRUD orchestration, browser DTOs, and all Web UI state. It may call
-  typed app-server methods internally through the Host, but must not expose raw
-  JSON-RPC or configuration key paths to the browser.
-- Do not add Tauri, daemon proxy, Web route, platform persistence, or browser
-  adaptation code under `codex/`. Prefer platform DTOs and the Profile Host.
-- Do not hand-edit generated app-server Schema or TypeScript files; regenerate
-  them from Rust protocol types.
-- Do not preserve a local workaround when upstream provides equivalent behavior.
-  Record an upstreamed replacement in the patch map and return to upstream code.
-- `legacy_response_tool_history` is a compatibility seam for existing Profile
-  rollout history, not a new feature surface. Keep it isolated, test reload
-  behavior, and remove it once supported legacy histories are retired.
-- The Capability Manifest is a platform compatibility seam. Its method facts
-  must converge on generated protocol/build data rather than hand-maintained
-  lists.
+The target is a small, deliberate Codex diff, not a zero-diff subtree. Preserve
+these product-critical seams and keep them concentrated in their owning modules:
 
-### Required workflow for Codex changes
+- third-party Chat Completions request, streaming and tool-call translation;
+- Provider identity, configuration and Provider-scoped model metadata;
+- Provider model discovery, refresh, caching and cross-Provider isolation;
+- versioned app-server APIs for Provider configuration, catalog access and
+  selected Provider/model propagation;
+- equivalent Provider selection, configuration, refresh and failure workflows
+  in the TUI.
 
-1. Before changing a high-churn upstream file, run
-   `scripts/codex-upstream-status.sh` and inspect
-   `docs/custom-codex-patch-map.md`.
-2. Classify every non-generated Codex difference as `retain-core`,
-   `upstreamed`, `move-out`, or `drop`. Do not add an unclassified difference.
-3. Make the smallest change at the owning layer; avoid scattering Provider
-   behavior through `core`, generic TUI orchestration, or Web code.
-4. For protocol changes, regenerate Schema and TypeScript, update offline
-   fixtures, and validate a real app-server smoke.
-5. For TUI changes, add or update snapshot coverage. For Provider changes,
-   cover Provider switching, cache isolation, refresh, credentials failure,
-   Chat tool calls, and interrupted-stream recovery.
-6. During an official sync, accept upstream structure first, then reapply only
-   the documented retained seams in this order: Provider metadata/Chat
-   transport, model catalog/cache, app-server Provider API, TUI Provider
-   workflows, generated artifacts, and Web contract smoke.
+Place transport translation in `codex-api`, Provider facts in Provider modules,
+wire types in `app-server-protocol`, request handling in app-server modules and
+presentation in dedicated TUI Provider modules. `codex-core` contains only the
+smallest necessary transport-selection seam. Web, Profile, authorization and
+browser state never move into `codex/`.
 
-## Repository scopes
+Before modifying high-churn Codex code, run
+`scripts/codex-upstream-status.sh`, inspect
+`docs/custom-codex-patch-map.md`, and classify every non-generated difference
+as `retain-core`, `upstreamed`, `move-out` or `drop`. Official synchronization
+must use `scripts/sync-codex-upstream.sh --apply` on its dedicated sync branch,
+preserve upstream structure first and then replay only documented retained
+seams.
 
-- `apps/web/**`: follow `apps/web/AGENTS.md`. This area owns the browser product,
-  platform persistence, authorization, Profile host, Runner, Git, and audit.
-- `codex/**`: follow `codex/AGENTS.md`. This area owns the Codex runtime and
-  app-server protocol. Preserve upstream conventions and keep custom changes
-  small enough to rebase.
-- `docs/**`, `scripts/**`, `.sync/**`: follow this root guide.
+## Project contracts
 
-## Canonical documents
+- A feature proposal must identify its owning layer, typed inputs and outputs,
+  capability gate, persistence scope and validation path before implementation.
+  Split cross-layer work until every change has one clear owner.
+- Browser APIs are stable product resources, not app-server passthroughs.
+  Generated Runtime types stay behind the Platform Server and Profile Host.
+- Workspaces exist independently of Threads and Runs. Starting, resuming or
+  updating a Thread passes an authorized `cwd` through the official Codex
+  contract; it does not create a Thread-owned checkout. Managed clones or
+  worktrees are explicit Workspace resources with their own lifecycle and may
+  serve multiple authorized Threads.
+- Durable Artifacts have their own identity, authorization and retention
+  lifecycle. Producing Run/Thread/Turn/Item IDs are provenance only and must not
+  prevent later authorized history from resolving embedded content.
+- Provider credentials remain encrypted platform Secrets and are injected only
+  into the owned Profile process. They never enter browser-readable state.
+- Skills, Plugins and MCP are discovered and executed by Codex Runtime.
+  Capability packages may supply declarations and launchers, but the WebApp and
+  platform startup path must not simulate discovery or edit hidden Profile
+  configuration.
+- TUI parity is required for retained Provider capabilities; a Web-only
+  Provider workflow is incomplete.
+
+## Project sources of truth
 
 - Product: `docs/product-design.md`
 - Architecture and ownership: `docs/architecture.md`
-- Runtime capability truth: `docs/capability-baseline.md`
-- Delivery status and order: `docs/development-plan.md`
-- Official Codex synchronization: `docs/codex-upstream-sync.md`
-- Custom Codex seams: `docs/custom-codex-patch-map.md`
+- Verified Runtime capability: `docs/capability-baseline.md`
+- Current delivery state and order: `docs/development-plan.md`
+- Codex synchronization: `docs/codex-upstream-sync.md`
+- Retained Codex seams: `docs/custom-codex-patch-map.md`
 
-Component documents may add implementation detail, but must not redefine product
-scope, capability status, or milestone state.
+Read the documents relevant to the owning layer before changing behavior.
+Canonical documents describe current live state only. Component documents may
+add detail but cannot redefine product scope, capability status or ownership.
 
-Before planning or implementing work, read the relevant canonical documents.
-Use `docs/capability-baseline.md` for what the checked-in runtime demonstrably
-supports and `docs/development-plan.md` for what is complete or next; do not
-infer delivery status from the target product design.
+## Minimum delivery gates
 
-## Contract rules
-
-1. Codex-generated JSON Schema and TypeScript types are the protocol truth.
-2. Capability Manifest values must be generated from the Codex build, not copied
-   by hand into the Web application.
-3. Web feature policy maps product features to capability IDs and minimum
-   versions; it does not claim that a server supports them.
-4. Runtime capabilities remain disabled until generated contracts, offline
-   fixtures, and a real app-server smoke test agree.
-5. Never expose raw app-server request IDs, local paths, credentials, or the raw
-   protocol as a public browser API.
-
-## Upstream rules
-
-- `codex/` tracks `https://github.com/openai/codex`, branch `main`, through Git
-  subtree synchronization.
-- Run `scripts/codex-upstream-status.sh` before modifying a high-churn upstream
-  file.
-- Run `scripts/codex-customization-status.sh` before classifying, moving, or
-  deleting a Codex difference. It compares `HEAD:codex` directly with
-  `codex-upstream/main`; never use this repository's `main` branch as the
-  convergence baseline.
-- Use `scripts/sync-codex-upstream.sh --apply` for official updates. It creates a
-  `codex/sync-upstream-*` branch; never sync directly on `main`.
-- Resolve conflicts by preserving upstream structure first and reapplying the
-  smallest product-specific seam.
-- Regenerate app-server and config schemas after protocol/config changes.
-
-## Validation
-
-- Root docs/scripts: run `bash -n scripts/*.sh`,
-  `scripts/codex-upstream-status.sh`, and
-  `scripts/codex-customization-status.sh` when the change affects Codex
-  convergence state.
-- `apps/web`: run `npm run typecheck` and relevant tests; run contract tests for
-  integration changes.
-- `codex`: follow `codex/AGENTS.md`, including `just fmt` and scoped `just test`.
-- Cross-project protocol changes require both component checks,
-  `npm run check:codex-contracts`, and the real
-  `npm run smoke:codex-app-server -- --require-manifest` harness.
+- Follow `apps/web/AGENTS.md` for Web/platform work and `codex/AGENTS.md` for
+  Runtime work.
+- Web changes require type checking and relevant tests; integration changes
+  require contract coverage.
+- Codex changes require its formatting and scoped test workflow. TUI changes
+  require snapshot coverage.
+- Protocol changes require regenerated Schema and TypeScript, updated fixtures,
+  Web and Codex checks, `npm run check:codex-contracts`, and a real
+  `npm run smoke:codex-app-server -- --require-manifest` run.
+- Authorization, persistence and recovery changes must cover denial, restart,
+  interruption and concurrency as applicable.

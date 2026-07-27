@@ -70,7 +70,11 @@ describe("Web workspace actions", () => {
       />,
     );
 
-    expect(screen.getByLabelText("Running")).toBeTruthy();
+    const runningIndicator = screen.getByRole("status", { name: "Thread is running" });
+    const runningLabel = screen.getByText("Running");
+    expect(runningLabel.compareDocumentPosition(runningIndicator) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(document.querySelector(".web-ws-thread-status.is-running")).toBeNull();
+    expect(screen.getByText("Idle").parentElement?.querySelector(".web-ws-thread-running")).toBeNull();
     expect(screen.queryByText("running-…")).toBeNull();
     expect(screen.queryByText("idle-thr…")).toBeNull();
     expect((screen.getByRole("button", { name: "Archive thread Running" }) as HTMLButtonElement).disabled).toBe(true);

@@ -8,6 +8,7 @@ use codex_mcp::ToolInfo;
 use codex_model_provider::create_model_provider;
 use codex_model_provider_info::AMAZON_BEDROCK_PROVIDER_ID;
 use codex_model_provider_info::ModelProviderInfo;
+use codex_model_provider_info::WireApi;
 use codex_protocol::config_types::WebSearchMode;
 use codex_protocol::dynamic_tools::DynamicToolSpec;
 use codex_protocol::openai_models::ApplyPatchToolType;
@@ -15,8 +16,6 @@ use codex_protocol::openai_models::ConfigShellToolType;
 use codex_protocol::openai_models::InputModality;
 use codex_protocol::openai_models::ToolMode;
 use codex_protocol::openai_models::WebSearchToolType;
-use codex_protocol::protocol::SessionSource;
-use codex_protocol::protocol::SubAgentSource;
 use codex_tools::DiscoverablePluginInfo;
 use codex_tools::DiscoverableTool;
 use codex_tools::ResponsesApiNamespaceTool;
@@ -31,6 +30,8 @@ use pretty_assertions::assert_eq;
 use serde_json::json;
 
 use crate::config::CurrentTimeReminderConfig;
+use crate::environment_selection::TurnEnvironmentState;
+use crate::mcp_tool_exposure::build_mcp_tool_runtimes;
 use crate::session::step_context::StepContext;
 use crate::session::tests::make_session_and_context;
 use crate::session::turn_context::TurnContext;
@@ -274,6 +275,19 @@ fn use_bedrock_provider(turn: &mut TurnContext) {
     turn.provider = create_model_provider(provider_info, turn.auth_manager.clone());
 }
 
+fn use_chat_provider(turn: &mut TurnContext) {
+    let provider_info = ModelProviderInfo {
+        name: "third-party chat".to_string(),
+        wire_api: WireApi::Chat,
+        ..ModelProviderInfo::default()
+    };
+    update_config(turn, |config| {
+        config.model_provider_id = "third-party-chat".to_string();
+        config.model_provider = provider_info.clone();
+    });
+    turn.provider = create_model_provider(provider_info, turn.auth_manager.clone());
+}
+
 struct TestNamespaceExtensionTool {
     namespace: &'static str,
     tool_name: &'static str,
@@ -341,9 +355,15 @@ impl ToolExecutor<ExtensionToolCall> for DeferredExtensionTool {
 }
 
 fn duplicate_primary_environment(turn: &mut TurnContext) {
-    let mut second_environment = turn.environments.turn_environments[0].clone();
+    let mut second_environment = turn
+        .environments
+        .primary()
+        .expect("primary environment")
+        .clone();
     second_environment.environment_id = "secondary".to_string();
-    turn.environments.turn_environments.push(second_environment);
+    turn.environments
+        .environments
+        .push(TurnEnvironmentState::Ready(second_environment));
 }
 
 fn mcp_tool(server: &str, namespace: &str, name: &str) -> ToolInfo {
@@ -587,20 +607,22 @@ async fn zsh_fork_unified_exec_keeps_shell_parameter_when_remote_environment_ava
             .expect("primary environment")
             .cwd()
             .clone();
-        turn.environments.turn_environments.push(
-            crate::session::turn_context::TurnEnvironment::new(
-                "remote".to_string(),
-                Arc::new(
-                    codex_exec_server::Environment::create_for_tests(Some(
-                        "ws://127.0.0.1:1/remote-exec-server".to_string(),
-                    ))
-                    .expect("remote test environment"),
+        turn.environments
+            .environments
+            .push(TurnEnvironmentState::Ready(
+                crate::session::turn_context::TurnEnvironment::new(
+                    "remote".to_string(),
+                    Arc::new(
+                        codex_exec_server::Environment::create_for_tests(Some(
+                            "ws://127.0.0.1:1/remote-exec-server".to_string(),
+                        ))
+                        .expect("remote test environment"),
+                    ),
+                    remote_cwd,
+                    Vec::new(),
+                    /*shell*/ None,
                 ),
-                remote_cwd,
-                Vec::new(),
-                /*shell*/ None,
-            ),
-        );
+            ));
     })
     .await;
 
@@ -615,7 +637,7 @@ async fn zsh_fork_unified_exec_keeps_shell_parameter_when_remote_environment_ava
 #[tokio::test]
 async fn environment_count_controls_environment_backed_tools() {
     let no_environment = probe(|turn| {
-        turn.environments.turn_environments.clear();
+        turn.environments.environments.clear();
         set_feature(turn, Feature::ShellTool, /*enabled*/ true);
         set_feature(turn, Feature::RequestPermissionsTool, /*enabled*/ true);
         turn.model_info.apply_patch_tool_type = Some(ApplyPatchToolType::Freeform);
@@ -670,12 +692,13 @@ async fn environment_tools_follow_the_step_context() {
     turn.model_info.apply_patch_tool_type = Some(ApplyPatchToolType::Freeform);
 
     let environments = turn.environments.clone();
-    turn.environments.turn_environments.clear();
+    turn.environments.environments.clear();
     let turn = Arc::new(turn);
     let step_context = Arc::new(StepContext::new(
         Arc::clone(&turn),
         environments,
         Vec::new(),
+        /*executor_capability_discovery*/ None,
         crate::session::McpRuntimeSnapshot::new_uninitialized_for_test(&turn.config),
         /*loaded_agents_md*/ None,
     ));
@@ -692,24 +715,6 @@ async fn environment_tools_follow_the_step_context() {
     ));
 
     plan.assert_visible_contains(&["exec_command", "apply_patch", "view_image"]);
-}
-
-#[tokio::test]
-async fn host_context_gates_agent_job_tools() {
-    let normal_agent_job = probe(|turn| {
-        set_feature(turn, Feature::SpawnCsv, /*enabled*/ true);
-    })
-    .await;
-    normal_agent_job.assert_visible_contains(&["spawn_agents_on_csv"]);
-    normal_agent_job.assert_visible_lacks(&["report_agent_job_result"]);
-
-    let worker_agent_job = probe(|turn| {
-        set_feature(turn, Feature::SpawnCsv, /*enabled*/ true);
-        turn.session_source =
-            SessionSource::SubAgent(SubAgentSource::Other("agent_job:42".to_string()));
-    })
-    .await;
-    worker_agent_job.assert_visible_contains(&["spawn_agents_on_csv", "report_agent_job_result"]);
 }
 
 #[tokio::test]
@@ -815,6 +820,46 @@ async fn mcp_and_tool_search_follow_direct_and_deferred_tool_exposure() {
         "tool_search",
         &ToolName::namespaced("mcp__searchable", "lookup").to_string(),
     ]);
+}
+
+#[tokio::test]
+async fn chat_provider_keeps_mcp_tools_direct_when_model_supports_tool_search() {
+    let (_session, mut turn) = make_session_and_context().await;
+    turn.model_info.supports_search_tool = true;
+    use_chat_provider(&mut turn);
+
+    let search_tool_enabled = super::search_tool_enabled(&turn);
+    assert!(!search_tool_enabled);
+    let tools = vec![mcp_tool("maps", "mcp__maps", "lookup")];
+    let tool_runtimes = build_mcp_tool_runtimes(
+        &tools,
+        /*connectors*/ None,
+        &turn.config,
+        search_tool_enabled,
+    );
+    let turn = Arc::new(turn);
+    let step_context = StepContext::for_test(Arc::clone(&turn));
+    let router = ToolRouter::from_context(
+        step_context.as_ref(),
+        ToolRouterParams {
+            tool_runtimes,
+            tool_suggest_candidates: None,
+            extension_tool_executors: Vec::new(),
+            dynamic_tools: &[],
+        },
+        &Default::default(),
+    );
+    let plan = ToolPlanProbe::from_router(router);
+
+    assert_eq!(
+        plan.namespace_function_names("mcp__maps"),
+        &["lookup".to_string()]
+    );
+    plan.assert_visible_lacks(&["tool_search"]);
+    assert_eq!(
+        plan.exposure(&ToolName::namespaced("mcp__maps", "lookup").to_string()),
+        ToolExposure::Direct
+    );
 }
 
 #[tokio::test]
@@ -1082,6 +1127,20 @@ async fn code_mode_only_exposes_code_executor_and_hides_nested_tools() {
 }
 
 #[tokio::test]
+async fn code_mode_buffered_exec_updates_exec_description() {
+    let plan = probe(|turn| {
+        set_features(turn, &[Feature::CodeMode, Feature::CodeModeBufferedExec]);
+    })
+    .await;
+
+    let ToolSpec::Freeform(exec) = plan.visible_spec(codex_code_mode::PUBLIC_TOOL_NAME) else {
+        panic!("expected code mode exec tool");
+    };
+    assert!(exec.description.contains("Defaults to 30000 ms."));
+    assert!(!exec.description.contains("Defaults to 10000 ms."));
+}
+
+#[tokio::test]
 async fn code_mode_only_exposes_configured_dynamic_namespace_directly() {
     let plan = probe_with(
         |turn| {
@@ -1207,12 +1266,13 @@ async fn multi_agent_feature_selects_one_agent_tool_family() {
         .properties
         .as_ref()
         .expect("spawn_agent should use object params");
-    for property in ["agent_type", "model", "reasoning_effort", "service_tier"] {
+    for property in ["model", "reasoning_effort", "service_tier"] {
         assert!(
             properties.contains_key(property),
             "expected v1 spawn_agent to expose `{property}`"
         );
     }
+    assert!(!properties.contains_key("agent_type"));
 
     let v2 = probe(|turn| {
         set_feature(turn, Feature::MultiAgentV2, /*enabled*/ true);
@@ -1644,6 +1704,23 @@ async fn hosted_web_search_and_standalone_image_generation_follow_runtime_gates(
     )
     .await;
     standalone_web_search.assert_visible_lacks(&["web_search"]);
+
+    let unsupported_standalone_web_search = probe_with(
+        |turn| {
+            use_bedrock_provider(turn);
+            set_feature(turn, Feature::StandaloneWebSearch, /*enabled*/ true);
+            set_web_search_mode(turn, WebSearchMode::Live);
+        },
+        ToolPlanInputs {
+            extension_tool_executors: vec![Arc::new(TestNamespaceExtensionTool {
+                namespace: "web",
+                tool_name: "run",
+            })],
+            ..Default::default()
+        },
+    )
+    .await;
+    unsupported_standalone_web_search.assert_visible_lacks(&["web", "web_search"]);
 
     let unsupported_provider = probe(|turn| {
         set_web_search_mode(turn, WebSearchMode::Live);

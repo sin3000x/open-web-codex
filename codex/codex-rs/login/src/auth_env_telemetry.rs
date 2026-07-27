@@ -77,6 +77,8 @@ mod tests {
             websocket_connect_timeout_ms: None,
             requires_openai_auth: false,
             supports_websockets: false,
+            supports_web_search: false,
+            supports_image_generation: false,
         };
 
         let telemetry =

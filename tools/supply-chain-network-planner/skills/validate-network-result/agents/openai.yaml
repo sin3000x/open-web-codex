@@ -1,0 +1,4 @@
+interface:
+  display_name: "Validate Network Result"
+  short_description: "Check planning inputs, metrics, and claims."
+  default_prompt: "Use $validate-network-result to validate these supply-chain planning resources and decision claims."

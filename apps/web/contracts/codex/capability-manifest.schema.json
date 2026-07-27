@@ -111,7 +111,7 @@
     },
     "capability": {
       "type": "object",
-      "required": ["id", "version", "status", "methods", "limits"],
+      "required": ["id", "version", "status", "methods"],
       "properties": {
         "id": {
           "type": "string",

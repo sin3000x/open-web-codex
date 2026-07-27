@@ -1143,7 +1143,9 @@ async fn installed_tools_with_start(
     registry
         .tool_contributors()
         .iter()
-        .flat_map(|contributor| contributor.tools(&session_store, &thread_store))
+        .flat_map(|contributor| {
+            contributor.tools(&session_store, &thread_store, &ExtensionData::new("step"))
+        })
         .collect()
 }
 
@@ -1205,7 +1207,13 @@ impl GoalExtensionHarness {
         self.registry
             .tool_contributors()
             .iter()
-            .flat_map(|contributor| contributor.tools(&self.session_store, &self.thread_store))
+            .flat_map(|contributor| {
+                contributor.tools(
+                    &self.session_store,
+                    &self.thread_store,
+                    &ExtensionData::new("step"),
+                )
+            })
             .collect()
     }
 
@@ -1443,6 +1451,7 @@ fn token_usage(
     TokenUsage {
         input_tokens,
         cached_input_tokens,
+        cache_write_input_tokens: 0,
         output_tokens,
         reasoning_output_tokens,
         total_tokens,

@@ -12,14 +12,14 @@ describe("threadReducer", () => {
     });
     const threads = next.threadsByWorkspace["ws-1"] ?? [];
     expect(threads).toHaveLength(1);
-    expect(threads[0].name).toBe("New Agent");
+    expect(threads[0].name).toBe("Thread");
     expect(next.activeThreadIdByWorkspace["ws-1"]).toBe("thread-1");
     expect(next.threadStatusById["thread-1"]?.isProcessing).toBe(false);
   });
 
   it("renames auto-generated thread on first user message", () => {
     const threads: ThreadSummary[] = [
-      { id: "thread-1", name: "New Agent", updatedAt: 1 },
+      { id: "thread-1", name: "Thread", updatedAt: 1 },
     ];
     const next = threadReducer(
       {
@@ -48,9 +48,35 @@ describe("threadReducer", () => {
     }
   });
 
+  it("strips provider begin-of-sentence sentinels from assistant output", () => {
+    const afterDelta = threadReducer(initialState, {
+      type: "appendAgentDelta",
+      workspaceId: "ws-1",
+      threadId: "thread-1",
+      itemId: "assistant-1",
+      delta: "<｜begin▁of▁sentence｜>## 可用的 MCP 工具",
+      hasCustomName: true,
+    });
+
+    const afterCompletion = threadReducer(afterDelta, {
+      type: "completeAgentMessage",
+      workspaceId: "ws-1",
+      threadId: "thread-1",
+      itemId: "assistant-1",
+      text: "<｜begin▁of▁sentence｜>## 可用的 MCP 工具",
+      hasCustomName: true,
+    });
+
+    const items = afterCompletion.itemsByThread["thread-1"] ?? [];
+    expect(items).toHaveLength(1);
+    expect((items[0] as Extract<ConversationItem, { kind: "message" }>).text).toBe(
+      "## 可用的 MCP 工具",
+    );
+  });
+
   it("renames auto-generated thread from assistant output when no user message", () => {
     const threads: ThreadSummary[] = [
-      { id: "thread-1", name: "New Agent", updatedAt: 1 },
+      { id: "thread-1", name: "Thread", updatedAt: 1 },
     ];
     const next = threadReducer(
       {

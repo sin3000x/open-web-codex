@@ -1,0 +1,4 @@
+interface:
+  display_name: "Map Utils"
+  short_description: "Geocode, route, and create map cards safely."
+  default_prompt: "Use $map-utils to geocode these locations and show them on a map card."

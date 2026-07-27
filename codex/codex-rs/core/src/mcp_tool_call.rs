@@ -8,8 +8,6 @@ use crate::config::edit::ConfigEditsBuilder;
 use crate::connectors;
 use crate::guardian::GuardianApprovalRequest;
 use crate::guardian::GuardianMcpAnnotations;
-use crate::guardian::guardian_rejection_message;
-use crate::guardian::guardian_timeout_message;
 use crate::guardian::new_guardian_review_id;
 use crate::guardian::review_approval_request;
 use crate::guardian::routes_approval_to_guardian_with_reviewer;
@@ -344,7 +342,6 @@ struct McpToolCallItemMetadata {
     link_id: Option<String>,
     mcp_app_resource_uri: Option<String>,
     app_name: Option<String>,
-    template_id: Option<String>,
     action_name: Option<String>,
     plugin_id: Option<String>,
 }
@@ -363,7 +360,6 @@ impl McpToolCallItemMetadata {
             mcp_app_resource_uri: metadata
                 .and_then(|metadata| metadata.mcp_app_resource_uri.clone()),
             app_name: trusted_mcp_app_metadata.and_then(|metadata| metadata.connector_name.clone()),
-            template_id: trusted_mcp_app_metadata.and_then(|metadata| metadata.template_id.clone()),
             action_name: trusted_mcp_app_metadata
                 .and_then(|metadata| metadata.codex_apps_meta.as_ref())
                 .and_then(|meta| meta.get(MCP_TOOL_RESOURCE_URI_META_KEY))
@@ -614,13 +610,8 @@ async fn execute_mcp_tool_call(
         )
         .await
         .map_err(|e| format!("tool call error: {e:?}"))?;
-    let result = sanitize_mcp_tool_result_for_model(
-        turn_context
-            .model_info
-            .input_modalities
-            .contains(&InputModality::Image),
-        Ok(result),
-    )?;
+    let result =
+        sanitize_mcp_tool_result_for_model(&turn_context.model_info.input_modalities, Ok(result))?;
     Ok(maybe_request_codex_apps_auth_elicitation(
         sess,
         turn_context,
@@ -779,8 +770,7 @@ async fn augment_mcp_tool_request_meta_with_sandbox_state(
 fn sandbox_cwd_for_mcp_server(step_context: &StepContext, environment_id: &str) -> Option<PathUri> {
     if let Some(environment) = step_context
         .environments
-        .turn_environments
-        .iter()
+        .turn_environments()
         .find(|environment| environment.environment_id == environment_id)
     {
         return Some(environment.cwd().clone());
@@ -816,10 +806,12 @@ async fn maybe_mark_thread_memory_mode_polluted(
 }
 
 fn sanitize_mcp_tool_result_for_model(
-    supports_image_input: bool,
+    input_modalities: &[InputModality],
     result: Result<CallToolResult, String>,
 ) -> Result<CallToolResult, String> {
-    if supports_image_input {
+    let supports_image_input = input_modalities.contains(&InputModality::Image);
+    let supports_audio_input = input_modalities.contains(&InputModality::Audio);
+    if supports_image_input && supports_audio_input {
         return result;
     }
 
@@ -828,13 +820,19 @@ fn sanitize_mcp_tool_result_for_model(
             .content
             .iter()
             .map(|block| {
-                if let Some(content_type) = block.get("type").and_then(serde_json::Value::as_str)
-                    && content_type == "image"
-                {
-                    return serde_json::json!({
-                        "type": "text",
-                        "text": "<image content omitted because you do not support image input>",
-                    });
+                if let Some(content_type) = block.get("type").and_then(serde_json::Value::as_str) {
+                    if content_type == "image" && !supports_image_input {
+                        return serde_json::json!({
+                            "type": "text",
+                            "text": "<image content omitted because you do not support image input>",
+                        });
+                    }
+                    if content_type == "audio" && !supports_audio_input {
+                        return serde_json::json!({
+                            "type": "text",
+                            "text": "<audio content omitted because you do not support audio input>",
+                        });
+                    }
                 }
 
                 block.clone()
@@ -911,7 +909,6 @@ async fn notify_mcp_tool_call_started(
         mcp_app_resource_uri: item_metadata.mcp_app_resource_uri,
         link_id: item_metadata.link_id,
         app_name: item_metadata.app_name,
-        template_id: item_metadata.template_id,
         action_name: item_metadata.action_name,
         plugin_id: item_metadata.plugin_id,
         status: McpToolCallStatus::InProgress,
@@ -956,7 +953,6 @@ async fn notify_mcp_tool_call_completed(
         mcp_app_resource_uri: item_metadata.mcp_app_resource_uri,
         link_id: item_metadata.link_id,
         app_name: item_metadata.app_name,
-        template_id: item_metadata.template_id,
         action_name: item_metadata.action_name,
         plugin_id: item_metadata.plugin_id,
         status,
@@ -1034,7 +1030,6 @@ pub(crate) struct McpToolApprovalMetadata {
     tool_title: Option<String>,
     tool_description: Option<String>,
     mcp_app_resource_uri: Option<String>,
-    template_id: Option<String>,
     codex_apps_meta: Option<serde_json::Map<String, serde_json::Value>>,
     openai_file_input_optional_fields: Option<HashMap<String, Vec<String>>>,
 }
@@ -1045,7 +1040,6 @@ const MCP_TOOL_LINK_ID_META_KEY: &str = "link_id";
 const MCP_TOOL_PLUGIN_ID_META_KEY: &str = "plugin_id";
 const MCP_TOOL_THREAD_ID_META_KEY: &str = "threadId";
 const MCP_TOOL_CONNECTED_ACCOUNT_EMAIL_META_KEY: &str = "connected_account_email";
-const MCP_TOOL_TEMPLATE_ID_META_KEY: &str = "template_id";
 const MCP_TOOL_RESOURCE_URI_META_KEY: &str = "resource_uri";
 
 async fn custom_mcp_tool_approval_mode(
@@ -1296,7 +1290,7 @@ async fn maybe_request_mcp_tool_approval(
             /*retry_reason*/ None,
         )
         .await;
-        let decision = mcp_tool_approval_decision_from_guardian(sess, &review_id, decision).await;
+        let decision = mcp_tool_approval_decision_from_guardian(decision);
         apply_mcp_tool_approval_decision(
             sess,
             turn_context,
@@ -1468,21 +1462,17 @@ pub(crate) fn build_guardian_mcp_tool_review_request(
     }
 }
 
-async fn mcp_tool_approval_decision_from_guardian(
-    sess: &Session,
-    review_id: &str,
-    decision: ReviewDecision,
-) -> McpToolApprovalDecision {
+fn mcp_tool_approval_decision_from_guardian(decision: ReviewDecision) -> McpToolApprovalDecision {
     match decision {
         ReviewDecision::Approved
         | ReviewDecision::ApprovedExecpolicyAmendment { .. }
         | ReviewDecision::NetworkPolicyAmendment { .. } => McpToolApprovalDecision::Accept,
         ReviewDecision::ApprovedForSession => McpToolApprovalDecision::AcceptForSession,
-        ReviewDecision::Denied => McpToolApprovalDecision::Decline {
-            message: Some(guardian_rejection_message(sess, review_id).await),
+        ReviewDecision::Denied { rejection } => McpToolApprovalDecision::Decline {
+            message: Some(rejection),
         },
         ReviewDecision::TimedOut => McpToolApprovalDecision::Decline {
-            message: Some(guardian_timeout_message()),
+            message: Some(crate::guardian::guardian_timeout_message()),
         },
         ReviewDecision::Abort => McpToolApprovalDecision::Decline { message: None },
     }
@@ -1568,11 +1558,6 @@ pub(crate) async fn lookup_mcp_tool_metadata(
         tool_title: tool_info.tool.title,
         tool_description: tool_info.tool.description.map(std::borrow::Cow::into_owned),
         mcp_app_resource_uri: get_mcp_app_resource_uri(tool_info.tool.meta.as_deref()),
-        template_id: codex_apps_meta
-            .as_ref()
-            .and_then(|meta| meta.get(MCP_TOOL_TEMPLATE_ID_META_KEY))
-            .and_then(serde_json::Value::as_str)
-            .map(str::to_string),
         codex_apps_meta,
         // Disallow custom MCPs from uploading files via fileParams.
         openai_file_input_optional_fields: openai_file_input_optional_fields_for_server(

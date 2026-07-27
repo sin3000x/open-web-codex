@@ -1,0 +1,4 @@
+interface:
+  display_name: "Say Hello"
+  short_description: "Return a structured greeting."
+  default_prompt: "Use $say-hello to greet a named person."

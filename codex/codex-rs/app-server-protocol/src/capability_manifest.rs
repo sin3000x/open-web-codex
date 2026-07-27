@@ -117,10 +117,7 @@ fn timestamp_now() -> String {
         .unwrap_or_default();
     let secs = duration.as_secs();
     let (year, month, day, hour, min, sec) = rfc3339_parts(secs as i64);
-    format!(
-        "{:04}-{:02}-{:02}T{:02}:{:02}:{:02}Z",
-        year, month, day, hour, min, sec
-    )
+    format!("{year:04}-{month:02}-{day:02}T{hour:02}:{min:02}:{sec:02}Z")
 }
 
 fn rfc3339_parts(unix_secs: i64) -> (i64, u32, u32, u32, u32, u32) {
@@ -153,7 +150,7 @@ fn apply_registry_derived_metadata(capabilities: &mut [CapabilityDeclaration]) {
 }
 
 pub fn build_manifest() -> CapabilityManifest {
-    let mut capabilities = alpha_capabilities();
+    let mut capabilities = runtime_capabilities();
     apply_registry_derived_metadata(&mut capabilities);
     debug_assert!(
         manifest_methods_are_registered(&capabilities).is_ok(),
@@ -187,9 +184,7 @@ pub fn build_manifest() -> CapabilityManifest {
     }
 }
 
-fn manifest_methods_are_registered(
-    capabilities: &[CapabilityDeclaration],
-) -> Result<(), String> {
+fn manifest_methods_are_registered(capabilities: &[CapabilityDeclaration]) -> Result<(), String> {
     let client_methods = ClientRequestMethod::ALL
         .iter()
         .map(|method| method.wire_name())
@@ -237,30 +232,42 @@ fn manifest_methods_are_registered(
     Ok(())
 }
 
+fn client_request_methods(methods: &[ClientRequestMethod]) -> Vec<String> {
+    methods.iter().map(|method| method.wire_name()).collect()
+}
+
+fn server_request_methods(methods: &[ServerRequestMethod]) -> Vec<String> {
+    methods.iter().map(|method| method.wire_name()).collect()
+}
+
+fn server_notification_methods(methods: &[ServerNotificationMethod]) -> Vec<String> {
+    methods.iter().map(|method| method.wire_name()).collect()
+}
+
+fn client_notification_methods(methods: &[ClientNotificationMethod]) -> Vec<String> {
+    methods.iter().map(|method| method.wire_name()).collect()
+}
+
 /// Returns every wire method marked experimental in the protocol registry.
 pub fn registry_experimental_wire_methods() -> Vec<String> {
     let mut methods = ClientRequestMethod::ALL
         .iter()
-        .filter_map(|method| {
-            method
-                .experimental_reason()
-                .map(|_| method.wire_name())
-        })
-        .chain(ServerRequestMethod::ALL.iter().filter_map(|method| {
-            method
-                .experimental_reason()
-                .map(|_| method.wire_name())
-        }))
-        .chain(ServerNotificationMethod::ALL.iter().filter_map(|method| {
-            method
-                .experimental_reason()
-                .map(|_| method.wire_name())
-        }))
-        .chain(ClientNotificationMethod::ALL.iter().filter_map(|method| {
-            method
-                .experimental_reason()
-                .map(|_| method.wire_name())
-        }))
+        .filter_map(|method| method.experimental_reason().map(|_| method.wire_name()))
+        .chain(
+            ServerRequestMethod::ALL
+                .iter()
+                .filter_map(|method| method.experimental_reason().map(|_| method.wire_name())),
+        )
+        .chain(
+            ServerNotificationMethod::ALL
+                .iter()
+                .filter_map(|method| method.experimental_reason().map(|_| method.wire_name())),
+        )
+        .chain(
+            ClientNotificationMethod::ALL
+                .iter()
+                .filter_map(|method| method.experimental_reason().map(|_| method.wire_name())),
+        )
         .collect::<Vec<_>>();
     methods.sort();
     methods.dedup();
@@ -318,7 +325,8 @@ fn manifest_experimental_flags_are_consistent(
 ) -> Result<(), String> {
     for capability in capabilities {
         let references_experimental = capability_references_experimental_method(capability);
-        let product_experimental = PRODUCT_EXPERIMENTAL_CAPABILITY_IDS.contains(&capability.id.as_str());
+        let product_experimental =
+            PRODUCT_EXPERIMENTAL_CAPABILITY_IDS.contains(&capability.id.as_str());
 
         if references_experimental && !capability.experimental {
             return Err(format!(
@@ -344,102 +352,94 @@ fn manifest_experimental_flags_are_consistent(
     Ok(())
 }
 
-fn alpha_capabilities() -> Vec<CapabilityDeclaration> {
+fn runtime_capabilities() -> Vec<CapabilityDeclaration> {
     vec![
         CapabilityDeclaration {
             id: "protocol.initialize".into(),
-            version: "1.0.0".into(),
             status: CapabilityStatus::Supported,
             methods: MethodSet {
-                client_requests: vec!["initialize".into()],
-                notifications: vec!["initialized".into()],
+                client_requests: client_request_methods(&[ClientRequestMethod::Initialize]),
+                notifications: client_notification_methods(&[
+                    ClientNotificationMethod::Initialized,
+                ]),
                 ..Default::default()
             },
-            limits: None,
-            reason: None,
             ..Default::default()
         },
         CapabilityDeclaration {
             id: "thread.lifecycle".into(),
-            version: "1.0.0".into(),
             status: CapabilityStatus::Supported,
             methods: MethodSet {
-                client_requests: vec![
-                    "thread/start".into(),
-                    "thread/read".into(),
-                    "thread/resume".into(),
-                    "thread/list".into(),
-                    "thread/archive".into(),
-                ],
-                notifications: vec![
-                    "thread/started".into(),
-                    "thread/status/changed".into(),
-                    "thread/archived".into(),
-                ],
+                client_requests: client_request_methods(&[
+                    ClientRequestMethod::ThreadStart,
+                    ClientRequestMethod::ThreadRead,
+                    ClientRequestMethod::ThreadResume,
+                    ClientRequestMethod::ThreadList,
+                    ClientRequestMethod::ThreadArchive,
+                ]),
+                notifications: server_notification_methods(&[
+                    ServerNotificationMethod::ThreadStarted,
+                    ServerNotificationMethod::ThreadStatusChanged,
+                    ServerNotificationMethod::ThreadArchived,
+                ]),
                 ..Default::default()
             },
             limits: Some(HashMap::from([(
                 "maxConcurrentThreads".into(),
                 serde_json::json!(16),
             )])),
-            reason: None,
             ..Default::default()
         },
         CapabilityDeclaration {
             id: "turn.lifecycle".into(),
-            version: "1.0.0".into(),
             status: CapabilityStatus::Supported,
             methods: MethodSet {
-                client_requests: vec![
-                    "turn/start".into(),
-                    "turn/steer".into(),
-                    "turn/interrupt".into(),
-                ],
-                notifications: vec!["turn/started".into(), "turn/completed".into()],
+                client_requests: client_request_methods(&[
+                    ClientRequestMethod::TurnStart,
+                    ClientRequestMethod::TurnSteer,
+                    ClientRequestMethod::TurnInterrupt,
+                ]),
+                notifications: server_notification_methods(&[
+                    ServerNotificationMethod::TurnStarted,
+                    ServerNotificationMethod::TurnCompleted,
+                ]),
                 ..Default::default()
             },
-            limits: None,
-            reason: None,
             ..Default::default()
         },
         CapabilityDeclaration {
             id: "approval.lifecycle".into(),
-            version: "1.0.0".into(),
             status: CapabilityStatus::Supported,
             methods: MethodSet {
-                server_requests: vec![
-                    "item/commandExecution/requestApproval".into(),
-                    "item/fileChange/requestApproval".into(),
-                    "item/permissions/requestApproval".into(),
-                    "item/tool/requestUserInput".into(),
-                ],
+                server_requests: server_request_methods(&[
+                    ServerRequestMethod::CommandExecutionRequestApproval,
+                    ServerRequestMethod::FileChangeRequestApproval,
+                    ServerRequestMethod::PermissionsRequestApproval,
+                    ServerRequestMethod::ToolRequestUserInput,
+                ]),
                 ..Default::default()
             },
-            limits: None,
-            reason: None,
             ..Default::default()
         },
         CapabilityDeclaration {
             id: "profile.multi_workspace".into(),
-            version: "1.0.0".into(),
             status: CapabilityStatus::Supported,
             methods: MethodSet {
-                client_requests: vec!["thread/start".into(), "thread/list".into()],
+                client_requests: client_request_methods(&[
+                    ClientRequestMethod::ThreadStart,
+                    ClientRequestMethod::ThreadList,
+                ]),
                 ..Default::default()
             },
             limits: Some(HashMap::from([(
                 "maxWorkspacesPerProfile".into(),
                 serde_json::json!(8),
             )])),
-            reason: None,
             ..Default::default()
         },
         CapabilityDeclaration {
             id: "memory.lifecycle".into(),
-            version: "1.0.0".into(),
             status: CapabilityStatus::Unsupported,
-            methods: MethodSet::default(),
-            limits: None,
             reason: Some(StructuredReason {
                 code: "memory.bridge.missing".into(),
                 message: "Memory status, export and reset are unavailable.".into(),
@@ -449,10 +449,7 @@ fn alpha_capabilities() -> Vec<CapabilityDeclaration> {
         },
         CapabilityDeclaration {
             id: "agents.crud".into(),
-            version: "1.0.0".into(),
             status: CapabilityStatus::Unsupported,
-            methods: MethodSet::default(),
-            limits: None,
             reason: Some(StructuredReason {
                 code: "agents.bridge.missing".into(),
                 message: "Native Agent CRUD is unavailable.".into(),
@@ -462,32 +459,28 @@ fn alpha_capabilities() -> Vec<CapabilityDeclaration> {
         },
         CapabilityDeclaration {
             id: "agents.multi_agent".into(),
-            version: "1.0.0".into(),
             status: CapabilityStatus::Experimental,
             methods: MethodSet {
-                notifications: vec![
-                    "item/started".into(),
-                    "item/completed".into(),
-                    "thread/started".into(),
-                ],
+                notifications: server_notification_methods(&[
+                    ServerNotificationMethod::ItemStarted,
+                    ServerNotificationMethod::ItemCompleted,
+                    ServerNotificationMethod::ThreadStarted,
+                ]),
                 ..Default::default()
             },
             limits: Some(HashMap::from([
                 ("maxAgentThreads".into(), serde_json::json!(8)),
                 ("maxAgentDepth".into(), serde_json::json!(3)),
             ])),
-            reason: None,
             ..Default::default()
         },
         CapabilityDeclaration {
             id: "skills.crud".into(),
-            version: "1.0.0".into(),
             status: CapabilityStatus::Degraded,
             methods: MethodSet {
-                client_requests: vec!["skills/list".into()],
+                client_requests: client_request_methods(&[ClientRequestMethod::SkillsList]),
                 ..Default::default()
             },
-            limits: None,
             reason: Some(StructuredReason {
                 code: "skills.write.missing".into(),
                 message: "Skill listing is available but write operations are not.".into(),
@@ -497,10 +490,7 @@ fn alpha_capabilities() -> Vec<CapabilityDeclaration> {
         },
         CapabilityDeclaration {
             id: "skills.validation".into(),
-            version: "1.0.0".into(),
             status: CapabilityStatus::Unsupported,
-            methods: MethodSet::default(),
-            limits: None,
             reason: Some(StructuredReason {
                 code: "skills.validation.missing".into(),
                 message: "Native Skill validation is unavailable.".into(),
@@ -510,10 +500,7 @@ fn alpha_capabilities() -> Vec<CapabilityDeclaration> {
         },
         CapabilityDeclaration {
             id: "skills.test".into(),
-            version: "1.0.0".into(),
             status: CapabilityStatus::Unsupported,
-            methods: MethodSet::default(),
-            limits: None,
             reason: Some(StructuredReason {
                 code: "skills.test.missing".into(),
                 message: "The isolated Skill test hook is unavailable.".into(),
@@ -523,10 +510,7 @@ fn alpha_capabilities() -> Vec<CapabilityDeclaration> {
         },
         CapabilityDeclaration {
             id: "plugins.lifecycle".into(),
-            version: "1.0.0".into(),
             status: CapabilityStatus::Unsupported,
-            methods: MethodSet::default(),
-            limits: None,
             reason: Some(StructuredReason {
                 code: "plugins.bridge.missing".into(),
                 message: "Plugin lifecycle operations are unavailable.".into(),
@@ -536,10 +520,7 @@ fn alpha_capabilities() -> Vec<CapabilityDeclaration> {
         },
         CapabilityDeclaration {
             id: "plugins.permissions".into(),
-            version: "1.0.0".into(),
             status: CapabilityStatus::Unsupported,
-            methods: MethodSet::default(),
-            limits: None,
             reason: Some(StructuredReason {
                 code: "plugins.permissions.missing".into(),
                 message: "Plugin permission metadata is unavailable.".into(),
@@ -549,10 +530,11 @@ fn alpha_capabilities() -> Vec<CapabilityDeclaration> {
         },
         CapabilityDeclaration {
             id: "mcp.config".into(),
-            version: "1.0.0".into(),
             status: CapabilityStatus::Degraded,
             methods: MethodSet {
-                client_requests: vec!["mcpServerStatus/list".into()],
+                client_requests: client_request_methods(&[
+                    ClientRequestMethod::McpServerStatusList,
+                ]),
                 ..Default::default()
             },
             limits: Some(HashMap::from([(
@@ -568,10 +550,7 @@ fn alpha_capabilities() -> Vec<CapabilityDeclaration> {
         },
         CapabilityDeclaration {
             id: "mcp.oauth".into(),
-            version: "1.0.0".into(),
             status: CapabilityStatus::Unsupported,
-            methods: MethodSet::default(),
-            limits: None,
             reason: Some(StructuredReason {
                 code: "mcp.oauth.missing".into(),
                 message: "MCP OAuth is unavailable.".into(),
@@ -581,10 +560,7 @@ fn alpha_capabilities() -> Vec<CapabilityDeclaration> {
         },
         CapabilityDeclaration {
             id: "mcp.elicitation".into(),
-            version: "1.0.0".into(),
             status: CapabilityStatus::Unsupported,
-            methods: MethodSet::default(),
-            limits: None,
             reason: Some(StructuredReason {
                 code: "mcp.elicitation.missing".into(),
                 message: "MCP elicitation is unavailable.".into(),
@@ -594,10 +570,7 @@ fn alpha_capabilities() -> Vec<CapabilityDeclaration> {
         },
         CapabilityDeclaration {
             id: "tools.discovery".into(),
-            version: "1.0.0".into(),
             status: CapabilityStatus::Unsupported,
-            methods: MethodSet::default(),
-            limits: None,
             reason: Some(StructuredReason {
                 code: "tools.discovery.missing".into(),
                 message: "Managed tool discovery metadata is unavailable.".into(),
@@ -607,18 +580,15 @@ fn alpha_capabilities() -> Vec<CapabilityDeclaration> {
         },
         CapabilityDeclaration {
             id: "models.providers".into(),
-            version: "1.0.0".into(),
             status: CapabilityStatus::Supported,
             methods: MethodSet {
-                client_requests: vec![
-                    "modelProvider/list".into(),
-                    "model/list".into(),
-                    "config/batchWrite".into(),
-                ],
+                client_requests: client_request_methods(&[
+                    ClientRequestMethod::ModelProviderList,
+                    ClientRequestMethod::ModelList,
+                    ClientRequestMethod::ConfigBatchWrite,
+                ]),
                 ..Default::default()
             },
-            limits: None,
-            reason: None,
             ..Default::default()
         },
     ]
@@ -640,7 +610,7 @@ mod tests {
     }
 
     #[test]
-    fn manifest_has_alpha_capabilities() {
+    fn manifest_has_runtime_capabilities() {
         let manifest = build_manifest();
         let ids: Vec<&str> = manifest
             .capabilities
@@ -714,10 +684,7 @@ mod tests {
             registry_method_experimental_reason("thread/settings/updated"),
             Some("thread/settings/updated")
         );
-        assert_eq!(
-            registry_method_experimental_reason("initialized"),
-            None
-        );
+        assert_eq!(registry_method_experimental_reason("initialized"), None);
         assert!(
             ServerNotificationMethod::ALL
                 .iter()
@@ -731,14 +698,14 @@ mod tests {
     }
 
     #[test]
-    fn manifest_method_policy_is_consistent_for_alpha() {
+    fn manifest_method_policy_is_consistent_for_runtime() {
         let manifest = build_manifest();
         crate::manifest_method_policy::manifest_method_policy_is_consistent(&manifest.capabilities)
-            .expect("alpha manifest must satisfy method attribution policy");
+            .expect("runtime manifest must satisfy method attribution policy");
     }
 
     #[test]
-    fn suggested_experimental_flags_match_declared_alpha_capabilities() {
+    fn suggested_experimental_flags_match_declared_runtime_capabilities() {
         let manifest = build_manifest();
         for capability in &manifest.capabilities {
             assert_eq!(
@@ -764,7 +731,7 @@ mod tests {
     }
 
     #[test]
-    fn alpha_manifest_method_coverage_is_tracked() {
+    fn runtime_manifest_method_coverage_is_tracked() {
         let manifest = build_manifest();
         let attributed = manifest
             .capabilities
@@ -783,7 +750,11 @@ mod tests {
         let registered = ClientRequestMethod::ALL
             .iter()
             .map(|method| method.wire_name())
-            .chain(ServerRequestMethod::ALL.iter().map(|method| method.wire_name()))
+            .chain(
+                ServerRequestMethod::ALL
+                    .iter()
+                    .map(|method| method.wire_name()),
+            )
             .chain(
                 ServerNotificationMethod::ALL
                     .iter()
@@ -800,10 +771,10 @@ mod tests {
             attributed.is_subset(&registered),
             "manifest methods must be a subset of the protocol registry"
         );
-        // M0-B04 tracks full attribution; Alpha currently declares a focused subset.
+        // The Runtime manifest intentionally declares a focused product subset.
         assert!(
             !attributed.is_empty(),
-            "alpha manifest must attribute at least one method"
+            "runtime manifest must attribute at least one method"
         );
         assert!(
             registered.len() > attributed.len(),

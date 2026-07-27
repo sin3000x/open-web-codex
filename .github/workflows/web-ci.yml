@@ -33,13 +33,52 @@ jobs:
           cache: npm
           cache-dependency-path: apps/web/package-lock.json
       - run: npm ci
+      - run: npm run check:no-desktop
+      - run: npm run check:main-ui-parity
       - run: npm run typecheck
+      - run: npm run test
+      - run: npm run build
       - run: npm run check:codex-contracts
       - run: npm run check:codex-generated
       - run: npm run test:codex-capabilities
       - run: npm run test:feature-policy
       - run: npm run test:codex-fixtures
       - run: npm run test:codex-harness
+
+  platform-rust:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/web
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Rust format and tests
+        run: |
+          cargo fmt --all -- --check
+          CARGO_INCREMENTAL=0 cargo test --workspace --locked
+      - name: Real PostgreSQL integration tests
+        env:
+          PGPASSWORD: postgres
+        run: |
+          createdb -h 127.0.0.1 -U postgres owc_runner
+          createdb -h 127.0.0.1 -U postgres owc_security
+          TEST_DATABASE_URL=postgresql://postgres:postgres@127.0.0.1/owc_runner \
+            cargo test -p open-web-codex-run-orchestrator --test postgres --locked -- --ignored
+          TEST_DATABASE_URL=postgresql://postgres:postgres@127.0.0.1/owc_security \
+            cargo test -p open-web-codex-server security_integration --locked -- --ignored
 
   repository-tools:
     runs-on: ubuntu-latest

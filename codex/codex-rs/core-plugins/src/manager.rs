@@ -67,10 +67,10 @@ use codex_config::types::PluginConfig;
 use codex_config::types::ToolSuggestDisabledTool;
 use codex_config::types::ToolSuggestDiscoverableType;
 use codex_core_skills::PluginSkillSnapshots;
-use codex_core_skills::SkillMetadata;
-use codex_core_skills::config_rules::SkillConfigRules;
 use codex_core_skills::config_rules::skill_config_rules_from_stack;
+use codex_core_skills::loader::MAX_CONCURRENT_ROOT_SCANS;
 use codex_hooks::plugin_hook_declarations;
+use codex_http_client::HttpClientFactory;
 use codex_login::AuthManager;
 use codex_login::CodexAuth;
 use codex_plugin::AppConnectorId;
@@ -83,6 +83,8 @@ use codex_plugin::prompt_safe_plugin_description;
 use codex_protocol::auth::AuthMode;
 use codex_protocol::protocol::HookEventName;
 use codex_protocol::protocol::Product;
+use codex_skills::SkillConfigRules;
+use codex_skills::SkillMetadata;
 use codex_tools::DiscoverablePluginInfo;
 use codex_tools::DiscoverableTool;
 use codex_tools::filter_request_plugin_install_discoverable_tools_for_client;
@@ -114,6 +116,7 @@ pub struct PluginsConfigInput {
     pub plugins_enabled: bool,
     pub remote_plugin_enabled: bool,
     pub chatgpt_base_url: String,
+    http_client_factory: HttpClientFactory,
 }
 
 impl PluginsConfigInput {
@@ -122,13 +125,23 @@ impl PluginsConfigInput {
         plugins_enabled: bool,
         remote_plugin_enabled: bool,
         chatgpt_base_url: String,
+        http_client_factory: HttpClientFactory,
     ) -> Self {
         Self {
             config_layer_stack,
             plugins_enabled,
             remote_plugin_enabled,
             chatgpt_base_url,
+            http_client_factory,
         }
+    }
+
+    /// Builds route-aware service state for remote plugin requests.
+    pub fn remote_plugin_service_config(&self) -> RemotePluginServiceConfig {
+        RemotePluginServiceConfig::new(
+            self.chatgpt_base_url.clone(),
+            self.http_client_factory.clone(),
+        )
     }
 }
 
@@ -235,9 +248,7 @@ struct ConfiguredMarketplaceUpgradeState {
 }
 
 fn remote_plugin_service_config(config: &PluginsConfigInput) -> RemotePluginServiceConfig {
-    RemotePluginServiceConfig {
-        chatgpt_base_url: config.chatgpt_base_url.clone(),
-    }
+    config.remote_plugin_service_config()
 }
 
 fn featured_plugin_ids_cache_key(
@@ -376,6 +387,7 @@ pub struct PluginsManager {
     // Keep the cache auth-independent so auth changes only need to resolve capabilities again.
     loaded_plugins_cache: RwLock<LoadedPluginsCache>,
     loaded_plugins_load_semaphore: Semaphore,
+    skill_root_scan_slots: Arc<Semaphore>,
     tool_suggest_metadata_cache: ToolSuggestMetadataCache,
     remote_installed_plugins_cache: RwLock<Option<Vec<RemoteInstalledPlugin>>>,
     remote_installed_plugins_cache_refresh_state: RwLock<RemoteInstalledPluginsCacheRefreshState>,
@@ -452,6 +464,7 @@ impl PluginsManager {
             non_curated_cache_refresh_state: RwLock::new(NonCuratedCacheRefreshState::default()),
             loaded_plugins_cache: RwLock::new(LoadedPluginsCache::default()),
             loaded_plugins_load_semaphore: Semaphore::new(/*permits*/ 1),
+            skill_root_scan_slots: Arc::new(Semaphore::new(MAX_CONCURRENT_ROOT_SCANS)),
             tool_suggest_metadata_cache: ToolSuggestMetadataCache::new(),
             remote_installed_plugins_cache: RwLock::new(None),
             remote_installed_plugins_cache_refresh_state: RwLock::new(
@@ -585,6 +598,7 @@ impl PluginsManager {
             Some(&plugin_skill_snapshots),
             self.restriction_product,
             remote_global_catalog_active,
+            Arc::clone(&self.skill_root_scan_slots),
         )
         .await;
         log_plugin_load_errors(&plugins);
@@ -670,6 +684,7 @@ impl PluginsManager {
             /*plugin_skill_snapshots*/ None,
             self.restriction_product,
             self.remote_global_catalog_active(config),
+            Arc::clone(&self.skill_root_scan_slots),
         )
         .await;
         self.resolve_loaded_plugins_for_auth(plugins)
@@ -1708,7 +1723,12 @@ impl PluginsManager {
     ) -> Result<PluginCapabilitySummary, MarketplaceError> {
         let fragment = self
             .tool_suggest_metadata_cache
-            .metadata_for_plugin(marketplace_name, plugin, self.restriction_product)
+            .metadata_for_plugin(
+                marketplace_name,
+                plugin,
+                self.restriction_product,
+                Arc::clone(&self.skill_root_scan_slots),
+            )
             .await?;
         Ok(fragment.project(skill_config_rules, self.auth_mode()))
     }
@@ -1890,6 +1910,7 @@ impl PluginsManager {
                 &config.config_layer_stack,
             ),
             /*plugin_skill_snapshots*/ None,
+            Arc::clone(&self.skill_root_scan_slots),
         )
         .await;
         let plugin_data_root = self.store.plugin_data_root(&plugin_id);
@@ -1964,7 +1985,7 @@ impl PluginsManager {
             let use_remote_global_catalog =
                 config.remote_plugin_enabled && auth_manager.current_auth_uses_codex_backend();
             if !use_remote_global_catalog {
-                self.start_curated_repo_sync();
+                self.start_curated_repo_sync(config.http_client_factory.clone());
             }
             let should_spawn_marketplace_auto_upgrade = {
                 let mut state = match self.configured_marketplace_upgrade_state.write() {
@@ -2345,7 +2366,7 @@ impl PluginsManager {
         }
     }
 
-    fn start_curated_repo_sync(self: &Arc<Self>) {
+    fn start_curated_repo_sync(self: &Arc<Self>, http_client_factory: HttpClientFactory) {
         if CURATED_REPO_SYNC_STARTED.swap(true, Ordering::SeqCst) {
             return;
         }
@@ -2353,8 +2374,8 @@ impl PluginsManager {
         let codex_home = self.codex_home.clone();
         if let Err(err) = std::thread::Builder::new()
             .name("plugins-curated-repo-sync".to_string())
-            .spawn(
-                move || match sync_openai_plugins_repo(codex_home.as_path()) {
+            .spawn(move || {
+                match sync_openai_plugins_repo(codex_home.as_path(), http_client_factory) {
                     Ok(curated_plugin_version) => {
                         let configured_curated_plugin_ids =
                             configured_curated_plugin_ids_from_codex_home(codex_home.as_path());
@@ -2378,8 +2399,8 @@ impl PluginsManager {
                         CURATED_REPO_SYNC_STARTED.store(false, Ordering::SeqCst);
                         warn!("failed to sync curated plugins repo: {err}");
                     }
-                },
-            )
+                }
+            })
         {
             CURATED_REPO_SYNC_STARTED.store(false, Ordering::SeqCst);
             warn!("failed to start curated plugins repo sync task: {err}");

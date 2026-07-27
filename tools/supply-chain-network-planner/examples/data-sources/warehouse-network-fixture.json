@@ -1,0 +1,128 @@
+{
+  "schema_version": "planning_source.v1",
+  "source_id": "warehouse-network-fixture",
+  "source_updated_at": "2026-07-25T16:00:00Z",
+  "planning_period": "2026 annualized planning units",
+  "currency": "CNY",
+  "service_policy": {
+    "policy_id": "one_day_delivery_v1",
+    "max_delivery_seconds": 86400,
+    "order_cutoff_wait_seconds": 18000,
+    "last_mile_buffer_seconds": 7200,
+    "label": "One-day end-to-end promise"
+  },
+  "demand_locations": [
+    {
+      "demand_id": "demand-shanghai",
+      "location": {
+        "latitude": 31.2304,
+        "longitude": 121.4737
+      },
+      "region": "east",
+      "current_facility_id": "warehouse-shanghai"
+    },
+    {
+      "demand_id": "demand-suzhou",
+      "location": {
+        "latitude": 31.2989,
+        "longitude": 120.5853
+      },
+      "region": "east",
+      "current_facility_id": "warehouse-shanghai"
+    },
+    {
+      "demand_id": "demand-hangzhou",
+      "location": {
+        "latitude": 30.2741,
+        "longitude": 120.1551
+      },
+      "region": "east",
+      "current_facility_id": "warehouse-shanghai"
+    }
+  ],
+  "facilities": [
+    {
+      "facility_id": "warehouse-shanghai",
+      "location": {
+        "latitude": 31.18,
+        "longitude": 121.43
+      },
+      "capacity_units": 40,
+      "is_existing": true,
+      "handling_seconds": 7200,
+      "fixed_cost": "300.00",
+      "handling_cost_per_unit": "1.20",
+      "label": "Shanghai existing warehouse"
+    },
+    {
+      "facility_id": "warehouse-nanjing",
+      "location": {
+        "latitude": 32.0603,
+        "longitude": 118.7969
+      },
+      "capacity_units": 30,
+      "is_existing": true,
+      "handling_seconds": 7200,
+      "fixed_cost": "240.00",
+      "handling_cost_per_unit": "1.10",
+      "label": "Nanjing existing warehouse"
+    }
+  ],
+  "transport_rates": [
+    {
+      "rate_id": "rate-shanghai-default",
+      "origin_facility_id": "warehouse-shanghai",
+      "base_cost_per_unit": "2.00",
+      "distance_cost_per_km_per_unit": "0.020"
+    },
+    {
+      "rate_id": "rate-nanjing-default",
+      "origin_facility_id": "warehouse-nanjing",
+      "base_cost_per_unit": "2.20",
+      "distance_cost_per_km_per_unit": "0.018"
+    }
+  ],
+  "orders": [
+    {
+      "demand_id": "demand-shanghai",
+      "order_date": "2026-06-01",
+      "demand_units": 25,
+      "promotion": false,
+      "actual_delivery_seconds": 72000
+    },
+    {
+      "demand_id": "demand-shanghai",
+      "order_date": "2026-06-15",
+      "demand_units": 15,
+      "promotion": true,
+      "actual_delivery_seconds": 80000
+    },
+    {
+      "demand_id": "demand-suzhou",
+      "order_date": "2026-06-08",
+      "demand_units": 20,
+      "promotion": false,
+      "actual_delivery_seconds": 90000
+    },
+    {
+      "demand_id": "demand-suzhou",
+      "order_date": "2026-06-18",
+      "demand_units": 15,
+      "promotion": true,
+      "actual_delivery_seconds": 85000
+    },
+    {
+      "demand_id": "demand-hangzhou",
+      "order_date": "2026-06-22",
+      "demand_units": 15,
+      "promotion": false,
+      "actual_delivery_seconds": 100000
+    },
+    {
+      "demand_id": "demand-hangzhou",
+      "order_date": "2026-06-29",
+      "demand_units": 10,
+      "promotion": false
+    }
+  ]
+}

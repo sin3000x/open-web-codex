@@ -1,0 +1,34 @@
+{
+  "name": "map-utils",
+  "version": "0.1.0",
+  "description": "Provider-neutral Google Maps and Mapbox geocoding, routing, and map-card MCP tools.",
+  "author": {
+    "name": "Open Web Codex"
+  },
+  "license": "MIT",
+  "keywords": [
+    "maps",
+    "mcp",
+    "geocoding",
+    "routing",
+    "map-card"
+  ],
+  "mcpServers": "./.mcp.json",
+  "interface": {
+    "displayName": "Map Utils",
+    "shortDescription": "Geocode, route, matrix, and create map cards.",
+    "longDescription": "Adds provider-neutral map_utils tools backed by one active Google Maps or Mapbox credential for geocoding, reverse geocoding, routes, distance matrices, and open-web map-card output.",
+    "developerName": "Open Web Codex",
+    "category": "Productivity",
+    "capabilities": [
+      "MCP",
+      "Maps",
+      "Map cards"
+    ],
+    "defaultPrompt": [
+      "Geocode these addresses and show a map card.",
+      "Find a route and create a map card."
+    ]
+  },
+  "skills": "./skills/"
+}

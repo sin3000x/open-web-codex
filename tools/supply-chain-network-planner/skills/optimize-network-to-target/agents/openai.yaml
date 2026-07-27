@@ -1,0 +1,4 @@
+interface:
+  display_name: "Optimize Network To Target"
+  short_description: "Choose warehouses for a coverage target."
+  default_prompt: "Use $optimize-network-to-target to find the minimum candidate warehouse network that reaches this coverage target."

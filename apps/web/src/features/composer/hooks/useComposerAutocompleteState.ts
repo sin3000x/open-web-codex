@@ -171,13 +171,6 @@ export function useComposerAutocompleteState({
         group: "Slash",
       },
       {
-        id: "mcp",
-        label: "mcp",
-        description: "list configured MCP tools",
-        insertText: "mcp",
-        group: "Slash",
-      },
-      {
         id: "new",
         label: "new",
         description: "start a new chat",

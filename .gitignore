@@ -2,9 +2,19 @@
 .idea/
 .vscode/
 .cache/
+.vite/
+.ruff_cache/
+.pytest_cache/
+.mypy_cache/
+.coverage
+__pycache__/
+*.py[cod]
+*.egg-info/
+.codex/maps-tool-memory.json
 artifacts/
 tmp/
 .ua/
+.local/
 
 # Component build output
 apps/web/node_modules/
@@ -13,3 +23,4 @@ apps/web/target/
 apps/web/src-tauri/target/
 codex/codex-rs/target/
 codex/target/
+tools/maps-mcp/.venv/

@@ -4,10 +4,17 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
+open-web-codex-auth = { path = "../crates/auth" }
+open-web-codex-approval-service = { path = "../crates/approval-service" }
 open-web-codex-platform-contracts = { path = "../crates/platform-contracts" }
 open-web-codex-platform-store = { path = "../crates/platform-store" }
 open-web-codex-adapter = { path = "../crates/codex-adapter" }
 open-web-codex-profile-host = { path = "../crates/profile-host" }
+open-web-codex-profile-registry = { path = "../crates/profile-registry" }
+open-web-codex-provider-service = { path = "../crates/provider-service" }
+open-web-codex-secret-store = { path = "../crates/secret-store" }
+open-web-codex-git-runtime = { path = "../crates/git-runtime" }
+open-web-codex-run-orchestrator = { path = "../crates/run-orchestrator" }
 
 serde.workspace = true
 serde_json.workspace = true
@@ -27,3 +34,11 @@ sha2.workspace = true
 thiserror.workspace = true
 anyhow.workspace = true
 sqlx.workspace = true
+base64.workspace = true
+toml_edit.workspace = true
+url.workspace = true
+reqwest.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
+tokio-tungstenite = "0.29"

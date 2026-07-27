@@ -20,6 +20,10 @@ type Props = {
   workspaceName: string | null;
   threadTitle: string | null;
   conversationId: string | null;
+  threadLoading?: boolean;
+  threadCreationStatus?: "creating" | "failed" | null;
+  threadCreationError?: string | null;
+  onRetryThreadCreation?: () => void;
   sidebarCollapsed: boolean;
   onToggleSidebar: () => void;
   filePanelOpen?: boolean;
@@ -35,6 +39,7 @@ type Props = {
   catalogError?: string | null;
   onRefreshCatalog?: () => void;
   onWriteProvider?: (input: Record<string, unknown>) => Promise<void>;
+  onSelectProvider?: (providerId: string) => void;
   selectedModelId?: string | null;
   onSelectModel?: (modelId: string) => void;
   messages: MessageEntry[];
@@ -64,6 +69,10 @@ export default function Conversation({
   workspaceName,
   threadTitle,
   conversationId,
+  threadLoading = false,
+  threadCreationStatus = null,
+  threadCreationError = null,
+  onRetryThreadCreation,
   sidebarCollapsed,
   onToggleSidebar,
   filePanelOpen = false,
@@ -79,6 +88,7 @@ export default function Conversation({
   catalogError,
   onRefreshCatalog,
   onWriteProvider,
+  onSelectProvider,
   selectedModelId,
   onSelectModel,
   messages,
@@ -144,22 +154,52 @@ export default function Conversation({
   return (
     <section className="web-chat">
       <Header workspaceName={workspaceName} threadTitle={threadTitle} threadStatus={threadStatus} threadSettings={threadSettings} sidebarCollapsed={sidebarCollapsed} onToggleSidebar={onToggleSidebar} filePanelOpen={filePanelOpen} onToggleFilePanel={onToggleFilePanel} />
-      <div className="web-message-area" ref={messageAreaRef} onScroll={handleScroll}>
-        {hasOlderMessages && (
-          <button type="button" className="web-load-older" onClick={loadOlderMessages}>
-            Load previous messages
-          </button>
-        )}
-        <MessageList
-          items={visibleMessages}
-          thinking={thinking}
-          turnStartedAt={turnStartedAt}
-          onOpenFile={onOpenFile}
-          workspaceId={workspaceId}
-          onResolveApproval={onResolveApproval}
-        />
-        {userInputRequest ? <UserInputCard request={userInputRequest} submitting={submittingUserInput} onSubmit={onSubmitUserInput} /> : null}
-        {thinking && threadStatus !== "reconnecting" && !visibleMessages.some((entry) => entry.level === "user") && <ThinkingIndicator />}
+      <div
+        className={`web-message-area${threadLoading ? " is-thread-loading" : ""}`}
+        ref={messageAreaRef}
+        onScroll={handleScroll}
+      >
+        {threadLoading || threadCreationStatus === "creating" ? (
+          <div className="web-thread-loading" role="status" aria-live="polite">
+            <span className="web-thread-loading-spinner" aria-hidden="true" />
+            <strong>
+              {threadCreationStatus === "creating" ? "正在创建 Thread…" : "正在加载 Thread…"}
+            </strong>
+            <span>
+              {threadCreationStatus === "creating"
+                ? "窗口已准备好，正在等待服务端完成绑定。"
+                : "历史记录准备完成后会一次性显示。"}
+            </span>
+          </div>
+        ) : threadCreationStatus === "failed" ? (
+          <div className="web-thread-creation-error" role="alert">
+            <strong>创建 Thread 失败</strong>
+            <span>{threadCreationError || "服务端没有完成创建，请重试。"}</span>
+            <button type="button" onClick={onRetryThreadCreation}>
+              重试
+            </button>
+          </div>
+        ) : null}
+        <div
+          className={`web-thread-content${threadLoading || threadCreationStatus ? " is-hidden" : ""}`}
+          aria-hidden={threadLoading || Boolean(threadCreationStatus)}
+        >
+          {hasOlderMessages && (
+            <button type="button" className="web-load-older" onClick={loadOlderMessages}>
+              Load previous messages
+            </button>
+          )}
+          <MessageList
+            items={visibleMessages}
+            thinking={thinking}
+            turnStartedAt={turnStartedAt}
+            onOpenFile={onOpenFile}
+            workspaceId={workspaceId}
+            onResolveApproval={onResolveApproval}
+          />
+          {userInputRequest ? <UserInputCard request={userInputRequest} submitting={submittingUserInput} onSubmit={onSubmitUserInput} /> : null}
+          {thinking && threadStatus !== "reconnecting" && !visibleMessages.some((entry) => entry.level === "user") && <ThinkingIndicator />}
+        </div>
       </div>
       <GoalBanner goal={goal} />
       <FollowUpQueue
@@ -177,7 +217,7 @@ export default function Conversation({
         running={thinking || threadStatus === "running" || threadStatus === "reconnecting" || threadStatus.startsWith("active")}
         stopping={stopping}
         busy={busy}
-        disabled={sendDisabled}
+        disabled={sendDisabled || threadLoading || Boolean(threadCreationStatus)}
         tokenUsage={tokenUsage}
         providers={providers}
         currentProviderId={currentProviderId}
@@ -186,6 +226,7 @@ export default function Conversation({
         catalogError={catalogError}
         onRefreshCatalog={onRefreshCatalog}
         onWriteProvider={onWriteProvider}
+        onSelectProvider={onSelectProvider}
         selectedModelId={selectedModelId}
         onSelectModel={onSelectModel}
       />

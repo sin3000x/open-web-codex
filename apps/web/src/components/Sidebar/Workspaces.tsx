@@ -3,6 +3,7 @@ import { createPortal } from "react-dom";
 import Archive from "lucide-react/dist/esm/icons/archive";
 import ChevronRight from "lucide-react/dist/esm/icons/chevron-right";
 import Folder from "lucide-react/dist/esm/icons/folder";
+import LoaderCircle from "lucide-react/dist/esm/icons/loader-circle";
 import MessageSquare from "lucide-react/dist/esm/icons/message-square";
 import Trash2 from "lucide-react/dist/esm/icons/trash-2";
 import type { WorkspaceInfo } from "../../types";
@@ -13,6 +14,7 @@ type ThreadInfo = {
   updatedAt: number;
   turnCount?: number;
   status?: string;
+  creationStatus?: "creating" | "failed";
 };
 
 type Props = {
@@ -166,34 +168,52 @@ export default function Workspaces({
                 {threads.length === 0 && (
                   <div className="web-ws-threads-empty">No threads</div>
                 )}
-                {threads.map((t) => (
-                  <div
-                    key={t.id}
-                    className={`web-ws-thread${t.id === activeThreadId ? " web-ws-thread-active" : ""}`}
-                    onClick={() => onSelectThread(t.id)}
-                  >
-                    <span
-                      className={`web-ws-thread-status${t.status === "active" || t.status === "running" || t.status === "reconnecting" ? " is-running" : ""}`}
-                      aria-label={t.status === "active" || t.status === "running" || t.status === "reconnecting" ? "Running" : "Idle"}
+                {threads.map((t) => {
+                  const isRunning = t.creationStatus === "creating"
+                    || t.status === "active"
+                    || t.status === "running"
+                    || t.status === "reconnecting";
+                  const isFailed = t.creationStatus === "failed";
+
+                  return (
+                    <div
+                      key={t.id}
+                      className={`web-ws-thread${t.id === activeThreadId ? " web-ws-thread-active" : ""}`}
+                      onClick={() => onSelectThread(t.id)}
                     >
-                      <MessageSquare size={12} className="web-ws-thread-icon" />
-                    </span>
-                    <span className="web-ws-thread-label">{t.label}</span>
-                    <button
-                      type="button"
-                      className="web-ws-thread-archive"
-                      aria-label={`Archive thread ${t.label}`}
-                      title="Archive thread"
-                      disabled={busy || t.status === "active" || t.status === "running" || t.status === "reconnecting"}
-                      onClick={(event) => {
-                        event.stopPropagation();
-                        setPendingArchive({ workspaceId: ws.id, threadId: t.id, label: t.label });
-                      }}
-                    >
-                      <Archive size={12} aria-hidden="true" />
-                    </button>
-                  </div>
-                ))}
+                      <span
+                        className={`web-ws-thread-status${isFailed ? " is-failed" : ""}`}
+                        aria-label={isFailed ? "Creation failed" : "Thread"}
+                      >
+                        <MessageSquare size={12} className="web-ws-thread-icon" />
+                      </span>
+                      <span className="web-ws-thread-label">{t.label}</span>
+                      {isRunning && (
+                        <span
+                          className="web-ws-thread-running"
+                          role="status"
+                          aria-label={t.creationStatus === "creating" ? "Creating thread" : "Thread is running"}
+                          title={t.creationStatus === "creating" ? "Creating thread" : "Thread is running"}
+                        >
+                          <LoaderCircle size={13} aria-hidden="true" />
+                        </span>
+                      )}
+                      <button
+                        type="button"
+                        className="web-ws-thread-archive"
+                        aria-label={`Archive thread ${t.label}`}
+                        title="Archive thread"
+                        disabled={busy || Boolean(t.creationStatus) || isRunning}
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          setPendingArchive({ workspaceId: ws.id, threadId: t.id, label: t.label });
+                        }}
+                      >
+                        <Archive size={12} aria-hidden="true" />
+                      </button>
+                    </div>
+                  );
+                })}
 
               </div>)}
             </div>

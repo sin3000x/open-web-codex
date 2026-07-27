@@ -84,7 +84,7 @@ export const normalizeOpenAppTargets = (
   }));
 
 export const createOpenAppId = () => {
-  if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
+  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
     return crypto.randomUUID();
   }
   return `open-app-${Date.now()}-${Math.random().toString(16).slice(2)}`;

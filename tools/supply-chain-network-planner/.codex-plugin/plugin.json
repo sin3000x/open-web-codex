@@ -1,0 +1,26 @@
+{
+  "name": "supply-chain-network-planner",
+  "version": "0.1.0+codex.20260726120620",
+  "description": "Read-only supply-chain data preparation plus deterministic coverage, scenario, and facility-location planning for Codex",
+  "author": {
+    "name": "Open Web Codex"
+  },
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "Supply Chain Network Planner",
+    "shortDescription": "Prepare governed data and model warehouse networks.",
+    "longDescription": "Publishes read-only planning datasets, prepares immutable network snapshots, evaluates current and what-if warehouse scenarios, and solves finite-candidate facility-location plans with auditable deterministic calculations.",
+    "developerName": "Open Web Codex",
+    "category": "Productivity",
+    "capabilities": [
+      "Read-only planning data preparation",
+      "Demand and delivery baseline analysis",
+      "Network data preparation",
+      "Delivery coverage calculation",
+      "Warehouse scenario comparison",
+      "Facility-location optimization"
+    ],
+    "defaultPrompt": "Analyze my supply-chain network using an immutable input snapshot, explicit service-level assumptions, and deterministic planning tools."
+  },
+  "mcpServers": "./.mcp.json"
+}

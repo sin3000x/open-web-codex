@@ -2,6 +2,7 @@ use crate::agent::exceeds_thread_spawn_depth_limit;
 use crate::agent::next_thread_spawn_depth;
 use crate::session::step_context::StepContext;
 use crate::session::turn_context::TurnContext;
+use crate::tools::code_mode::default_exec_yield_time_override_ms;
 use crate::tools::code_mode::execute_spec::create_code_mode_tool;
 use crate::tools::context::ToolInvocation;
 use crate::tools::effective_tool_mode;
@@ -30,8 +31,6 @@ use crate::tools::handlers::ToolSearchHandlerCache;
 use crate::tools::handlers::ViewImageHandler;
 use crate::tools::handlers::WaitForEnvironmentHandler;
 use crate::tools::handlers::WriteStdinHandler;
-use crate::tools::handlers::agent_jobs::ReportAgentJobResultHandler;
-use crate::tools::handlers::agent_jobs::SpawnAgentsOnCsvHandler;
 use crate::tools::handlers::extension_tools::ExtensionToolAdapter;
 use crate::tools::handlers::multi_agents::CloseAgentHandler;
 use crate::tools::handlers::multi_agents::ResumeAgentHandler;
@@ -67,8 +66,6 @@ use codex_protocol::openai_models::ConfigShellToolType;
 use codex_protocol::openai_models::InputModality;
 use codex_protocol::openai_models::ToolMode;
 use codex_protocol::protocol::MultiAgentVersion;
-use codex_protocol::protocol::SessionSource;
-use codex_protocol::protocol::SubAgentSource;
 use codex_tools::ResponsesApiNamespace;
 use codex_tools::ResponsesApiNamespaceTool;
 use codex_tools::TOOL_SEARCH_TOOL_NAME;
@@ -317,7 +314,9 @@ fn hosted_model_tool_specs(context: &CoreToolPlanContext<'_>) -> Vec<ToolSpec> {
 }
 
 pub(crate) fn search_tool_enabled(turn_context: &TurnContext) -> bool {
-    turn_context.model_info.supports_search_tool && namespace_tools_enabled(turn_context)
+    turn_context.model_info.supports_search_tool
+        && turn_context.provider.capabilities().tool_search
+        && namespace_tools_enabled(turn_context)
 }
 
 pub(crate) fn tool_suggest_enabled(turn_context: &TurnContext) -> bool {
@@ -346,51 +345,36 @@ fn collab_tools_enabled(turn_context: &TurnContext) -> bool {
     }
 }
 
-fn agent_jobs_tools_enabled(turn_context: &TurnContext) -> bool {
-    turn_context
-        .config
-        .features
-        .get()
-        .enabled(Feature::SpawnCsv)
-        && collab_tools_enabled(turn_context)
-}
-
-fn agent_jobs_worker_tools_enabled(turn_context: &TurnContext) -> bool {
-    agent_jobs_tools_enabled(turn_context)
-        && matches!(
-            &turn_context.session_source,
-            SessionSource::SubAgent(SubAgentSource::Other(label))
-                if label.starts_with("agent_job:")
-        )
-}
-
-fn image_generation_runtime_enabled(turn_context: &TurnContext) -> bool {
-    (turn_context
-        .provider
-        .info()
-        .uses_openai_actor_authorization()
-        || (turn_context.provider.info().requires_openai_auth
-            && turn_context
-                .auth_manager
-                .as_deref()
-                .is_some_and(AuthManager::current_auth_uses_codex_backend)))
-        && turn_context.provider.capabilities().image_generation
-        && turn_context
-            .model_info
-            .input_modalities
-            .contains(&InputModality::Image)
-}
-
-fn standalone_image_generation_model_visible(turn_context: &TurnContext) -> bool {
-    if !image_generation_runtime_enabled(turn_context) || !namespace_tools_enabled(turn_context) {
-        return false;
-    }
-
-    turn_context
+fn image_generation_available(turn_context: &TurnContext) -> bool {
+    if !turn_context
         .config
         .features
         .get()
         .enabled(Feature::ImageGeneration)
+    {
+        return false;
+    }
+
+    let capabilities = turn_context.provider.capabilities();
+    if !capabilities.image_generation || !capabilities.namespace_tools {
+        return false;
+    }
+
+    if !turn_context
+        .model_info
+        .input_modalities
+        .contains(&InputModality::Image)
+    {
+        return false;
+    }
+
+    let provider = turn_context.provider.info();
+    provider.uses_openai_actor_authorization()
+        || (provider.requires_openai_auth
+            && turn_context
+                .auth_manager
+                .as_deref()
+                .is_some_and(AuthManager::current_auth_uses_codex_backend))
 }
 
 fn wait_agent_timeout_options(turn_context: &TurnContext) -> WaitAgentTimeoutOptions {
@@ -491,6 +475,9 @@ fn build_code_mode_executors(
         .sort_by(|left, right| compare_code_mode_tools(left, right, &namespace_descriptions));
     let deferred_tools =
         collect_code_mode_exec_prompt_tool_definitions(deferred_exec_prompt_tool_specs.iter());
+    let default_exec_yield_time_ms =
+        default_exec_yield_time_override_ms(&turn_context.config.features)
+            .unwrap_or(codex_code_mode::DEFAULT_EXEC_YIELD_TIME_MS);
 
     vec![
         Arc::new(CodeModeExecuteHandler::new(
@@ -498,6 +485,7 @@ fn build_code_mode_executors(
                 &enabled_tools,
                 &deferred_tools,
                 &namespace_descriptions,
+                default_exec_yield_time_ms,
                 tool_mode == ToolMode::CodeModeOnly,
             ),
             code_mode_nested_tool_specs,
@@ -619,7 +607,8 @@ fn add_tool_sources(context: &CoreToolPlanContext<'_>, planned_tools: &mut Plann
 }
 
 fn standalone_web_search_enabled(turn_context: &TurnContext) -> bool {
-    namespace_tools_enabled(turn_context)
+    turn_context.provider.capabilities().web_search
+        && namespace_tools_enabled(turn_context)
         && (turn_context.model_info.use_responses_lite
             || turn_context
                 .config
@@ -629,7 +618,7 @@ fn standalone_web_search_enabled(turn_context: &TurnContext) -> bool {
 }
 
 fn tool_environment_mode(step_context: &StepContext) -> ToolEnvironmentMode {
-    ToolEnvironmentMode::from_count(step_context.environments.turn_environments.len())
+    ToolEnvironmentMode::from_count(step_context.environments.turn_environments().count())
 }
 
 #[instrument(level = "trace", skip_all)]
@@ -685,8 +674,7 @@ fn unified_exec_should_include_shell_parameter(
         UnifiedExecShellMode::ZshFork(_)
     ) || step_context
         .environments
-        .turn_environments
-        .iter()
+        .turn_environments()
         .any(|environment| environment.environment.is_remote())
 }
 
@@ -798,15 +786,15 @@ fn add_collaboration_tools(context: &CoreToolPlanContext<'_>, planned_tools: &mu
                 .flatten();
             let agent_type_description =
                 agent_type_description(turn_context, context.default_agent_type_description);
+            let hide_spawn_agent_metadata =
+                turn_context.config.multi_agent_v2.hide_spawn_agent_metadata;
             planned_tools.add_arc(override_tool_exposure(
                 multi_agent_v2_handler(
                     SpawnAgentHandlerV2::new(SpawnAgentToolOptions {
                         available_models: turn_context.available_models.clone(),
                         agent_type_description,
-                        hide_agent_type_model_reasoning: turn_context
-                            .config
-                            .multi_agent_v2
-                            .hide_spawn_agent_metadata,
+                        expose_agent_type: !turn_context.config.agent_roles.is_empty(),
+                        hide_agent_type_model_reasoning: hide_spawn_agent_metadata,
                         expose_spawn_agent_model_overrides: turn_context
                             .config
                             .multi_agent_v2
@@ -853,6 +841,7 @@ fn add_collaboration_tools(context: &CoreToolPlanContext<'_>, planned_tools: &mu
                 SpawnAgentHandler::new(SpawnAgentToolOptions {
                     available_models: turn_context.available_models.clone(),
                     agent_type_description,
+                    expose_agent_type: !turn_context.config.agent_roles.is_empty(),
                     hide_agent_type_model_reasoning: false,
                     expose_spawn_agent_model_overrides: true,
                     multi_agent_version: turn_context.multi_agent_version,
@@ -865,13 +854,6 @@ fn add_collaboration_tools(context: &CoreToolPlanContext<'_>, planned_tools: &mu
             planned_tools
                 .add_with_exposure(WaitAgentHandler::new(context.wait_agent_timeouts), exposure);
             planned_tools.add_with_exposure(CloseAgentHandler, exposure);
-        }
-    }
-
-    if agent_jobs_tools_enabled(turn_context) {
-        planned_tools.add(SpawnAgentsOnCsvHandler);
-        if agent_jobs_worker_tools_enabled(turn_context) {
-            planned_tools.add(ReportAgentJobResultHandler);
         }
     }
 }
@@ -996,7 +978,7 @@ fn append_extension_tool_executors(
             continue;
         }
         if tool_name == ToolName::namespaced(IMAGE_GEN_NAMESPACE, IMAGEGEN_TOOL_NAME)
-            && !standalone_image_generation_model_visible(turn_context)
+            && !image_generation_available(turn_context)
         {
             continue;
         }

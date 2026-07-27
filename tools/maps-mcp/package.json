@@ -1,0 +1,9 @@
+{
+  "name": "open-web-codex-maps-style-validation",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "dependencies": {
+    "@mapbox/mapbox-gl-style-spec": "14.27.0"
+  }
+}

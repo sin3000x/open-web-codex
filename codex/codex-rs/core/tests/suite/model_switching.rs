@@ -2,6 +2,8 @@ use anyhow::Result;
 use codex_config::types::Personality;
 use codex_features::Feature;
 use codex_login::CodexAuth;
+use codex_model_provider_info::ModelProviderInfo;
+use codex_model_provider_info::WireApi;
 use codex_models_manager::manager::RefreshStrategy;
 use codex_protocol::config_types::ReasoningSummary;
 use codex_protocol::config_types::SERVICE_TIER_DEFAULT_REQUEST_VALUE;
@@ -178,6 +180,75 @@ async fn model_change_appends_model_instructions_developer_message() -> Result<(
         model_switch_text.contains("The user was previously using a different model."),
         "expected model switch preamble, got: {model_switch_text:?}"
     );
+
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn provider_change_routes_the_next_turn_to_the_selected_provider() -> Result<()> {
+    skip_if_no_network!(Ok(()));
+
+    let initial_server = MockServer::start().await;
+    let selected_server = MockServer::start().await;
+    let initial_mock = mount_sse_once(&initial_server, sse_completed("initial-response")).await;
+    let selected_mock = mount_sse_once(&selected_server, sse_completed("selected-response")).await;
+    let selected_provider_id = "selected-provider";
+    let selected_provider = ModelProviderInfo {
+        name: "Selected Provider".to_string(),
+        base_url: Some(format!("{}/v1", selected_server.uri())),
+        env_key: Some("PATH".to_string()),
+        wire_api: WireApi::Responses,
+        supports_websockets: false,
+        ..Default::default()
+    };
+
+    let test = test_codex()
+        .with_config(move |config| {
+            config
+                .model_providers
+                .insert(selected_provider_id.to_string(), selected_provider);
+        })
+        .build(&initial_server)
+        .await?;
+
+    test.codex
+        .submit(read_only_user_turn(
+            &test,
+            vec![UserInput::Text {
+                text: "use the initial provider".into(),
+                text_elements: Vec::new(),
+            }],
+            test.session_configured.model.clone(),
+        ))
+        .await?;
+    wait_for_event(&test.codex, |event| {
+        matches!(event, EventMsg::TurnComplete(_))
+    })
+    .await;
+
+    let mut switched_turn = read_only_user_turn(
+        &test,
+        vec![UserInput::Text {
+            text: "use the selected provider".into(),
+            text_elements: Vec::new(),
+        }],
+        test.session_configured.model.clone(),
+    );
+    let Op::UserInput {
+        thread_settings, ..
+    } = &mut switched_turn
+    else {
+        unreachable!("read_only_user_turn always returns user input");
+    };
+    thread_settings.model_provider_id = Some(selected_provider_id.to_string());
+    test.codex.submit(switched_turn).await?;
+    wait_for_event(&test.codex, |event| {
+        matches!(event, EventMsg::TurnComplete(_))
+    })
+    .await;
+
+    assert_eq!(initial_mock.requests().len(), 1);
+    assert_eq!(selected_mock.requests().len(), 1);
 
     Ok(())
 }
@@ -477,17 +548,21 @@ async fn null_service_tier_override_is_omitted_from_http_turn_with_catalog_defau
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn model_change_from_image_to_text_strips_prior_image_content() -> Result<()> {
+async fn model_change_from_multimodal_to_text_strips_prior_media_content() -> Result<()> {
     skip_if_no_network!(Ok(()));
 
     let server = MockServer::start().await;
-    let image_model_slug = "test-image-model";
+    let multimodal_model_slug = "test-multimodal-model";
     let text_model_slug = "test-text-only-model";
-    let image_model = test_model_info(
-        image_model_slug,
-        "Test Image Model",
-        "supports image input",
-        default_input_modalities(),
+    let multimodal_model = test_model_info(
+        multimodal_model_slug,
+        "Test Multimodal Model",
+        "supports image and audio input",
+        vec![
+            InputModality::Text,
+            InputModality::Image,
+            InputModality::Audio,
+        ],
     );
     let text_model = test_model_info(
         text_model_slug,
@@ -498,7 +573,7 @@ async fn model_change_from_image_to_text_strips_prior_image_content() -> Result<
     mount_models_once(
         &server,
         ModelsResponse {
-            models: vec![image_model, text_model],
+            models: vec![multimodal_model, text_model],
         },
     )
     .await;
@@ -512,7 +587,7 @@ async fn model_change_from_image_to_text_strips_prior_image_content() -> Result<
     let mut builder = test_codex()
         .with_auth(CodexAuth::create_dummy_chatgpt_auth_for_testing())
         .with_config(move |config| {
-            config.model = Some(image_model_slug.to_string());
+            config.model = Some(multimodal_model_slug.to_string());
         });
     let test = builder.build(&server).await?;
     let models_manager = test.thread_manager.get_models_manager();
@@ -533,12 +608,15 @@ async fn model_change_from_image_to_text_strips_prior_image_content() -> Result<
                     image_url: image_url.clone(),
                     detail: None,
                 },
+                UserInput::Audio {
+                    audio_url: "data:audio/wav;base64,YXVkaW8=".to_string(),
+                },
                 UserInput::Text {
                     text: "first turn".to_string(),
                     text_elements: Vec::new(),
                 },
             ],
-            image_model_slug.to_string(),
+            multimodal_model_slug.to_string(),
         ))
         .await?;
     wait_for_event(&test.codex, |ev| matches!(ev, EventMsg::TurnComplete(_))).await;
@@ -563,11 +641,19 @@ async fn model_change_from_image_to_text_strips_prior_image_content() -> Result<
         !first_request.message_input_image_urls("user").is_empty(),
         "first request should include the uploaded image"
     );
+    assert_eq!(
+        first_request.message_input_audio_urls("user"),
+        vec!["data:audio/wav;base64,YXVkaW8=".to_string()]
+    );
 
     let second_request = requests.last().expect("expected second request");
     assert!(
         second_request.message_input_image_urls("user").is_empty(),
         "second request should strip unsupported image content"
+    );
+    assert!(
+        second_request.message_input_audio_urls("user").is_empty(),
+        "second request should strip unsupported audio content"
     );
     let second_user_texts = second_request.message_input_texts("user");
     assert!(
@@ -575,6 +661,12 @@ async fn model_change_from_image_to_text_strips_prior_image_content() -> Result<
             .iter()
             .any(|text| text == "image content omitted because you do not support image input"),
         "second request should include the image-omitted placeholder text"
+    );
+    assert!(
+        second_user_texts
+            .iter()
+            .any(|text| text == "audio content omitted because you do not support audio input"),
+        "second request should include the audio-omitted placeholder text"
     );
     Ok(())
 }
@@ -659,11 +751,6 @@ async fn generated_image_is_replayed_for_image_capable_models() -> Result<()> {
         image_generation_calls.len(),
         1,
         "expected generated image history to be replayed as an image_generation_call"
-    );
-    assert_eq!(
-        image_generation_calls[0]["id"].as_str(),
-        None,
-        "expected the image generation call id to be omitted"
     );
     assert_eq!(
         image_generation_calls[0]["result"].as_str(),
@@ -764,11 +851,6 @@ async fn model_change_from_generated_image_to_text_preserves_prior_generated_ima
     assert!(
         image_generation_calls.len() == 1,
         "second request should preserve the generated image call for text-only models"
-    );
-    assert_eq!(
-        image_generation_calls[0]["id"].as_str(),
-        None,
-        "second request should omit the generated image call id"
     );
     assert_eq!(
         image_generation_calls[0]["result"].as_str(),

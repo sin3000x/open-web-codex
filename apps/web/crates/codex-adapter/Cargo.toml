@@ -4,6 +4,8 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
+open-web-codex-profile-host = { path = "../profile-host" }
+
 serde = { workspace = true }
 serde_json = { workspace = true }
 uuid = { workspace = true }
@@ -12,5 +14,7 @@ thiserror = { workspace = true }
 tokio = { workspace = true, features = ["sync"] }
 async-trait = "0.1"
 tracing = { workspace = true }
-reqwest = { workspace = true }
-futures-util = "0.3"
+base64 = { workspace = true }
+
+[dev-dependencies]
+tempfile = { workspace = true }

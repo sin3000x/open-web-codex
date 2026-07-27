@@ -1,7 +1,16 @@
-.PHONY: mvp web-install web-check web-test contracts-check codex-upstream-status codex-upstream-sync
+.PHONY: mvp deploy deploy-status deploy-stop web-install web-check web-test contracts-check codex-upstream-status codex-upstream-sync
 
 mvp:
-	./scripts/dev-mvp.sh
+	./scripts/start-all.sh
+
+deploy:
+	./scripts/deploy.sh
+
+deploy-status:
+	./scripts/deploy.sh --status
+
+deploy-stop:
+	./scripts/deploy.sh --stop
 
 web-install:
 	cd apps/web && npm ci

@@ -29,6 +29,7 @@ export type MessageEntry = LogEntry & {
   diffLines?: DiffLine[];
   meta?: string;
   streaming?: boolean;
+  approvalDetail?: string;
 };
 
 type Props = {
@@ -39,6 +40,106 @@ type Props = {
   workspaceId?: string;
   onResolveApproval?: (workspaceId: string, requestId: number | string, decision: "accept" | "decline") => void;
 };
+
+function isAssistantProcessEntry(entry: MessageEntry) {
+  return entry.level === "assistant" && entry.messagePhase === "commentary";
+}
+
+function parsedApprovalTool(entry: MessageEntry) {
+  return entry.approvalTool?.trim()
+    || entry.text.match(/\btool\s+["“']([^"”']+)["”']/i)?.[1]?.trim()
+    || "";
+}
+
+function parsedMcpIdentity(entry: MessageEntry) {
+  if (entry.kind !== "tool" || !entry.toolType?.toLowerCase().includes("mcp")) {
+    return null;
+  }
+  const parts = (entry.toolTitle ?? "")
+    .split(/\s*\/\s*/)
+    .map((part) => part.trim())
+    .filter(Boolean);
+  if (parts.length < 2) return null;
+  return {
+    server: parts[0],
+    tool: parts[parts.length - 1],
+  };
+}
+
+function isTerminalApproval(entry: MessageEntry) {
+  return entry.kind === "approval"
+    && entry.approvalMode !== "url"
+    && entry.approvalStatus !== undefined
+    && entry.approvalStatus !== "pending";
+}
+
+export function foldTerminalApprovals(items: MessageEntry[]) {
+  const folded = items.map((item) => ({ ...item }));
+  const consumedApprovals = new Set<number>();
+  const claimedTargets = new Set<number>();
+
+  folded.forEach((approval, approvalIndex) => {
+    if (!isTerminalApproval(approval)) return;
+
+    const approvalTool = parsedApprovalTool(approval);
+    const approvalServer = approval.approvalServerName?.trim() ?? "";
+    const exactCandidates: number[] = [];
+    const mcpCandidates: number[] = [];
+
+    folded.forEach((candidate, candidateIndex) => {
+      if (candidateIndex === approvalIndex || claimedTargets.has(candidateIndex)) return;
+      if (
+        approval.approvalId
+        && candidate.approvalId === approval.approvalId
+        && (candidate.kind === "tool" || candidate.kind === "command_exec")
+      ) {
+        exactCandidates.push(candidateIndex);
+        return;
+      }
+      if (!approvalTool) return;
+      const identity = parsedMcpIdentity(candidate);
+      if (
+        identity
+        && identity.tool === approvalTool
+        && (!approvalServer || identity.server === approvalServer)
+      ) {
+        mcpCandidates.push(candidateIndex);
+      }
+    });
+
+    const matchingCandidates = exactCandidates.length > 0 ? exactCandidates : mcpCandidates;
+    let targetIndex = matchingCandidates
+      .sort((left, right) => {
+        const distance = Math.abs(left - approvalIndex) - Math.abs(right - approvalIndex);
+        if (distance !== 0) return distance;
+        return left < approvalIndex ? -1 : 1;
+      })[0] ?? -1;
+
+    if (targetIndex < 0 && !approvalTool) {
+      for (let cursor = approvalIndex - 1; cursor >= 0; cursor -= 1) {
+        const candidate = folded[cursor];
+        if (
+          !claimedTargets.has(cursor)
+          && (candidate.kind === "tool" || candidate.kind === "command_exec")
+        ) {
+          targetIndex = cursor;
+          break;
+        }
+      }
+    }
+
+    if (targetIndex < 0) return;
+    folded[targetIndex] = {
+      ...folded[targetIndex],
+      approvalStatus: approval.approvalStatus,
+      approvalDetail: approval.text,
+    };
+    claimedTargets.add(targetIndex);
+    consumedApprovals.add(approvalIndex);
+  });
+
+  return folded.filter((_, index) => !consumedApprovals.has(index));
+}
 
 export default function MessageList({ items, thinking = false, turnStartedAt, onOpenFile, workspaceId, onResolveApproval }: Props) {
   if (items.length === 0) {
@@ -74,6 +175,9 @@ export default function MessageList({ items, thinking = false, turnStartedAt, on
               workspaceId={workspaceId}
               requestId={entry.approvalRequestId}
               status={entry.approvalStatus}
+              mode={entry.approvalMode}
+              url={entry.approvalUrl}
+              serverName={entry.approvalServerName}
               onResolve={onResolveApproval}
             />
           );
@@ -90,7 +194,8 @@ export default function MessageList({ items, thinking = false, turnStartedAt, on
               durationMs={entry.cmdDurationMs}
               cwd={entry.cmdCwd}
               commandActions={entry.cmdActions}
-              approvalStatus={entry.approvalStatus}
+              approvalStatus={entry.approvalStatus === "pending" ? undefined : entry.approvalStatus}
+              approvalDetail={entry.approvalDetail}
             />
           );
         }
@@ -116,6 +221,8 @@ export default function MessageList({ items, thinking = false, turnStartedAt, on
               filePath={entry.filePath}
               detail={entry.toolDetail}
               output={entry.toolOutput}
+              approvalStatus={entry.approvalStatus === "pending" ? undefined : entry.approvalStatus}
+              approvalDetail={entry.approvalDetail}
             />
           );
         }
@@ -133,7 +240,16 @@ export default function MessageList({ items, thinking = false, turnStartedAt, on
           case "user":
             return <UserMessage key={entry.id} text={entry.text} />;
           case "assistant":
-            return <AssistantMessage key={entry.id} text={entry.text} streaming={entry.streaming} onOpenFile={onOpenFile} />;
+            return (
+              <AssistantMessage
+                key={entry.id}
+                text={entry.text}
+                streaming={entry.streaming}
+                onOpenFile={onOpenFile}
+                variant={isAssistantProcessEntry(entry) ? "commentary" : "reply"}
+                inlineArtifacts={entry.inlineArtifacts}
+              />
+            );
           case "system":
             return <SystemNotice key={entry.id} text={entry.text} variant="default" />;
           case "error":
@@ -144,6 +260,12 @@ export default function MessageList({ items, thinking = false, turnStartedAt, on
   };
 
   const rendered: React.ReactNode[] = [];
+  const isLiveEntry = (entry: MessageEntry) =>
+    entry.streaming
+    || entry.toolStatus === "inProgress"
+    || entry.toolStatus === "running";
+  const isAssistantReply = (entry: MessageEntry) =>
+    entry.level === "assistant" && !isAssistantProcessEntry(entry);
   for (let index = 0; index < items.length;) {
     const entry = items[index];
     if (entry.level !== "user") {
@@ -155,46 +277,83 @@ export default function MessageList({ items, thinking = false, turnStartedAt, on
     let end = index + 1;
     while (end < items.length && items[end].level !== "user") end += 1;
     const turnItems = items.slice(index + 1, end);
-    const hasLiveItem = turnItems.some((item) =>
-      item.streaming
-      || item.toolStatus === "inProgress"
-      || item.toolStatus === "running"
-    );
+    const hasLiveItem = turnItems.some(isLiveEntry);
+    const pendingApproval = turnItems.find((item) => {
+      if (item.kind !== "approval") return false;
+      if (item.approvalStatus === "pending") return true;
+      const mapsCredentialWasDelivered = item.approvalMode === "url"
+        && (
+          item.approvalServerName === "map_utils"
+          || item.approvalServerName === "workspace_maps"
+        )
+        && (
+          /maps provider and api key/i.test(item.text)
+          || /(?:google maps|mapbox(?: maps)?)\s+(?:api key|access token)/i.test(item.text)
+        );
+      return item.approvalMode === "url"
+        && item.approvalStatus === "accepted"
+        && !mapsCredentialWasDelivered;
+    });
+    const activityLabel = pendingApproval?.approvalMode === "url"
+      ? "Waiting for API key…"
+      : pendingApproval
+        ? "Waiting for approval…"
+        : "Working…";
     const isActiveTurn = end === items.length && (thinking || hasLiveItem);
-    let finalIndex = -1;
-    if (!isActiveTurn) {
-      for (let cursor = turnItems.length - 1; cursor >= 0; cursor -= 1) {
-        if (turnItems[cursor].level === "assistant") { finalIndex = cursor; break; }
-      }
-    }
-    let liveIndex = -1;
-    if (isActiveTurn) {
-      for (let cursor = turnItems.length - 1; cursor >= 0; cursor -= 1) {
-        const item = turnItems[cursor];
-        if (item.streaming || item.toolStatus === "inProgress" || item.toolStatus === "running") {
-          liveIndex = cursor;
-          break;
+
+    let executionSegment: MessageEntry[] = [];
+    let executionSegmentIndex = 0;
+    const flushExecutionSegment = (active: boolean) => {
+      if (executionSegment.length === 0 && !active) return;
+      const displaySegment = foldTerminalApprovals(executionSegment);
+      let activeIndex = -1;
+      if (active) {
+        for (let cursor = displaySegment.length - 1; cursor >= 0; cursor -= 1) {
+          if (isLiveEntry(displaySegment[cursor])) {
+            activeIndex = cursor;
+            break;
+          }
+        }
+        if (activeIndex < 0 && displaySegment.length > 0) {
+          activeIndex = displaySegment.length - 1;
         }
       }
-      if (liveIndex < 0 && turnItems.length > 0) liveIndex = turnItems.length - 1;
-    }
-    const executionItems = turnItems.filter((_, cursor) => cursor !== finalIndex && cursor !== liveIndex);
-    const activeItem = liveIndex >= 0 ? turnItems[liveIndex] : null;
-    if (executionItems.length > 0 || isActiveTurn) {
+      const timelineItems = displaySegment.filter((_, cursor) => cursor !== activeIndex);
+      const activeItem = activeIndex >= 0 ? displaySegment[activeIndex] : null;
       rendered.push(
         <ExecutionGroup
-          key={`execution-${entry.id}`}
-          items={turnItems.filter((_, cursor) => cursor !== finalIndex)}
-          active={isActiveTurn}
+          key={`execution-${entry.id}-${executionSegmentIndex}`}
+          items={displaySegment}
+          active={active}
           startedAt={turnStartedAt}
-          timelineItemCount={executionItems.length}
+          timelineItemCount={timelineItems.length}
           activeItem={activeItem ? renderEntry(activeItem) : null}
+          activityLabel={activityLabel}
         >
-          {executionItems.map(renderEntry)}
+          {timelineItems.map(renderEntry)}
         </ExecutionGroup>,
       );
+      executionSegment = [];
+      executionSegmentIndex += 1;
+    };
+
+    for (const item of turnItems) {
+      if (isAssistantReply(item)) {
+        flushExecutionSegment(false);
+        rendered.push(renderEntry(item));
+        continue;
+      }
+      executionSegment.push(item);
     }
-    if (finalIndex >= 0) rendered.push(renderEntry(turnItems[finalIndex]));
+
+    if (executionSegment.length > 0) {
+      flushExecutionSegment(isActiveTurn);
+    } else {
+      const lastItem = turnItems[turnItems.length - 1];
+      if (isActiveTurn && (!lastItem || !isAssistantReply(lastItem))) {
+        flushExecutionSegment(true);
+      }
+    }
     index = end;
   }
   return <>{rendered}</>;

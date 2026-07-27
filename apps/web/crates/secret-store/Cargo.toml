@@ -1,0 +1,17 @@
+[package]
+name = "open-web-codex-secret-store"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+base64.workspace = true
+chrono.workspace = true
+ring.workspace = true
+sqlx.workspace = true
+thiserror.workspace = true
+uuid.workspace = true
+zeroize.workspace = true
+
+[dev-dependencies]
+open-web-codex-platform-store = { path = "../platform-store" }
+tokio.workspace = true

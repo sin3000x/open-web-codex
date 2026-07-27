@@ -1,7 +1,10 @@
 use super::*;
+use crate::common::Reasoning;
+use crate::common::ResponsesApiRequest;
 use codex_protocol::models::ContentItem;
 use codex_protocol::models::FunctionCallOutputPayload;
 use codex_protocol::models::ResponseItem;
+use codex_protocol::openai_models::ReasoningEffort as ReasoningEffortConfig;
 use serde_json::json;
 
 fn user_msg(text: &str) -> ResponseItem {
@@ -45,6 +48,22 @@ fn function_call(name: &str, args: &str, call_id: &str) -> ResponseItem {
         id: None,
         name: name.to_string(),
         namespace: None,
+        arguments: args.to_string(),
+        call_id: call_id.to_string(),
+        internal_chat_message_metadata_passthrough: None,
+    }
+}
+
+fn namespaced_function_call(
+    namespace: &str,
+    name: &str,
+    args: &str,
+    call_id: &str,
+) -> ResponseItem {
+    ResponseItem::FunctionCall {
+        id: None,
+        name: name.to_string(),
+        namespace: Some(namespace.to_string()),
         arguments: args.to_string(),
         call_id: call_id.to_string(),
         internal_chat_message_metadata_passthrough: None,
@@ -131,6 +150,27 @@ fn parallel_function_calls_group_into_one_assistant_message() {
 }
 
 #[test]
+fn namespaced_function_call_history_uses_flattened_chat_name() {
+    let messages = responses_input_to_chat_messages(
+        &[namespaced_function_call(
+            "mcp__map_cards",
+            "create_map_card",
+            "{}",
+            "call_1",
+        )],
+        "",
+    );
+
+    let ChatMessage::AssistantWithToolCalls { tool_calls, .. } = &messages[0] else {
+        panic!("expected AssistantWithToolCalls, got {:?}", messages[0]);
+    };
+    assert_eq!(
+        tool_calls[0].function.name,
+        "mcp__map_cards__create_map_card"
+    );
+}
+
+#[test]
 fn function_call_output_becomes_tool_role_message() {
     let messages = responses_input_to_chat_messages(
         &[ResponseItem::FunctionCallOutput {
@@ -172,6 +212,24 @@ fn reasoning_items_are_dropped() {
         "",
     );
     assert_eq!(messages.len(), 1);
+}
+
+#[test]
+fn unsupported_audio_input_is_not_emitted_as_chat_text() {
+    let messages = responses_input_to_chat_messages(
+        &[ResponseItem::Message {
+            id: None,
+            role: "user".to_string(),
+            content: vec![ContentItem::InputAudio {
+                audio_url: "data:audio/wav;base64,AA==".to_string(),
+            }],
+            phase: None,
+            internal_chat_message_metadata_passthrough: None,
+        }],
+        "",
+    );
+
+    assert!(messages.is_empty());
 }
 
 #[test]
@@ -240,13 +298,56 @@ fn convert_function_tool_preserves_schema() {
     assert_eq!(value["function"]["name"], "get_weather");
     assert_eq!(value["function"]["strict"], true);
     assert_eq!(value["function"]["parameters"]["type"], "object");
+    assert_eq!(
+        chat_tools[0].target,
+        ChatToolTarget {
+            name: "get_weather".to_string(),
+            namespace: None,
+        }
+    );
 }
 
 #[test]
-fn convert_drops_non_function_tools() {
-    // web_search / image_generation / tool_search have no chat equivalent.
+fn convert_namespace_functions_for_chat_and_preserves_dispatch_target() {
+    let tools = vec![json!({
+        "type": "namespace",
+        "name": "mcp__map_cards",
+        "description": "Map card tools.",
+        "tools": [{
+            "type": "function",
+            "name": "create_map_card",
+            "description": "Create a map card.",
+            "strict": false,
+            "parameters": {"type": "object", "properties": {"title": {"type": "string"}}}
+        }]
+    })];
+
+    let chat_tools = responses_tools_to_chat_tools(&tools);
+
+    assert_eq!(chat_tools.len(), 1);
+    assert_eq!(
+        chat_tools[0].function.name,
+        "mcp__map_cards__create_map_card"
+    );
+    assert_eq!(
+        chat_tools[0].function.description,
+        "Map card tools.\n\nCreate a map card."
+    );
+    assert_eq!(
+        chat_tools[0].target,
+        ChatToolTarget {
+            name: "create_map_card".to_string(),
+            namespace: Some("mcp__map_cards".to_string()),
+        }
+    );
+}
+
+#[test]
+fn convert_keeps_responses_only_tools_hidden() {
     let tools = vec![
         json!({"type": "web_search"}),
+        json!({"type": "tool_search", "execution": "client", "parameters": {}}),
+        json!({"type": "custom", "name": "freeform", "format": {"type": "grammar"}}),
         json!({"type": "function", "name": "ok", "description": "", "strict": false, "parameters": {}}),
         json!({"type": "image_generation", "output_format": "png"}),
     ];
@@ -256,6 +357,34 @@ fn convert_drops_non_function_tools() {
     assert_eq!(value["function"]["name"], "ok");
     // strict=false should be omitted (skip_serializing_if).
     assert!(value["function"].get("strict").is_none());
+}
+
+#[test]
+fn convert_drops_duplicate_flattened_chat_names() {
+    let tools = vec![
+        json!({
+            "type": "namespace",
+            "name": "mcp__demo",
+            "description": "",
+            "tools": [{"type": "function", "name": "lookup", "parameters": {}}]
+        }),
+        json!({
+            "type": "function",
+            "name": "mcp__demo__lookup",
+            "parameters": {}
+        }),
+    ];
+
+    let chat_tools = responses_tools_to_chat_tools(&tools);
+
+    assert_eq!(chat_tools.len(), 1);
+    assert_eq!(
+        chat_tools[0].target,
+        ChatToolTarget {
+            name: "lookup".to_string(),
+            namespace: Some("mcp__demo".to_string()),
+        }
+    );
 }
 
 #[test]
@@ -270,4 +399,66 @@ fn strict_false_is_omitted_from_serialized_tool() {
     let chat_tools = responses_tools_to_chat_tools(&[value]);
     let serialized = serde_json::to_value(&chat_tools[0]).unwrap();
     assert!(serialized["function"].get("strict").is_none());
+}
+
+fn responses_request_with_tools(tools: Option<Vec<serde_json::Value>>) -> ResponsesApiRequest {
+    ResponsesApiRequest {
+        model: "third-party-reasoning-model".to_string(),
+        instructions: "be concise".to_string(),
+        input: vec![user_msg("hello")],
+        tools,
+        tool_choice: "auto".to_string(),
+        parallel_tool_calls: true,
+        reasoning: Some(Reasoning {
+            effort: Some(ReasoningEffortConfig::Ultra),
+            summary: None,
+            context: None,
+        }),
+        store: false,
+        stream: true,
+        stream_options: None,
+        include: Vec::new(),
+        service_tier: Some("priority".to_string()),
+        prompt_cache_key: None,
+        text: None,
+        client_metadata: None,
+    }
+}
+
+#[test]
+fn responses_request_conversion_owns_chat_wire_policy() {
+    let request = responses_request_with_tools(Some(vec![json!({
+        "type": "function",
+        "name": "lookup",
+        "description": "Look something up",
+        "parameters": {"type": "object"}
+    })]));
+
+    let chat = responses_request_to_chat_completions_request(request);
+
+    assert_eq!(chat.model, "third-party-reasoning-model");
+    assert_eq!(chat.tool_choice, "auto");
+    assert_eq!(chat.tools.len(), 1);
+    assert_eq!(chat.reasoning_effort, Some(ChatReasoningEffort::High));
+    assert_eq!(chat.service_tier.as_deref(), Some("priority"));
+    assert!(chat.stream);
+    assert!(chat.stream_options.include_usage);
+    assert!(matches!(
+        chat.messages.first(),
+        Some(ChatMessage::Text { role, content })
+            if role == "system" && content == "be concise"
+    ));
+}
+
+#[test]
+fn responses_request_conversion_disables_tool_choice_without_chat_safe_tools() {
+    let request = responses_request_with_tools(Some(vec![json!({
+        "type": "custom",
+        "name": "freeform"
+    })]));
+
+    let chat = responses_request_to_chat_completions_request(request);
+
+    assert!(chat.tools.is_empty());
+    assert_eq!(chat.tool_choice, "none");
 }

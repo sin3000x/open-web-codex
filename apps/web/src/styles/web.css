@@ -892,20 +892,6 @@ body {
 .web-msg-assistant-body th,
 .web-msg-assistant-body td { padding: 6px 8px; border: 1px solid var(--border); text-align: left; }
 
-.web-streaming-cursor {
-  display: inline-block;
-  width: 2px;
-  height: 1em;
-  background: #2563eb;
-  margin-left: 1px;
-  vertical-align: text-bottom;
-  animation: blink 0.8s step-end infinite;
-}
-
-@keyframes blink {
-  50% { opacity: 0; }
-}
-
 /* -- Reasoning block -- */
 
 .web-reasoning {
@@ -2149,13 +2135,17 @@ body {
   gap: var(--space-2);
   margin-top: var(--space-3);
 }
-.web-approval-actions button {
+.web-approval-actions :is(button, a) {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   min-height: 32px;
   padding: 0 var(--space-3);
   border-radius: var(--radius-sm);
   font: inherit;
   font-size: 12px;
   font-weight: 600;
+  text-decoration: none;
   cursor: pointer;
 }
 .web-approval-accept {
@@ -2460,4 +2450,491 @@ body {
   color: var(--text-muted);
   font-weight: 400;
   font-size: 11px;
+}
+
+.web-map-card {
+  width: min(100%, 680px);
+  margin: 12px 0;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  background: var(--bg-elevated);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
+}
+
+.web-map-card-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--border);
+}
+
+.web-map-card-title {
+  display: inline-flex;
+  min-width: 0;
+  flex: 1;
+  align-items: center;
+  gap: 8px;
+  color: var(--text-stronger);
+  font-weight: 650;
+}
+
+.web-map-card-title span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.web-map-card-status {
+  flex: 0 0 auto;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 3px 8px;
+  color: var(--text-muted);
+  font-size: 11px;
+}
+
+.web-map-card-fullscreen,
+.web-map-card-modal-close {
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--bg-surface);
+  color: var(--text-stronger);
+}
+
+.web-map-card-fullscreen {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 9px;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.web-map-card-fullscreen:hover {
+  border-color: #1d4ed8;
+  background: #1d4ed8;
+}
+
+.web-map-card-fullscreen:focus-visible {
+  outline: 2px solid #60a5fa;
+  outline-offset: 2px;
+}
+
+.web-map-card-canvas {
+  display: flex;
+  min-height: 180px;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  background: linear-gradient(135deg, rgba(37, 99, 235, 0.12), rgba(8, 145, 178, 0.1));
+  color: var(--text-muted);
+  text-align: center;
+}
+
+.web-map-card-canvas strong {
+  color: var(--text-stronger);
+  font-size: 14px;
+}
+
+.web-map-card-canvas span {
+  font-size: 12px;
+}
+
+.web-map-card-map-frame {
+  position: relative;
+  height: 320px;
+  min-height: 220px;
+  overflow: hidden;
+  background: #dbe4ec;
+}
+
+.web-map-card-mapbox {
+  position: absolute;
+  inset: 0;
+}
+
+.web-map-card-mapbox .mapboxgl-canvas {
+  outline: none;
+}
+
+.web-map-card-mapbox .mapboxgl-ctrl-group {
+  overflow: hidden;
+  border: 1px solid rgba(15, 23, 42, 0.12);
+  border-radius: 10px;
+  box-shadow: 0 4px 14px rgba(15, 23, 42, 0.14);
+}
+
+.web-map-card-map-state {
+  position: absolute;
+  z-index: 2;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: rgba(241, 245, 249, 0.86);
+  color: #475569;
+  text-align: center;
+  backdrop-filter: blur(3px);
+}
+
+.web-map-card-map-state.is-error {
+  align-content: center;
+  gap: 6px;
+  background: rgba(254, 242, 242, 0.94);
+  color: #991b1b;
+}
+
+.web-map-card-map-state.is-token-required {
+  background:
+    radial-gradient(circle at center, rgba(248, 250, 252, 0.2), rgba(226, 232, 240, 0.26));
+  color: #334155;
+  backdrop-filter: saturate(0.82);
+}
+
+.web-map-card-token-prompt {
+  display: grid;
+  width: min(380px, calc(100% - 40px));
+  box-sizing: border-box;
+  place-items: center;
+  gap: 7px;
+  border: 1px solid rgba(255, 255, 255, 0.9);
+  border-radius: 16px;
+  padding: 18px 22px;
+  background: rgba(255, 255, 255, 0.84);
+  box-shadow:
+    0 16px 40px rgba(51, 65, 85, 0.16),
+    inset 0 1px 0 rgba(255, 255, 255, 0.9);
+  color: #334155;
+  backdrop-filter: blur(8px);
+}
+
+.web-map-card-token-prompt > svg {
+  color: #2563eb;
+}
+
+.web-map-card-token-prompt strong {
+  color: #0f172a;
+}
+
+.web-map-card-map-state span {
+  max-width: 560px;
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
+.web-map-card-configure {
+  margin-top: 6px;
+  border: 0;
+  border-radius: 10px;
+  padding: 8px 13px;
+  background: #2563eb;
+  color: #fff;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 650;
+  cursor: pointer;
+}
+
+.web-map-card-configure:hover:not(:disabled) {
+  background: #1d4ed8;
+}
+
+.web-map-card-configure:disabled {
+  cursor: not-allowed;
+  opacity: 0.62;
+}
+
+.web-map-card-body {
+  padding: 12px;
+  color: var(--text-muted);
+}
+
+.web-map-card-body p {
+  margin: 0;
+}
+
+.web-map-card-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 14px;
+  margin-top: 12px;
+  font-size: 12px;
+}
+
+.web-map-card-legend strong {
+  flex-basis: 100%;
+  color: var(--text-stronger);
+}
+
+.web-map-card-legend span {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.web-map-card-legend i {
+  width: 10px;
+  height: 10px;
+  border: 1px solid rgba(15, 23, 42, 0.18);
+  border-radius: 999px;
+}
+
+.web-map-card-legend i[data-type="line"] {
+  width: 16px;
+  height: 3px;
+  border: 0;
+  border-radius: 999px;
+}
+
+.web-map-card-legend i[data-type="fill"] {
+  border-radius: 2px;
+}
+
+.web-map-card-hover .mapboxgl-popup-tip {
+  display: none;
+}
+
+.web-map-card-hover .mapboxgl-popup-content {
+  min-width: 180px;
+  max-width: min(320px, 72vw);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 12px;
+  background: var(--bg-elevated);
+  box-shadow: 0 12px 28px rgb(15 23 42 / 20%);
+  color: var(--text-primary);
+}
+
+.web-map-card-hover-content {
+  display: grid;
+  gap: 8px;
+  font: 12px/1.45 var(--font-ui);
+}
+
+.web-map-card-hover-content strong {
+  color: var(--text-primary);
+  font-size: 13px;
+}
+
+.web-map-card-hover-content dl {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  gap: 5px 10px;
+  margin: 0;
+}
+
+.web-map-card-hover-content dt {
+  color: var(--text-tertiary);
+}
+
+.web-map-card-hover-content dd {
+  min-width: 0;
+  margin: 0;
+  overflow-wrap: anywhere;
+  color: var(--text-secondary);
+}
+
+.web-map-card-modal {
+  position: fixed;
+  z-index: 1000;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+}
+
+.web-map-card-modal-backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.62);
+}
+
+.web-map-card-modal-panel {
+  position: relative;
+  width: min(1100px, 96vw);
+  max-height: 92vh;
+  overflow: auto;
+}
+
+.web-map-card-modal-panel .web-map-card {
+  width: 100%;
+  margin: 0;
+}
+
+.web-map-card-modal-panel .web-map-card-map-frame,
+.web-map-card-modal-panel .web-map-card-canvas {
+  height: min(62vh, 640px);
+}
+
+.web-map-card-modal-close {
+  float: right;
+  margin: 0 0 10px 10px;
+  padding: 6px 12px;
+}
+
+.web-map-config-modal {
+  position: fixed;
+  z-index: 1100;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 20px;
+}
+
+.web-map-config-backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(2, 6, 23, 0.7);
+  backdrop-filter: blur(4px);
+}
+
+.web-map-config-panel {
+  position: relative;
+  width: min(520px, 94vw);
+  border: 1px solid var(--border);
+  border-radius: 18px;
+  padding: 22px;
+  background: var(--bg-elevated);
+  box-shadow: 0 24px 80px rgba(2, 6, 23, 0.4);
+  color: var(--text-primary);
+}
+
+.web-map-config-heading {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.web-map-config-icon {
+  display: grid;
+  width: 36px;
+  height: 36px;
+  flex: 0 0 auto;
+  place-items: center;
+  border-radius: 10px;
+  background: rgba(37, 99, 235, 0.14);
+  color: #60a5fa;
+}
+
+.web-map-config-heading h2 {
+  margin: 0;
+  color: var(--text-stronger);
+  font-size: 17px;
+}
+
+.web-map-config-heading p {
+  margin: 5px 0 0;
+  color: var(--text-muted);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.web-map-config-field {
+  display: grid;
+  gap: 7px;
+  margin-top: 20px;
+  color: var(--text-stronger);
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.web-map-config-provider {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 4px;
+  margin-top: 20px;
+  border: 1px solid var(--border);
+  border-radius: 11px;
+  padding: 4px;
+  background: var(--bg-surface);
+}
+
+.web-map-config-provider button {
+  border: 0;
+  border-radius: 8px;
+  padding: 8px 12px;
+  background: transparent;
+  color: var(--text-muted);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 650;
+  cursor: pointer;
+}
+
+.web-map-config-provider button.is-active {
+  background: #2563eb;
+  color: #fff;
+  box-shadow: 0 3px 10px rgba(37, 99, 235, 0.24);
+}
+
+.web-map-config-field input {
+  width: 100%;
+  box-sizing: border-box;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 10px 12px;
+  background: var(--bg-surface);
+  color: var(--text-primary);
+  font: inherit;
+  font-weight: 400;
+}
+
+.web-map-config-field input:focus {
+  border-color: #3b82f6;
+  outline: 2px solid rgba(59, 130, 246, 0.2);
+  outline-offset: 1px;
+}
+
+.web-map-config-help {
+  margin: 9px 0 0;
+  color: var(--text-muted);
+  font-size: 12px;
+  line-height: 1.55;
+}
+
+.web-map-config-error {
+  margin-top: 12px;
+  border: 1px solid rgba(239, 68, 68, 0.35);
+  border-radius: 10px;
+  padding: 9px 11px;
+  background: rgba(239, 68, 68, 0.1);
+  color: #f87171;
+  font-size: 12px;
+}
+
+.web-map-config-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 9px;
+  margin-top: 20px;
+}
+
+.web-map-config-actions button {
+  border-radius: 10px;
+  padding: 8px 13px;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 650;
+  cursor: pointer;
+}
+
+.web-map-config-cancel {
+  border: 1px solid var(--border);
+  background: var(--bg-surface);
+  color: var(--text-primary);
+}
+
+.web-map-config-save {
+  border: 1px solid #2563eb;
+  background: #2563eb;
+  color: #fff;
+}
+
+.web-map-config-actions button:disabled {
+  cursor: wait;
+  opacity: 0.65;
 }

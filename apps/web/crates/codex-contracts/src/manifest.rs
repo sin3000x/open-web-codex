@@ -94,7 +94,10 @@ pub fn negotiate_capability_manifest(
     policy: &NegotiationPolicy,
 ) -> Result<NegotiationResult, ManifestError> {
     let (manifest, by_id) = parse_capability_manifest(manifest)?;
-    let client = parse_version(&policy.client_protocol_version, "policy.clientProtocolVersion")?;
+    let client = parse_version(
+        &policy.client_protocol_version,
+        "policy.clientProtocolVersion",
+    )?;
     let minimum = parse_version(
         &manifest.compatibility.minimum_client_protocol,
         "minimumClientProtocol",
@@ -124,7 +127,10 @@ pub fn negotiate_capability_manifest(
         let effective_status = match capability.status {
             CapabilityStatus::Experimental => {
                 let allowed = policy.allow_experimental
-                    || policy.allow_experimental_ids.iter().any(|entry| entry == &id);
+                    || policy
+                        .allow_experimental_ids
+                        .iter()
+                        .any(|entry| entry == &id);
                 if allowed {
                     CapabilityStatus::Supported
                 } else {
@@ -178,7 +184,9 @@ fn validate_status(capability: &CapabilityDeclaration) -> Result<(), ManifestErr
             }
         }
         CapabilityStatus::Experimental if !capability.experimental => {
-            return Err(ManifestError::MissingReason("experimental flag".to_string()));
+            return Err(ManifestError::MissingReason(
+                "experimental flag".to_string(),
+            ));
         }
         _ => {}
     }
@@ -202,11 +210,7 @@ fn parse_version(value: &str, field: &'static str) -> Result<[u32; 3], ManifestE
 fn compare_versions(left: &[u32; 3], right: &[u32; 3]) -> i32 {
     for index in 0..3 {
         if left[index] != right[index] {
-            return if left[index] < right[index] {
-                -1
-            } else {
-                1
-            };
+            return if left[index] < right[index] { -1 } else { 1 };
         }
     }
     0

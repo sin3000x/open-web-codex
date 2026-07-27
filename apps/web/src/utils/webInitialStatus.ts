@@ -22,14 +22,20 @@ export function parseInitialMcpServers(value: unknown): Record<string, WebMcpSer
 
   for (const candidate of data) {
     if (!isRecord(candidate) || typeof candidate.name !== "string" || !candidate.name) continue;
+    const projectedStatus = typeof candidate.status === "string"
+      ? candidate.status
+      : null;
     const hasInventory = isRecord(candidate.serverInfo)
       || (isRecord(candidate.tools) && Object.keys(candidate.tools).length > 0)
       || (Array.isArray(candidate.resources) && candidate.resources.length > 0)
       || (Array.isArray(candidate.resourceTemplates) && candidate.resourceTemplates.length > 0);
     servers[candidate.name] = {
       name: candidate.name,
-      status: hasInventory ? "ready" : "unavailable",
-      failureReason: candidate.authStatus === "notLoggedIn" ? "Authentication required" : null,
+      status: projectedStatus ?? (hasInventory ? "ready" : "unavailable"),
+      ...(typeof candidate.error === "string" ? { error: candidate.error } : {}),
+      failureReason: typeof candidate.failureReason === "string"
+        ? candidate.failureReason
+        : candidate.authStatus === "notLoggedIn" ? "Authentication required" : null,
     };
   }
 

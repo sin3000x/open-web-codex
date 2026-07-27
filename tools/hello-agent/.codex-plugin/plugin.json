@@ -1,0 +1,21 @@
+{
+  "name": "hello-agent",
+  "version": "0.1.0",
+  "description": "A minimal Python Tool example for learning Codex Agent development",
+  "author": {
+    "name": "Open Web Codex"
+  },
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "Hello Agent",
+    "shortDescription": "Learn how one Python function becomes an Agent Tool.",
+    "longDescription": "Adds one deterministic greeting Tool and one concise Skill as the smallest inspectable Codex Agent capability example.",
+    "developerName": "Open Web Codex",
+    "category": "Productivity",
+    "capabilities": [
+      "Structured greeting generation"
+    ],
+    "defaultPrompt": "Use the Hello Agent Tool to create one structured greeting."
+  },
+  "mcpServers": "./.mcp.json"
+}

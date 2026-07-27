@@ -10,6 +10,19 @@
     "moduleResolution": "bundler",
     "baseUrl": ".",
     "paths": {
+      "@tauri-apps/api/app": ["browser/browser/app.ts"],
+      "@tauri-apps/api/core": ["browser/browser/core.ts"],
+      "@tauri-apps/api/dpi": ["browser/browser/dpi.ts"],
+      "@tauri-apps/api/event": ["browser/browser/event.ts"],
+      "@tauri-apps/api/menu": ["browser/browser/menu.ts"],
+      "@tauri-apps/api/webview": ["browser/browser/webview.ts"],
+      "@tauri-apps/api/window": ["browser/browser/window.ts"],
+      "@tauri-apps/plugin-dialog": ["browser/browser/dialog.ts"],
+      "@tauri-apps/plugin-notification": ["browser/browser/notification.ts"],
+      "@tauri-apps/plugin-opener": ["browser/browser/opener.ts"],
+      "@tauri-apps/plugin-process": ["browser/browser/process.ts"],
+      "@tauri-apps/plugin-updater": ["browser/browser/updater.ts"],
+      "tauri-plugin-liquid-glass-api": ["browser/browser/liquidGlass.ts"],
       "@/*": ["src/*"],
       "@app/*": ["src/features/app/*"],
       "@settings/*": ["src/features/settings/*"],
@@ -29,6 +42,7 @@
     "noUnusedParameters": true,
     "noFallthroughCasesInSwitch": true
   },
-  "include": ["src"],
+  "include": ["src", "browser"],
+  "exclude": ["src/services/webClient.test.ts"],
   "references": [{ "path": "./tsconfig.node.json" }]
 }

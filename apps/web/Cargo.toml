@@ -3,20 +3,27 @@ resolver = "2"
 members = [
     "crates/codex-adapter",
     "crates/codex-contracts",
+    "crates/git-runtime",
+    "crates/auth",
+    "crates/approval-service",
     "crates/profile-host",
+    "crates/profile-registry",
     "crates/platform-contracts",
     "crates/platform-store",
+    "crates/provider-service",
+    "crates/run-orchestrator",
+    "crates/secret-store",
     "server",
-    "src-tauri",
 ]
 
 [workspace.dependencies]
+argon2 = "0.5.3"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 tokio = { version = "1", features = ["full"] }
-axum = "0.8"
+axum = { version = "0.8", features = ["ws"] }
 tower = "0.5"
-tower-http = { version = "0.6", features = ["cors", "trace"] }
+tower-http = { version = "0.6", features = ["fs", "trace"] }
 uuid = { version = "1", features = ["v7", "serde"] }
 chrono = { version = "0.4", features = ["serde"] }
 sqlx = { version = "0.9", default-features = false, features = [
@@ -36,3 +43,12 @@ hex = "0.4"
 rand = "0.8"
 sha2 = "0.10"
 reqwest = { version = "0.12", features = ["json", "stream"] }
+libc = "0.2"
+url = "2"
+base64 = "0.22"
+ring = "0.17"
+rand_core = { version = "0.6", features = ["getrandom"] }
+subtle = "2.6"
+zeroize = "1"
+tempfile = "3"
+toml_edit = "0.23"

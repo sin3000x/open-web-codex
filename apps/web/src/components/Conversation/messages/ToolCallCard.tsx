@@ -7,6 +7,11 @@ import Network from "lucide-react/dist/esm/icons/network";
 import Puzzle from "lucide-react/dist/esm/icons/puzzle";
 import Timer from "lucide-react/dist/esm/icons/timer";
 import Wrench from "lucide-react/dist/esm/icons/wrench";
+import ApprovalStatusIcon from "./ApprovalStatusIcon";
+import {
+  isApprovalOutcome,
+  type ApprovalStatus,
+} from "../../../utils/approvalStatus";
 
 type Props = {
   toolType: string;
@@ -15,6 +20,8 @@ type Props = {
   filePath?: string;
   detail?: string;
   output?: string;
+  approvalStatus?: ApprovalStatus;
+  approvalDetail?: string;
 };
 
 const STATUS_CLASS: Record<string, string> = {
@@ -23,6 +30,7 @@ const STATUS_CLASS: Record<string, string> = {
   done: "web-tool-status-done",
   error: "web-tool-status-error",
   failed: "web-tool-status-error",
+  interrupted: "web-tool-status-error",
 };
 
 function ToolIcon({ type }: { type: string }) {
@@ -36,7 +44,7 @@ function ToolIcon({ type }: { type: string }) {
   return <Wrench size={15} aria-hidden="true" />;
 }
 
-export default function ToolCallCard({ toolType, title, status, filePath, detail, output }: Props) {
+export default function ToolCallCard({ toolType, title, status, filePath, detail, output, approvalStatus, approvalDetail }: Props) {
   const sc = STATUS_CLASS[status.toLowerCase()] ?? "web-tool-status-running";
   const [open, setOpen] = useState(false);
   const expandable = Boolean(detail || output || filePath);
@@ -45,7 +53,7 @@ export default function ToolCallCard({ toolType, title, status, filePath, detail
       <button
         type="button"
         className="web-tool-card-header"
-        disabled={!expandable}
+        aria-disabled={!expandable}
         aria-expanded={expandable ? open : undefined}
         onClick={() => expandable && setOpen((current) => !current)}
       >
@@ -53,6 +61,9 @@ export default function ToolCallCard({ toolType, title, status, filePath, detail
         <ToolIcon type={toolType} />
         <span className="web-tool-name">{toolType}</span>
         <span>{title}</span>
+        {isApprovalOutcome(approvalStatus) && (
+          <ApprovalStatusIcon status={approvalStatus} detail={approvalDetail} />
+        )}
         <span className={`web-tool-status ${sc}`}>
           <span className="web-tool-status-dot" />
           {status}

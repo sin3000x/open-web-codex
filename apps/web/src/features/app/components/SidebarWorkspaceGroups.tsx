@@ -279,7 +279,7 @@ function SidebarWorkspaceEntry({
           <span className={`thread-status ${draftStatusClass}`} aria-hidden />
           <div className="thread-content">
             <div className="thread-headline">
-              <span className="thread-name">New Agent</span>
+              <span className="thread-name">Thread</span>
             </div>
           </div>
         </div>

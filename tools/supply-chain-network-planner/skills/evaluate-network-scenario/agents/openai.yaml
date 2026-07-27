@@ -1,0 +1,4 @@
+interface:
+  display_name: "Evaluate Network Scenario"
+  short_description: "Calculate current and what-if coverage and cost."
+  default_prompt: "Use $evaluate-network-scenario to calculate and compare this supply-chain network scenario."

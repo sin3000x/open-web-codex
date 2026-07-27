@@ -1,0 +1,30 @@
+{
+  "mcpServers": {
+    "map_utils": {
+      "command": "./bin/maps-mcp-launcher",
+      "args": [
+        "--workspace-root",
+        "."
+      ],
+      "cwd": ".",
+      "startup_timeout_sec": 60,
+      "tool_timeout_sec": 90,
+      "default_tools_approval_mode": "approve",
+      "env_vars": [
+        "OPEN_WEB_CODEX_MAPS_MCP_VENV",
+        "MAPS_MCP_VENV",
+        "OPEN_WEB_CODEX_DATA_DIR",
+        "OPEN_WEB_CODEX_LOG_DIR",
+        "OPEN_WEB_CODEX_MAPS_MCP_LAUNCHER_LOG",
+        "HTTP_PROXY",
+        "HTTPS_PROXY",
+        "ALL_PROXY",
+        "NO_PROXY",
+        "http_proxy",
+        "https_proxy",
+        "all_proxy",
+        "no_proxy"
+      ]
+    }
+  }
+}

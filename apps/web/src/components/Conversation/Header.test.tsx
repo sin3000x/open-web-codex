@@ -23,7 +23,7 @@ describe("Header", () => {
   });
 
   it("shows the thread name without exposing its id", () => {
-    render(
+    const { container } = render(
       <Header
         workspaceName="workspace"
         threadTitle="Generated title"
@@ -33,6 +33,10 @@ describe("Header", () => {
       />,
     );
 
-    expect(screen.getByText("Generated title")).toBeTruthy();
+    expect(container.querySelector(".web-chat-workspace")?.textContent).toBe("workspace");
+    expect(container.querySelector(".web-chat-title")?.textContent).toBe("Generated title");
+    expect(container.textContent).not.toContain("CodexMonitor");
+    expect(container.querySelectorAll(".web-chat-header-sep")).toHaveLength(1);
+    expect(container.querySelector(".web-chat-workspace-chevron")).toBeNull();
   });
 });

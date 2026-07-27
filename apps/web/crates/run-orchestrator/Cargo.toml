@@ -1,0 +1,19 @@
+[package]
+name = "open-web-codex-run-orchestrator"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+open-web-codex-adapter = { path = "../codex-adapter" }
+open-web-codex-git-runtime = { path = "../git-runtime" }
+
+chrono.workspace = true
+sqlx.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+thiserror.workspace = true
+uuid.workspace = true
+
+[dev-dependencies]
+open-web-codex-platform-store = { path = "../platform-store" }
+tempfile.workspace = true

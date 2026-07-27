@@ -157,6 +157,8 @@ pub enum InputModality {
     Text,
     /// Image attachments included in user turns.
     Image,
+    /// Audio attachments included in user turns.
+    Audio,
 }
 
 /// Backward-compatible default when `input_modalities` is omitted on the wire.
@@ -513,6 +515,8 @@ pub struct ModelMessages {
 pub struct ApprovalMessages {
     pub on_request: Option<String>,
     pub on_request_auto_review: Option<String>,
+    pub never: Option<String>,
+    pub unless_trusted: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq, TS, JsonSchema)]
@@ -597,61 +601,6 @@ impl From<&ModelUpgrade> for ModelInfoUpgrade {
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq, TS, JsonSchema, Default)]
 pub struct ModelsResponse {
     pub models: Vec<ModelInfo>,
-}
-
-/// Standard OpenAI `/v1/models` response entry format.
-#[derive(Debug, Deserialize, Clone)]
-pub struct OpenAiModelEntry {
-    pub id: String,
-    pub object: Option<String>,
-    pub created: Option<i64>,
-    pub owned_by: Option<String>,
-}
-
-impl From<OpenAiModelEntry> for ModelInfo {
-    fn from(entry: OpenAiModelEntry) -> Self {
-        Self {
-            slug: entry.id.clone(),
-            display_name: entry.id,
-            description: None,
-            default_reasoning_level: Some(ReasoningEffort::None),
-            supported_reasoning_levels: Vec::new(),
-            shell_type: ConfigShellToolType::ShellCommand,
-            visibility: ModelVisibility::List,
-            supported_in_api: true,
-            priority: 0,
-            additional_speed_tiers: Vec::new(),
-            service_tiers: Vec::new(),
-            default_service_tier: None,
-            availability_nux: None,
-            upgrade: None,
-            base_instructions: "base instructions".to_string(),
-            model_messages: None,
-            include_skills_usage_instructions: false,
-            supports_reasoning_summary_parameter: false,
-            default_reasoning_summary: ReasoningSummary::Auto,
-            support_verbosity: false,
-            default_verbosity: None,
-            apply_patch_tool_type: None,
-            web_search_tool_type: WebSearchToolType::Text,
-            truncation_policy: TruncationPolicyConfig::tokens(128_000),
-            supports_parallel_tool_calls: false,
-            supports_image_detail_original: false,
-            context_window: None,
-            max_context_window: None,
-            auto_compact_token_limit: None,
-            comp_hash: None,
-            effective_context_window_percent: 95,
-            experimental_supported_tools: Vec::new(),
-            input_modalities: default_input_modalities(),
-            used_fallback_model_metadata: false,
-            supports_search_tool: false,
-            use_responses_lite: false,
-            auto_review_model_override: None,
-            tool_mode: None,
-            multi_agent_version: None,
-        }
-    }
 }
 
 // convert ModelInfo to ModelPreset
@@ -818,7 +767,8 @@ mod tests {
                 "instructions_template": null,
                 "instructions_variables": null,
                 "approvals": {
-                    "on_request": ""
+                    "on_request": "",
+                    "never": ""
                 }
             }"#,
         )
@@ -829,6 +779,8 @@ mod tests {
             Some(ApprovalMessages {
                 on_request: Some(String::new()),
                 on_request_auto_review: None,
+                never: Some(String::new()),
+                unless_trusted: None,
             })
         );
     }
@@ -1156,12 +1108,15 @@ mod tests {
             "context_window": null,
             "auto_compact_token_limit": null,
             "effective_context_window_percent": 95,
-            "experimental_supported_tools": [],
-            "input_modalities": ["text", "image"]
+            "experimental_supported_tools": []
         }))
         .expect("deserialize model info");
 
         assert_eq!(model.availability_nux, None);
+        assert_eq!(
+            model.input_modalities,
+            vec![InputModality::Text, InputModality::Image]
+        );
         assert!(!model.include_skills_usage_instructions);
         assert!(model.supports_reasoning_summary_parameter);
         assert!(!model.supports_image_detail_original);

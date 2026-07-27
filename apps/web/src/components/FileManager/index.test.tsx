@@ -107,6 +107,45 @@ describe("FileManager", () => {
     expect(screen.getByText("Select a file to preview")).toBeTruthy();
   });
 
+  it("ignores a stale file listing after the active Thread changes", async () => {
+    let resolveOldFiles: (files: string[]) => void = () => undefined;
+    const oldFiles = new Promise<string[]>((resolve) => {
+      resolveOldFiles = resolve;
+    });
+    const commonProps = {
+      workspaceId: "workspace-1",
+      selectedPath: null,
+      onSelectedPathChange: vi.fn(),
+      onClose: vi.fn(),
+      panelWidth: 360,
+      onPanelWidthChange: vi.fn(),
+      readFile: vi.fn().mockResolvedValue({ content: "", truncated: false }),
+    };
+    const view = render(
+      <FileManager
+        {...commonProps}
+        listFiles={vi.fn().mockReturnValue(oldFiles)}
+        loadGitStatus={vi.fn().mockResolvedValue({ files: [] })}
+      />,
+    );
+
+    view.rerender(
+      <FileManager
+        {...commonProps}
+        listFiles={vi.fn().mockResolvedValue(["new-thread.txt"])}
+        loadGitStatus={vi.fn().mockResolvedValue({ files: [] })}
+      />,
+    );
+    expect(await screen.findByText("new-thread.txt")).toBeTruthy();
+
+    await act(async () => {
+      resolveOldFiles(["old-thread.txt"]);
+      await oldFiles;
+    });
+    expect(screen.queryByText("old-thread.txt")).toBeNull();
+    expect(screen.getByText("new-thread.txt")).toBeTruthy();
+  });
+
   it("collapses the file list independently from the panel", async () => {
     render(
       <FileManager

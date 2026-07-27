@@ -20,6 +20,7 @@ use crate::startup_sync::curated_plugins_repo_path;
 use crate::test_support::TEST_CURATED_PLUGIN_CACHE_VERSION;
 use crate::test_support::TEST_CURATED_PLUGIN_SHA;
 use crate::test_support::load_plugins_config as load_plugins_config_input;
+use crate::test_support::test_http_client_factory;
 use crate::test_support::write_curated_plugin;
 use crate::test_support::write_curated_plugin_sha_with as write_curated_plugin_sha;
 use crate::test_support::write_file;
@@ -42,13 +43,13 @@ use codex_config::types::McpServerTransportConfig;
 use codex_core_skills::PluginSkillSnapshots;
 use codex_core_skills::SkillsLoadInput;
 use codex_core_skills::SkillsService;
-use codex_core_skills::config_rules::SkillConfigRules;
 use codex_login::CodexAuth;
 use codex_plugin::AppDeclaration;
 use codex_plugin::PluginId;
 use codex_protocol::auth::AuthMode;
 use codex_protocol::protocol::HookEventName;
 use codex_protocol::protocol::Product;
+use codex_skills::SkillConfigRules;
 use codex_utils_absolute_path::AbsolutePathBuf;
 use codex_utils_absolute_path::test_support::PathBufExt;
 use pretty_assertions::assert_eq;
@@ -110,6 +111,7 @@ fn plugins_config_input_with_requirements(
         /*plugins_enabled*/ true,
         /*remote_plugin_enabled*/ false,
         String::new(),
+        test_http_client_factory(),
     )
 }
 
@@ -782,6 +784,7 @@ fn remote_installed_plugin_in_marketplace(
         enabled: true,
         install_policy: codex_app_server_protocol::PluginInstallPolicy::Available,
         install_policy_source: None,
+        must_show_installation_interstitial: None,
         auth_policy: codex_app_server_protocol::PluginAuthPolicy::OnUse,
         availability: codex_app_server_protocol::PluginAvailability::Available,
         interface: None,
@@ -1886,6 +1889,153 @@ async fn load_plugins_uses_manifest_configured_component_paths() {
 }
 
 #[tokio::test]
+async fn install_plugin_materializes_default_command_skills() {
+    let codex_home = TempDir::new().unwrap();
+    let source_root = codex_home.path().join("source/sample");
+
+    write_file(
+        &source_root.join(".codex-plugin/plugin.json"),
+        r#"{
+  "name": "sample",
+  "skills": "./custom-skills/"
+}"#,
+    );
+    fs::create_dir_all(source_root.join("custom-skills")).unwrap();
+    write_file(
+        &source_root.join("custom-skills/source-command-pr-review/SKILL.md"),
+        "---\nname: source-command-pr-review\ndescription: Native review skill\n---\n",
+    );
+    write_file(
+        &source_root.join("commands/pr/review.md"),
+        "---\ndescription: Review a pull request\n---\nInspect the proposed changes.\n",
+    );
+    write_file(
+        &source_root.join("commands/summarize.md"),
+        "---\ndescription: Summarize a change\n---\nSummarize the proposed changes.\n",
+    );
+    write_file(
+        &source_root.join("commands/oversized.md"),
+        &format!("---\ndescription: Oversized\n---\n{}", "x".repeat(4_000)),
+    );
+    write_file(
+        &source_root.join(".codex-plugin/migrated-command-skills/undeclared-command/SKILL.md"),
+        "---\nname: undeclared-command\ndescription: undeclared command\n---\n",
+    );
+    let result = PluginStore::new(codex_home.path().to_path_buf())
+        .install(
+            source_root.abs(),
+            PluginId::parse("sample@test").expect("plugin id should parse"),
+        )
+        .unwrap();
+    let migrated_skill = result
+        .installed_path
+        .join(".codex-plugin/migrated-command-skills/source-command-pr-review/SKILL.md");
+    let expected_migrated_skill = "---\nname: \"source-command-pr-review\"\ndescription: \"Review a pull request\"\n---\n\n# source-command-pr-review\n\nUse this skill when the user asks to run the migrated source command `pr-review`.\n\n## Command Template\n\nInspect the proposed changes.\n";
+    assert_eq!(
+        fs::read_to_string(&migrated_skill).unwrap(),
+        expected_migrated_skill
+    );
+    assert!(
+        !result
+            .installed_path
+            .join(".codex-plugin/migrated-command-skills/undeclared-command")
+            .exists()
+    );
+    assert!(
+        !result
+            .installed_path
+            .join(".codex-plugin/migrated-command-skills/source-command-oversized")
+            .exists()
+    );
+
+    let manifest = crate::manifest::load_plugin_manifest(&result.installed_path).unwrap();
+    let resolved = load_plugin_skills(
+        &result.installed_path,
+        &result.plugin_id,
+        &manifest,
+        /*restriction_product*/ None,
+        &SkillConfigRules::default(),
+        /*plugin_skill_snapshots*/ None,
+        Arc::new(Semaphore::new(MAX_CONCURRENT_ROOT_SCANS)),
+    )
+    .await;
+    assert_eq!(
+        resolved
+            .skills
+            .iter()
+            .map(|skill| skill.path_to_skills_md.clone())
+            .collect::<Vec<_>>(),
+        vec![
+            AbsolutePathBuf::from_absolute_path_checked(
+                fs::canonicalize(
+                    result
+                        .installed_path
+                        .join("custom-skills/source-command-pr-review/SKILL.md")
+                )
+                .unwrap()
+            )
+            .unwrap(),
+            AbsolutePathBuf::from_absolute_path_checked(
+                fs::canonicalize(result.installed_path.join(
+                    ".codex-plugin/migrated-command-skills/source-command-summarize/SKILL.md"
+                ))
+                .unwrap()
+            )
+            .unwrap()
+        ]
+    );
+}
+
+#[test]
+fn install_plugin_ignores_invalid_commands_manifest_field() {
+    let codex_home = TempDir::new().unwrap();
+    let source_root = codex_home.path().join("source/sample");
+    write_file(
+        &source_root.join(".codex-plugin/plugin.json"),
+        r#"{"name":"sample","commands":{}}"#,
+    );
+    write_file(
+        &source_root.join("commands/review.md"),
+        "---\ndescription: Review\n---\nReview the current change.\n",
+    );
+
+    let result = PluginStore::new(codex_home.path().to_path_buf())
+        .install(
+            source_root.abs(),
+            PluginId::parse("sample@test").expect("plugin id should parse"),
+        )
+        .unwrap();
+
+    assert!(
+        !result
+            .installed_path
+            .join(".codex-plugin/migrated-command-skills")
+            .exists()
+    );
+}
+
+#[test]
+fn install_plugin_ignores_command_migration_errors() {
+    let codex_home = TempDir::new().unwrap();
+    let source_root = codex_home.path().join("source/sample");
+    write_file(
+        &source_root.join(".codex-plugin/plugin.json"),
+        r#"{"name":"sample","commands":"./commands/review.md"}"#,
+    );
+    fs::create_dir_all(source_root.join("commands")).unwrap();
+    fs::write(source_root.join("commands/review.md"), [0xff]).unwrap();
+
+    let result = PluginStore::new(codex_home.path().to_path_buf())
+        .install(
+            source_root.abs(),
+            PluginId::parse("sample@test").expect("plugin id should parse"),
+        )
+        .unwrap();
+
+    assert!(result.installed_path.join("commands/review.md").is_file());
+}
+
+#[tokio::test]
 async fn load_plugin_skills_dedupes_overlapping_manifest_roots() {
     let codex_home = TempDir::new().unwrap();
     let plugin_root = codex_home
@@ -1928,6 +2078,7 @@ async fn load_plugin_skills_dedupes_overlapping_manifest_roots() {
         /*restriction_product*/ None,
         &SkillConfigRules::default(),
         /*plugin_skill_snapshots*/ None,
+        Arc::new(Semaphore::new(MAX_CONCURRENT_ROOT_SCANS)),
     )
     .await;
 
@@ -2477,6 +2628,7 @@ async fn plugin_cache_ignores_unrelated_session_overrides() {
             /*plugins_enabled*/ true,
             /*remote_plugin_enabled*/ false,
             "https://chatgpt.com".to_string(),
+            test_http_client_factory(),
         )
     };
     let manager = PluginsManager::new(codex_home.path().to_path_buf());
@@ -2850,6 +3002,10 @@ async fn install_plugin_writes_marketplace_manifest_fallback_when_missing_plugin
         "review skill",
     )
     .unwrap();
+    write_file(
+        &plugin_root.join("commands/review.md"),
+        "---\ndescription: Review code\n---\nReview the current change.\n",
+    );
     fs::write(
         repo_root.join(".agents/plugins/marketplace.json"),
         r#"{
@@ -2865,6 +3021,7 @@ async fn install_plugin_writes_marketplace_manifest_fallback_when_missing_plugin
       "skills": [
         "./skills/thermo-nuclear-code-quality-review"
       ],
+      "commands": ["./commands/review.md"],
       "category": "code-review"
     }
   ]
@@ -2930,6 +3087,14 @@ async fn install_plugin_writes_marketplace_manifest_fallback_when_missing_plugin
         serde_json::json!({ "name": "Byron Grogan" })
     );
     assert_eq!(fallback_json["category"], "code-review");
+    assert_eq!(
+        fs::read_to_string(
+            installed_path
+                .join(".codex-plugin/migrated-command-skills/source-command-review/SKILL.md")
+        )
+        .unwrap(),
+        "---\nname: \"source-command-review\"\ndescription: \"Review code\"\n---\n\n# source-command-review\n\nUse this skill when the user asks to run the migrated source command `review`.\n\n## Command Template\n\nReview the current change.\n"
+    );
 }
 
 #[tokio::test]
@@ -5822,6 +5987,7 @@ async fn load_plugins_ignores_project_config_files() {
         /*plugin_skill_snapshots*/ None,
         Some(Product::Codex),
         /*remote_global_catalog_active*/ false,
+        Arc::new(Semaphore::new(MAX_CONCURRENT_ROOT_SCANS)),
     )
     .await;
 
@@ -5908,9 +6074,10 @@ fn remote_installed_plugins_cache_refresh_coalesces_materializations() {
     };
     let request =
         |change, on_effective_plugins_changed| RemoteInstalledPluginsCacheRefreshRequest {
-            service_config: RemotePluginServiceConfig {
-                chatgpt_base_url: "https://example.com".to_string(),
-            },
+            service_config: RemotePluginServiceConfig::new(
+                "https://example.com".to_string(),
+                test_http_client_factory(),
+            ),
             auth: None,
             notify: RemoteInstalledPluginsCacheRefreshNotify::IfCacheChanged,
             on_effective_plugins_changed: Some(on_effective_plugins_changed),

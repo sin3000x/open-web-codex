@@ -395,7 +395,7 @@ describe("useQueuedSend", () => {
     expect(options.startReview).not.toHaveBeenCalled();
   });
 
-  it("routes /mcp to the MCP handler", async () => {
+  it("sends /mcp as a normal model-visible message", async () => {
     const startMcp = vi.fn().mockResolvedValue(undefined);
     const options = makeOptions({ startMcp });
     const { result } = renderHook((props) => useQueuedSend(props), {
@@ -406,8 +406,8 @@ describe("useQueuedSend", () => {
       await result.current.handleSend("/mcp now", ["img-1"]);
     });
 
-    expect(startMcp).toHaveBeenCalledWith("/mcp now");
-    expect(options.sendUserMessage).not.toHaveBeenCalled();
+    expect(startMcp).not.toHaveBeenCalled();
+    expect(options.sendUserMessage).toHaveBeenCalledWith("/mcp now", ["img-1"], undefined, { sendIntent: "default" });
     expect(options.startReview).not.toHaveBeenCalled();
   });
 

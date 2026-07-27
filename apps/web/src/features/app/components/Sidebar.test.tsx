@@ -653,7 +653,7 @@ describe("Sidebar", () => {
     expect(icon?.getAttribute("class") ?? "").toContain("spinning");
   });
 
-  it("shows a top New Agent draft row and selects workspace when clicked", () => {
+  it("shows a top Thread draft row and selects workspace when clicked", () => {
     const onSelectWorkspace = vi.fn();
     const props = {
       ...baseProps,
@@ -689,7 +689,7 @@ describe("Sidebar", () => {
 
     render(<Sidebar {...props} />);
 
-    const draftRow = screen.getByRole("button", { name: /new agent/i });
+    const draftRow = screen.getByRole("button", { name: /^thread$/i });
     expect(draftRow).toBeTruthy();
     expect(draftRow.className).toContain("thread-row-draft");
     expect(draftRow.className).toContain("active");

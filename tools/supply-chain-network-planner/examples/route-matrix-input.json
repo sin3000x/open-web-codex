@@ -1,0 +1,90 @@
+{
+  "provider": "example-navigation-provider",
+  "method": "navigation",
+  "entries": [
+    {
+      "origin_facility_id": "warehouse-shanghai",
+      "destination_demand_id": "demand-shanghai",
+      "distance_meters": 15000,
+      "travel_seconds": 3600,
+      "status": "ready"
+    },
+    {
+      "origin_facility_id": "warehouse-shanghai",
+      "destination_demand_id": "demand-suzhou",
+      "distance_meters": 105000,
+      "travel_seconds": 7200,
+      "status": "ready"
+    },
+    {
+      "origin_facility_id": "warehouse-shanghai",
+      "destination_demand_id": "demand-hangzhou",
+      "distance_meters": 185000,
+      "travel_seconds": 60000,
+      "status": "ready"
+    },
+    {
+      "origin_facility_id": "warehouse-nanjing",
+      "destination_demand_id": "demand-shanghai",
+      "distance_meters": 300000,
+      "travel_seconds": 18000,
+      "status": "ready"
+    },
+    {
+      "origin_facility_id": "warehouse-nanjing",
+      "destination_demand_id": "demand-suzhou",
+      "distance_meters": 215000,
+      "travel_seconds": 14400,
+      "status": "ready"
+    },
+    {
+      "origin_facility_id": "warehouse-nanjing",
+      "destination_demand_id": "demand-hangzhou",
+      "distance_meters": 275000,
+      "travel_seconds": 48000,
+      "status": "ready"
+    },
+    {
+      "origin_facility_id": "candidate-hangzhou",
+      "destination_demand_id": "demand-shanghai",
+      "distance_meters": 180000,
+      "travel_seconds": 10800,
+      "status": "ready"
+    },
+    {
+      "origin_facility_id": "candidate-hangzhou",
+      "destination_demand_id": "demand-suzhou",
+      "distance_meters": 165000,
+      "travel_seconds": 10800,
+      "status": "ready"
+    },
+    {
+      "origin_facility_id": "candidate-hangzhou",
+      "destination_demand_id": "demand-hangzhou",
+      "distance_meters": 12000,
+      "travel_seconds": 1800,
+      "status": "ready"
+    },
+    {
+      "origin_facility_id": "candidate-wuxi",
+      "destination_demand_id": "demand-shanghai",
+      "distance_meters": 140000,
+      "travel_seconds": 9000,
+      "status": "ready"
+    },
+    {
+      "origin_facility_id": "candidate-wuxi",
+      "destination_demand_id": "demand-suzhou",
+      "distance_meters": 52000,
+      "travel_seconds": 3600,
+      "status": "ready"
+    },
+    {
+      "origin_facility_id": "candidate-wuxi",
+      "destination_demand_id": "demand-hangzhou",
+      "distance_meters": 190000,
+      "travel_seconds": 12600,
+      "status": "ready"
+    }
+  ]
+}

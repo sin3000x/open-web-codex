@@ -1,0 +1,45 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="760" viewBox="0 0 1200 760" role="img" aria-labelledby="title desc">
+  <title id="title">供应链网络规划师参考架构</title>
+  <desc id="desc">供应链网络规划师由 Agent Profile、Domain Knowledge 与 Skills 构成，Skills 通过 MCP Layer 连接规划数据、地理路由、优化、模拟和交付能力。</desc>
+  <defs>
+    <style>
+      text { font-family: Inter, "Noto Sans SC", "Microsoft YaHei", sans-serif; fill: #172033; }
+      .title { font-size: 30px; font-weight: 700; }
+      .label { font-size: 23px; font-weight: 700; }
+      .body { font-size: 17px; fill: #46536b; }
+      .box { stroke-width: 2; rx: 18; }
+      .arrow { stroke: #66758f; stroke-width: 3; fill: none; marker-end: url(#arrow); }
+    </style>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#66758f"/>
+    </marker>
+  </defs>
+  <rect width="1200" height="760" fill="#f7f9fc"/>
+  <text x="600" y="48" text-anchor="middle" class="title">供应链网络规划师参考架构</text>
+
+  <rect x="70" y="78" width="1060" height="500" class="box" fill="#f0ecff" stroke="#7661c9"/>
+  <text x="600" y="118" text-anchor="middle" class="label">Supply Chain Network Planner</text>
+
+  <rect x="130" y="150" width="940" height="100" class="box" fill="#ffffff" stroke="#9383d2"/>
+  <text x="600" y="187" text-anchor="middle" class="label">Agent Profile</text>
+  <text x="600" y="222" text-anchor="middle" class="body">Identity · Responsibilities · Scope · Principles · Output Contract</text>
+
+  <rect x="130" y="290" width="430" height="235" class="box" fill="#ffffff" stroke="#9383d2"/>
+  <text x="345" y="330" text-anchor="middle" class="label">Domain Knowledge</text>
+  <text x="175" y="372" class="body">• 物流、运输与碳核算标准</text>
+  <text x="175" y="405" class="body">• 需求、订单与设施数据</text>
+  <text x="175" y="438" class="body">• 服务、库存与成本策略</text>
+  <text x="175" y="471" class="body">• 地理、路网与风险数据</text>
+
+  <rect x="640" y="290" width="430" height="235" class="box" fill="#ffffff" stroke="#9383d2"/>
+  <text x="855" y="330" text-anchor="middle" class="label">Skills</text>
+  <text x="685" y="372" class="body">• 需求基线与仓网选址</text>
+  <text x="685" y="405" class="body">• 多层网络与覆盖路由设计</text>
+  <text x="685" y="438" class="body">• 布局、产能、成本与时效模拟</text>
+  <text x="685" y="471" class="body">• 韧性、生命周期与方案校验</text>
+
+  <path d="M855 525 V625" class="arrow"/>
+  <rect x="130" y="625" width="940" height="100" class="box" fill="#eaf8f0" stroke="#3e9a68"/>
+  <text x="600" y="664" text-anchor="middle" class="label">MCP Layer</text>
+  <text x="600" y="699" text-anchor="middle" class="body">Planning Data · Geo / Routing · Optimization · Simulation · Deliverables</text>
+</svg>

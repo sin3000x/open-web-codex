@@ -68,7 +68,6 @@ type SlashCommandKind =
   | "compact"
   | "fast"
   | "fork"
-  | "mcp"
   | "new"
   | "resume"
   | "review"
@@ -83,9 +82,6 @@ function parseSlashCommand(text: string, appsEnabled: boolean): SlashCommandKind
   }
   if (/^\/fast\b/i.test(text)) {
     return "fast";
-  }
-  if (/^\/mcp\b/i.test(text)) {
-    return "mcp";
   }
   if (/^\/review\b/i.test(text)) {
     return "review";
@@ -124,7 +120,6 @@ export function useQueuedSend({
   startResume,
   startCompact,
   startApps,
-  startMcp,
   startFast,
   startStatus,
   clearActiveImages,
@@ -203,10 +198,6 @@ export function useQueuedSend({
         await startApps(trimmed);
         return;
       }
-      if (command === "mcp") {
-        await startMcp(trimmed);
-        return;
-      }
       if (command === "fast") {
         await startFast(trimmed);
         return;
@@ -231,7 +222,6 @@ export function useQueuedSend({
       startResume,
       startCompact,
       startApps,
-      startMcp,
       startFast,
       startStatus,
       startThreadForWorkspace,

@@ -115,7 +115,6 @@ fn serialize_environment_context_with_foreign_windows_cwd() {
 #[test]
 fn serialize_environment_context_with_network() {
     let network = NetworkContext::new(
-        /*enabled*/ true,
         vec!["api.example.com".to_string(), "*.openai.com".to_string()],
         vec!["blocked.example.com".to_string()],
     );
@@ -153,18 +152,21 @@ fn workspace_write_permission_profile_with_private_denials() -> PermissionProfil
                     value: FileSystemSpecialPath::project_roots(/*subpath*/ None),
                 },
                 access: FileSystemAccessMode::Write,
+                missing_path_behavior: None,
             },
             FileSystemSandboxEntry {
                 path: FileSystemPath::Special {
                     value: FileSystemSpecialPath::project_roots(Some("private".to_string())),
                 },
                 access: FileSystemAccessMode::Deny,
+                missing_path_behavior: None,
             },
             FileSystemSandboxEntry {
                 path: FileSystemPath::GlobPattern {
                     pattern: project_roots_glob_pattern(Path::new("private/**")),
                 },
                 access: FileSystemAccessMode::Deny,
+                missing_path_behavior: None,
             },
         ]),
         NetworkSandboxPolicy::Restricted,

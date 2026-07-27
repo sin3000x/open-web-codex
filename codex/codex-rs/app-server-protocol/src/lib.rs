@@ -8,10 +8,10 @@ mod schema_fixtures;
 
 pub use capability_manifest::*;
 pub use experimental_api::*;
-pub use manifest_method_policy::*;
 pub use export::GenerateTsOptions;
 pub use export::generate_internal_json_schema;
 pub use export::generate_json;
+pub use manifest_method_policy::*;
 
 pub use export::generate_json_with_experimental;
 pub use export::generate_ts;

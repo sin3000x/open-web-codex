@@ -1,6 +1,6 @@
+use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
-use chrono::{DateTime, Utc};
 
 /// Generic event envelope for platform-generated events.
 #[derive(Debug, Clone, Serialize, Deserialize)]

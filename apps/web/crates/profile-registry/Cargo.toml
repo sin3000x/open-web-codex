@@ -1,0 +1,10 @@
+[package]
+name = "open-web-codex-profile-registry"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+open-web-codex-profile-host = { path = "../profile-host" }
+
+thiserror.workspace = true
+tokio = { workspace = true, features = ["sync"] }

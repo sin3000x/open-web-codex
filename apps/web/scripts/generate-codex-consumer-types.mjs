@@ -48,7 +48,7 @@ export interface CapabilityDeclaration {
   status: CapabilityStatus;
   experimental?: boolean;
   methods: MethodSet;
-  limits: Record<string, string | number | boolean | null>;
+  limits?: Record<string, string | number | boolean | null>;
   reason?: StructuredReason;
   metadata?: Record<string, unknown>;
 }
@@ -147,6 +147,7 @@ pub struct CapabilityDeclaration {
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub experimental: bool,
     pub methods: MethodSet,
+    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
     pub limits: HashMap<String, serde_json::Value>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub reason: Option<StructuredReason>,

@@ -9,36 +9,54 @@ import type { GoalInfo } from "./components/Conversation/GoalBanner";
 import type { QueuedFollowUp } from "./components/Conversation/FollowUpQueue";
 import type { ModelProviderSummary, ModelSummary } from "./components/Conversation/Composer";
 import { parseModelListResponse } from "./features/models/utils/modelListResponse";
-import { appendTerminalInteractionOutput, buildWebThreadHistory, commandText, isUserThreadItem, mergeWebThreadHistory, unwrapWebRpcResult, webLogEntryFromThreadItem } from "./utils/webThreadHistory";
+import { agentMessagePhase, appendTerminalInteractionOutput, buildWebThreadHistory, commandText, isUserThreadItem, mergeWebThreadHistory, unwrapWebRpcResult, webLogEntryFromThreadItem } from "./utils/webThreadHistory";
 import { normalizeTokenUsage } from "./features/threads/utils/threadNormalize";
 import { normalizePlanUpdate } from "./features/threads/utils/threadNormalize";
 import { parseWebTurnDiff } from "./utils/webTurnDiff";
 import { isWebAppServerRecoveryEvent, parseCodexStderr, parseWebAppServerError } from "./utils/webAppServerError";
 import { parseWebUserInputRequest } from "./utils/webUserInput";
 import { summarizeWebAppServerEvent } from "./utils/webAppServerEventSummary";
+import { stripLeadingProviderSentinel } from "./utils/providerText";
 import { mergeRateLimits, parseInitialMcpServers, parseInitialRateLimits } from "./utils/webInitialStatus";
 import { appendWebLogEntry } from "./utils/webApprovalLog";
-import { loadWebApprovalHistory, resolveStoredWebApproval, saveWebApproval } from "./utils/webApprovalHistory";
 import { rememberAppServerEvent } from "./utils/webAppServerEventDedup";
 import { getAppServerThreadId } from "./utils/appServerEvents";
+import { finalizeInterruptedTurnEntries } from "./utils/webInterruptedTurn";
+import {
+  parseInlineVisualizationArtifact,
+  type InlineVisualizationArtifact,
+} from "./utils/replyCards";
+import {
+  isApprovalOutcome,
+  parseApprovalStatus,
+  type ApprovalStatus,
+} from "./utils/approvalStatus";
 import "./styles/web.css";
 import "./styles/web-refactor.css";
 
 /* ─────────── Types ─────────── */
 
+export type AgentMessagePhase = "commentary" | "final_answer";
+
 export type LogEntry = {
   id: string;
   level: "event" | "error" | "info" | "user" | "assistant" | "system";
   text: string;
+  messagePhase?: AgentMessagePhase;
   approvalId?: string;
   approvalRequestId?: number | string;
-  approvalStatus?: "pending" | "accepted" | "declined" | "resolved";
+  approvalStatus?: ApprovalStatus;
+  approvalMode?: string;
+  approvalUrl?: string;
+  approvalServerName?: string;
+  approvalTool?: string;
   kind?: "reasoning" | "tool" | "diff" | "approval" | "command_exec" | "connection";
   toolType?: string;
   toolTitle?: string;
   toolStatus?: string;
   toolDetail?: string;
   toolOutput?: string;
+  inlineArtifacts?: InlineVisualizationArtifact[];
   reasoningSummary?: string;
   filePath?: string;
   diffTitle?: string;
@@ -52,15 +70,30 @@ export type LogEntry = {
   cmdActions?: { type: string; path: string }[];
 };
 
+type WebEventLogEntry = Omit<LogEntry, "id"> & { id?: string };
+
 type GatewayState = "checking" | "online" | "offline";
 
 type ThreadInfo = {
   id: string;
   label: string;
   updatedAt: number;
+  modelProvider?: string | null;
+  model?: string | null;
   turnCount?: number;
   status?: string;
   optimistic?: boolean;
+  creationStatus?: "creating" | "failed";
+  creationError?: string;
+};
+
+type ThreadTranscriptCacheEntry = {
+  messages: LogEntry[];
+  updatedAt: number;
+  status: string;
+  thinking: boolean;
+  activeTurnId: string | null;
+  turnStartedAt: number | null;
 };
 
 function parseThreadStatus(value: unknown): string {
@@ -92,14 +125,32 @@ function extractThreadId(result: Record<string, unknown> | null | undefined) {
   return null;
 }
 
-function extractThreadIdFromEvent(event: AppServerEvent) {
-  const message = event.message ?? {};
-  if (message.method !== "thread/started") return null;
-  const params =
-    message.params && typeof message.params === "object"
-      ? (message.params as Record<string, unknown>)
-      : null;
-  return extractThreadId(params);
+function normalizeThreadName(value: unknown): string | null {
+  const name = typeof value === "string" ? value.trim() : "";
+  if (!name) return null;
+  return name === "New Agent" ? "Thread" : name;
+}
+
+function extractThreadName(result: Record<string, unknown> | null | undefined): string | null {
+  if (!result) return null;
+  const thread = result.thread;
+  if (thread && typeof thread === "object") {
+    const record = thread as Record<string, unknown>;
+    const candidates = [record.name, record.threadName, record.thread_name, record.title];
+    for (const candidate of candidates) {
+      const name = normalizeThreadName(candidate);
+      if (name) return name;
+    }
+  }
+  const candidates = [result.name, result.threadName, result.thread_name, result.title];
+  for (const candidate of candidates) {
+    const name = normalizeThreadName(candidate);
+    if (name) return name;
+  }
+  const inner = result.result;
+  return inner && typeof inner === "object"
+    ? extractThreadName(inner as Record<string, unknown>)
+    : null;
 }
 
 const newLogId = () =>
@@ -114,6 +165,64 @@ function parseThreadUpdatedAt(value: unknown): number {
   return 0;
 }
 
+function parseModelProviderCatalog(value: unknown): {
+  providers: ModelProviderSummary[];
+  currentProviderId: string | null;
+  currentModelId: string | null;
+} {
+  const payload = unwrapWebRpcResult(value);
+  const record = payload && typeof payload === "object"
+    ? payload as Record<string, unknown>
+    : {};
+  const currentProviderId = typeof record.currentProviderId === "string"
+    ? record.currentProviderId
+    : null;
+  const currentModelId = typeof record.currentModelId === "string"
+    ? record.currentModelId
+    : null;
+  const rawProviders = Array.isArray(record.data) ? record.data : [];
+  const providers = rawProviders.flatMap((value): ModelProviderSummary[] => {
+    if (!value || typeof value !== "object") return [];
+    const provider = value as Record<string, unknown>;
+    if (typeof provider.id !== "string" || typeof provider.name !== "string") return [];
+    const models = Array.isArray(provider.models) ? provider.models.flatMap((value) => {
+      if (!value || typeof value !== "object") return [];
+      const model = value as Record<string, unknown>;
+      if (typeof model.modelId !== "string" || model.showInPicker === false) return [];
+      return [{
+        modelId: model.modelId,
+        modelName: typeof model.modelName === "string" ? model.modelName : null,
+        contextWindow: typeof model.contextWindow === "number" ? model.contextWindow : null,
+      }];
+    }) : [];
+    return [{
+      id: provider.id,
+      name: provider.name,
+      kind: provider.kind === "local" || provider.kind === "custom" ? provider.kind : "builtIn",
+      isCurrent: provider.id === currentProviderId,
+      modelCount: models.length,
+      baseUrl: typeof provider.baseUrl === "string" ? provider.baseUrl : null,
+      envKey: typeof provider.envKey === "string" ? provider.envKey : null,
+      wireApi: typeof provider.wireApi === "string" ? provider.wireApi : "responses",
+      canEdit: provider.canEdit === true,
+      canDelete: provider.canDelete === true,
+      canFetchModels: provider.canFetchModels === true,
+      models,
+    }];
+  });
+  return { providers, currentProviderId, currentModelId };
+}
+
+function modelSummariesForProvider(
+  provider: ModelProviderSummary | undefined,
+): ModelSummary[] {
+  return (provider?.models ?? []).map((model) => ({
+    id: model.modelId,
+    model: model.modelId,
+    displayName: model.modelName ?? model.modelId,
+  }));
+}
+
 /* ─────────── Component ─────────── */
 
 export default function WebApp() {
@@ -126,6 +235,7 @@ export default function WebApp() {
   const [activeWorkspaceId, setActiveWorkspaceId] = useState<string | null>(null);
   const [activeThreadId, setActiveThreadId] = useState<string | null>(null);
   const [threadsByWorkspace, setThreadsByWorkspace] = useState<Record<string, ThreadInfo[]>>({});
+  const [threadLoading, setThreadLoading] = useState(false);
   const [draft, setDraft] = useState("");
   const [busy, setBusy] = useState(false);
   const [stopping, setStopping] = useState(false);
@@ -161,6 +271,11 @@ export default function WebApp() {
   const [selectedProviderModelId, setSelectedProviderModelId] = useState<string | null>(null);
   const [catalogLoading, setCatalogLoading] = useState(false);
   const [catalogError, setCatalogError] = useState<string | null>(null);
+  const activeThreadModelSelectionRef = useRef<{
+    threadId: string;
+    providerId: string;
+    modelId: string;
+  } | null>(null);
   const [theme, setTheme] = useState<"light" | "dark">(() =>
     localStorage.getItem("open-web-codex:theme") === "light" ? "light" : "dark",
   );
@@ -198,47 +313,26 @@ export default function WebApp() {
     setCatalogLoading(true);
     setCatalogError(null);
     try {
-      const [providerResponse, modelResponse] = await Promise.all([
-        client.listModelProviders(activeWorkspaceId),
-        client.listModels(activeWorkspaceId),
-      ]);
-      const providerPayload = unwrapWebRpcResult(providerResponse);
-      const providerRecord = providerPayload && typeof providerPayload === "object"
-        ? providerPayload as Record<string, unknown>
-        : {};
-      const rawProviders = Array.isArray(providerRecord.data) ? providerRecord.data : [];
-      const nextModels = parseModelListResponse(modelResponse);
-      setModelProviders(rawProviders.flatMap((value): ModelProviderSummary[] => {
-        if (!value || typeof value !== "object") return [];
-        const provider = value as Record<string, unknown>;
-        if (typeof provider.id !== "string" || typeof provider.name !== "string") return [];
-        return [{
-          id: provider.id,
-          name: provider.name,
-          kind: provider.kind === "local" || provider.kind === "custom" ? provider.kind : "builtIn",
-          isCurrent: provider.isCurrent === true,
-          modelCount: provider.isCurrent === true
-            ? nextModels.length
-            : typeof provider.modelCount === "number" ? provider.modelCount : 0,
-          baseUrl: typeof provider.baseUrl === "string" ? provider.baseUrl : null,
-          envKey: typeof provider.envKey === "string" ? provider.envKey : null,
-          wireApi: typeof provider.wireApi === "string" ? provider.wireApi : "responses",
-          canEdit: provider.canEdit === true,
-          canDelete: provider.canDelete === true,
-          canFetchModels: provider.canFetchModels === true,
-          models: Array.isArray(provider.models) ? provider.models.flatMap((value) => {
-            if (!value || typeof value !== "object") return [];
-            const model = value as Record<string, unknown>;
-            if (typeof model.modelId !== "string") return [];
-            return [{ modelId: model.modelId, modelName: typeof model.modelName === "string" ? model.modelName : null, contextWindow: typeof model.contextWindow === "number" ? model.contextWindow : null }];
-          }) : [],
-        }];
-      }));
-      setCurrentProviderId(typeof providerRecord.currentProviderId === "string" ? providerRecord.currentProviderId : null);
+      const providerResponse = await client.listModelProviders(activeWorkspaceId);
+      const catalog = parseModelProviderCatalog(providerResponse);
+      const threadSelection = activeThreadModelSelectionRef.current;
+      const selectedProviderId = threadSelection?.threadId === activeThreadIdRef.current
+        ? threadSelection.providerId
+        : catalog.currentProviderId;
+      const selectedModelId = threadSelection?.threadId === activeThreadIdRef.current
+        ? threadSelection.modelId
+        : catalog.currentModelId;
+      const selectedProvider = catalog.providers.find((provider) => provider.id === selectedProviderId);
+      const nextModels = modelSummariesForProvider(selectedProvider);
+      setModelProviders(catalog.providers.map((provider) => ({
+        ...provider,
+        isCurrent: provider.id === selectedProviderId,
+      })));
+      setCurrentProviderId(selectedProviderId);
       setProviderModels(nextModels);
-      setSelectedProviderModelId((selected) =>
-        selected && nextModels.some((model) => model.id === selected)
-          ? selected
+      setSelectedProviderModelId(
+        selectedModelId && nextModels.some((model) => model.id === selectedModelId)
+          ? selectedModelId
           : nextModels[0]?.id ?? null,
       );
     } catch (error) {
@@ -248,54 +342,146 @@ export default function WebApp() {
     }
   }, [activeWorkspaceId, client]);
 
+  const persistThreadModelSelection = useCallback(async (
+    workspaceId: string,
+    threadId: string | null,
+    providerId: string,
+    modelId: string,
+  ) => {
+    if (!threadId || threadId.startsWith("pending-thread:")) return;
+    await client.updateThreadModelSelection(workspaceId, threadId, providerId, modelId);
+    setThreadsByWorkspace((previous) => ({
+      ...previous,
+      [workspaceId]: (previous[workspaceId] ?? []).map((thread) =>
+        thread.id === threadId
+          ? { ...thread, modelProvider: providerId, model: modelId }
+          : thread),
+    }));
+    if (activeThreadIdRef.current === threadId) {
+      activeThreadModelSelectionRef.current = { threadId, providerId, modelId };
+    }
+  }, [client]);
+
+  const selectProviderAndDefaultModel = useCallback(async (providerId: string) => {
+    const workspaceId = activeWorkspaceId;
+    if (!workspaceId) return;
+    const previousProviderId = currentProviderId;
+    let switched = false;
+    setCatalogLoading(true);
+    setCatalogError(null);
+    try {
+      await client.writeModelProvider(workspaceId, { action: "select", id: providerId });
+      switched = true;
+      const modelResponse = await client.listModels(workspaceId);
+      const nextModels = parseModelListResponse(modelResponse);
+      const nextModel = nextModels.find((model) => model.isDefault) ?? nextModels[0];
+      if (!nextModel) {
+        throw new Error("This Provider has no selectable models");
+      }
+      await client.selectProviderModel(workspaceId, providerId, nextModel.model);
+      await persistThreadModelSelection(
+        workspaceId,
+        activeThreadId,
+        providerId,
+        nextModel.model,
+      );
+      setCurrentProviderId(providerId);
+      setProviderModels(nextModels);
+      setSelectedProviderModelId(nextModel.id);
+      await refreshModelCatalog();
+    } catch (error) {
+      if (switched && previousProviderId && previousProviderId !== providerId) {
+        try {
+          await client.writeModelProvider(workspaceId, {
+            action: "select",
+            id: previousProviderId,
+          });
+          await refreshModelCatalog();
+        } catch {
+          // Keep the original selection error; Refresh remains available.
+        }
+      }
+      setCatalogError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setCatalogLoading(false);
+    }
+  }, [activeThreadId, activeWorkspaceId, client, currentProviderId, persistThreadModelSelection, refreshModelCatalog]);
+
+  const selectThreadModel = useCallback(async (modelId: string) => {
+    const workspaceId = activeWorkspaceId;
+    const providerId = currentProviderId;
+    if (!workspaceId || !providerId) return;
+    const selected = providerModels.find((model) => model.id === modelId);
+    const model = selected?.model ?? modelId;
+    setSelectedProviderModelId(modelId);
+    setCatalogLoading(true);
+    setCatalogError(null);
+    try {
+      await client.selectProviderModel(workspaceId, providerId, model);
+      await persistThreadModelSelection(
+        workspaceId,
+        activeThreadId,
+        providerId,
+        model,
+      );
+    } catch (error) {
+      setCatalogError(error instanceof Error ? error.message : String(error));
+      await refreshModelCatalog();
+    } finally {
+      setCatalogLoading(false);
+    }
+  }, [activeThreadId, activeWorkspaceId, client, currentProviderId, persistThreadModelSelection, providerModels, refreshModelCatalog]);
+
   useEffect(() => {
     setModelProviders([]);
     setProviderModels([]);
     setSelectedProviderModelId(null);
     setCurrentProviderId(null);
     setCatalogError(null);
+    activeThreadModelSelectionRef.current = null;
     if (activeWorkspaceId) void refreshModelCatalog();
   }, [activeWorkspaceId, refreshModelCatalog]);
 
   useEffect(() => {
     setMcpServers({});
+    if (!activeWorkspaceId || !activeThreadId) return;
+
+    let cancelled = false;
+    void client.listMcpServerStatus(activeWorkspaceId, activeThreadId).then((value) => {
+      if (cancelled) return;
+      const snapshot = parseInitialMcpServers(value);
+      setMcpServers((current) => ({ ...snapshot, ...current }));
+    }).catch(() => {
+      // Runtime startup notifications continue to update this projection.
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [activeThreadId, activeWorkspaceId, client]);
+
+  useEffect(() => {
     setRateLimits(null);
     if (!activeWorkspaceId) return;
 
     let cancelled = false;
-    const initializeWorkspaceStatus = async () => {
-      try {
-        await client.connectWorkspace(activeWorkspaceId);
-      } catch {
-        return;
-      }
+    void client.getAccountRateLimits(activeWorkspaceId).then((value) => {
       if (cancelled) return;
+      const snapshot = parseInitialRateLimits(value);
+      setRateLimits((current) => mergeRateLimits(snapshot, current));
+    }).catch(() => {
+      // Rate limits are supplementary Profile state and never gate a Thread.
+    });
 
-      const [mcpResult, rateLimitResult] = await Promise.allSettled([
-        client.listMcpServerStatus(activeWorkspaceId),
-        client.getAccountRateLimits(activeWorkspaceId),
-      ]);
-      if (cancelled) return;
-      if (mcpResult.status === "fulfilled") {
-        const snapshot = parseInitialMcpServers(mcpResult.value);
-        setMcpServers((current) => ({ ...snapshot, ...current }));
-      }
-      if (rateLimitResult.status === "fulfilled") {
-        const snapshot = parseInitialRateLimits(rateLimitResult.value);
-        setRateLimits((current) => mergeRateLimits(snapshot, current));
-      }
-    };
-
-    void initializeWorkspaceStatus();
     return () => {
       cancelled = true;
     };
   }, [activeWorkspaceId, client]);
 
   const activeWorkspace = workspaces.find((w) => w.id === activeWorkspaceId) ?? null;
-  const listWorkspaceFiles = useCallback((workspaceId: string) => client.listWorkspaceFiles(workspaceId), [client]);
-  const readWorkspaceFile = useCallback((workspaceId: string, path: string) => client.readWorkspaceFile(workspaceId, path), [client]);
-  const loadWorkspaceGitStatus = useCallback((workspaceId: string) => client.getGitStatus(workspaceId), [client]);
+  const listWorkspaceFiles = useCallback((workspaceId: string) => client.listWorkspaceFiles(workspaceId, activeThreadId), [activeThreadId, client]);
+  const readWorkspaceFile = useCallback((workspaceId: string, path: string) => client.readWorkspaceFile(workspaceId, path, activeThreadId), [activeThreadId, client]);
+  const loadWorkspaceGitStatus = useCallback((workspaceId: string) => client.getGitStatus(workspaceId, activeThreadId), [activeThreadId, client]);
   const openFile = useCallback((path: string) => {
     const workspacePath = activeWorkspace?.path?.replace(/\/$/, "");
     const normalized = workspacePath && path.startsWith(`${workspacePath}/`) ? path.slice(workspacePath.length + 1) : path.replace(/^\//, "");
@@ -305,6 +491,7 @@ export default function WebApp() {
 
   // Streaming accumulators
   const streamingTexts = useRef<Map<string, string>>(new Map());
+  const agentMessagePhases = useRef<Map<string, AgentMessagePhase>>(new Map());
   const reasoningSummaries = useRef<Map<string, string>>(new Map());
   const streamingLogIds = useRef<Map<string, string>>(new Map());
   const turnDiffLogIds = useRef<Map<string, string>>(new Map());
@@ -317,23 +504,79 @@ export default function WebApp() {
   const threadHydrationSequence = useRef(0);
   const recentAppServerEvents = useRef<Map<string, number>>(new Map());
   const pendingApprovalsByThread = useRef<Map<string, LogEntry[]>>(new Map());
+  const threadTranscriptCache = useRef<Map<string, ThreadTranscriptCacheEntry>>(new Map());
   const refreshThreadsRef = useRef<((workspaceId?: string) => Promise<void>) | null>(null);
   const activeThreadIdRef = useRef(activeThreadId);
   activeThreadIdRef.current = activeThreadId;
+  const activeWorkspaceIdRef = useRef(activeWorkspaceId);
+  activeWorkspaceIdRef.current = activeWorkspaceId;
+
+  useEffect(() => {
+    // Workspace selection is intentionally workspace-first. A Thread becomes
+    // active only after the user selects or creates one, so no transcript or
+    // per-Thread runtime state may survive a workspace change.
+    activeThreadIdRef.current = null;
+    threadHydrationSequence.current += 1;
+    threadTranscriptCache.current.clear();
+    setActiveThreadId(null);
+    setThreadLoading(false);
+    setMessages([]);
+    setQueuedFollowUps([]);
+    setSteeringFollowUpId(null);
+    setUserInputRequests([]);
+    setTokenUsage(null);
+    setGoal(null);
+    setThinking(false);
+    setTurnStartedAt(null);
+    setThreadStatus("idle");
+    setActiveTurnId(null);
+    setStopping(false);
+    interruptRequestTurnId.current = null;
+  }, [activeWorkspaceId]);
+
+  useEffect(() => {
+    if (!activeWorkspaceId || !activeThreadId || threadLoading) return;
+    const selected = (threadsByWorkspace[activeWorkspaceId] ?? [])
+      .find((thread) => thread.id === activeThreadId);
+    threadTranscriptCache.current.set(activeThreadId, {
+      messages,
+      updatedAt: selected?.updatedAt ?? 0,
+      status: threadStatus,
+      thinking,
+      activeTurnId,
+      turnStartedAt,
+    });
+  }, [
+    activeThreadId,
+    activeTurnId,
+    activeWorkspaceId,
+    messages,
+    thinking,
+    threadLoading,
+    threadStatus,
+    threadsByWorkspace,
+    turnStartedAt,
+  ]);
+
   const appendLog = useCallback(
-    (level: LogEntry["level"], text: string, extra?: Partial<Omit<LogEntry, "id" | "level" | "text">>) => {
+    (
+      level: LogEntry["level"],
+      text: string,
+      extra?: Partial<Omit<LogEntry, "id" | "level" | "text">>,
+      id?: string,
+    ) => {
       setMessages((prev) => appendWebLogEntry(prev, {
-        id: newLogId(),
         level,
         text,
         ...extra,
+        id: id || newLogId(),
       }));
     },
     [],
   );
 
   const handleAppEvent = useCallback(
-    (event: AppServerEvent): (Partial<Omit<LogEntry, "id" | "level" | "text">> & { level: LogEntry["level"]; text: string }) | null => {
+    (event: AppServerEvent): WebEventLogEntry | null => {
       const message = event.message ?? {};
       const method = typeof message.method === "string" ? message.method : null;
       if (!method) return null;
@@ -342,14 +585,26 @@ export default function WebApp() {
         message.params && typeof message.params === "object"
           ? (message.params as Record<string, unknown>)
           : {};
+      const eventTurn = params.turn && typeof params.turn === "object"
+        ? params.turn as Record<string, unknown>
+        : null;
+      const eventTurnId = typeof params.turnId === "string"
+        ? params.turnId
+        : typeof params.turn_id === "string"
+          ? params.turn_id
+          : typeof eventTurn?.id === "string"
+            ? eventTurn.id
+            : null;
+      const belongsToInterruptedTurn = Boolean(
+        eventTurnId
+        && eventTurnId === interruptRequestTurnId.current,
+      );
 
       const eventThreadId = getAppServerThreadId(event);
       if (eventThreadId && event.workspace_id) {
         if (method === "thread/name/updated") {
           const rawName = params.threadName ?? params.thread_name;
-          const label = typeof rawName === "string" && rawName.trim()
-            ? rawName.trim()
-            : "Thread";
+          const label = normalizeThreadName(rawName) ?? "Thread";
           setThreadsByWorkspace((previous) => ({
             ...previous,
             [event.workspace_id]: (previous[event.workspace_id] ?? []).map((thread) =>
@@ -371,12 +626,22 @@ export default function WebApp() {
       }
       const belongsToBackgroundThread = Boolean(
         eventThreadId
-        && activeThreadIdRef.current
         && eventThreadId !== activeThreadIdRef.current,
       );
+      if (belongsToBackgroundThread && eventThreadId) {
+        threadTranscriptCache.current.delete(eventThreadId);
+      }
       if (
         belongsToBackgroundThread
         && method !== "item/commandExecution/requestApproval"
+        && method !== "serverRequest/resolved"
+      ) {
+        return null;
+      }
+      if (
+        belongsToInterruptedTurn
+        && method !== "turn/completed"
+        && method !== "thread/status/changed"
         && method !== "serverRequest/resolved"
       ) {
         return null;
@@ -416,26 +681,31 @@ export default function WebApp() {
           return null;
         }
 
-        case "turn/started":
+        case "turn/started": {
+          const turn = params.turn && typeof params.turn === "object"
+            ? params.turn as Record<string, unknown>
+            : null;
+          const startedTurnId = turn?.id ?? params.turnId ?? params.turn_id;
+          if (
+            typeof startedTurnId === "string"
+            && startedTurnId === interruptRequestTurnId.current
+          ) {
+            return null;
+          }
+          interruptRequestTurnId.current = null;
           setThinking(true);
           setTurnStartedAt(() => {
-            const turn = params.turn && typeof params.turn === "object"
-              ? params.turn as Record<string, unknown>
-              : null;
             const raw = turn?.startedAt ?? params.startedAt ?? params.started_at;
             return typeof raw === "number" && Number.isFinite(raw)
               ? raw < 10_000_000_000 ? raw * 1000 : raw
               : Date.now();
           });
           setThreadStatus("running");
-          setActiveTurnId(() => {
-            const turn = params.turn && typeof params.turn === "object"
-              ? params.turn as Record<string, unknown>
-              : null;
-            const id = turn?.id ?? params.turnId ?? params.turn_id;
-            return typeof id === "string" && id ? id : null;
-          });
+          setActiveTurnId(
+            typeof startedTurnId === "string" && startedTurnId ? startedTurnId : null,
+          );
           return null;
+        }
 
         case "turn/completed":
           // Keep the richer live transcript. The durable thread projection can omit
@@ -446,7 +716,6 @@ export default function WebApp() {
           setThreadStatus("idle");
           setActiveTurnId(null);
           setStopping(false);
-          interruptRequestTurnId.current = null;
           void refreshThreadsRef.current?.(event.workspace_id);
           setMessages((previous) => previous
             .filter((entry) => entry.kind !== "connection"
@@ -470,7 +739,6 @@ export default function WebApp() {
             setTurnStartedAt(null);
             setActiveTurnId(null);
             setStopping(false);
-            interruptRequestTurnId.current = null;
             return { level: "error" as const, text: parsed.text };
           }
           setThinking(true);
@@ -546,7 +814,7 @@ export default function WebApp() {
             );
             return null;
           }
-          const id = newLogId();
+          const id = itemId;
           streamingLogIds.current.set(key, id);
           setMessages((prev) => [
             ...prev.slice(-199),
@@ -568,21 +836,33 @@ export default function WebApp() {
           if (streamingTexts.current.has(`reason_${itemId}`)) return null;
 
           const current = streamingTexts.current.get(itemId) ?? "";
-          const updated = current + delta;
+          const updated = current + stripLeadingProviderSentinel(delta);
           streamingTexts.current.set(itemId, updated);
+          const streamingMessagePhase = agentMessagePhases.current.get(itemId);
 
           const existingLogId = streamingLogIds.current.get(itemId);
           if (existingLogId) {
             setMessages((prev) =>
-              prev.map((e) => (e.id === existingLogId ? { ...e, text: updated, streaming: true } : e)),
+              prev.map((e) => (e.id === existingLogId ? {
+                ...e,
+                text: updated,
+                messagePhase: e.messagePhase ?? streamingMessagePhase,
+                streaming: true,
+              } : e)),
             );
             return null;
           }
-          const id = newLogId();
+          const id = itemId;
           streamingLogIds.current.set(itemId, id);
           setMessages((prev) => [
             ...prev.slice(-199),
-            { id, level: "assistant", text: updated, streaming: true },
+            {
+              id,
+              level: "assistant",
+              text: updated,
+              messagePhase: streamingMessagePhase,
+              streaming: true,
+            },
           ]);
           return null;
         }
@@ -595,6 +875,14 @@ export default function WebApp() {
           const itemIdFromItem = typeof item?.id === "string" ? item.id : null;
           const itemType2 = typeof item.type === "string" ? item.type : null;
           const completedItemId = itemId ?? itemIdFromItem;
+          const completedMessagePhase = agentMessagePhase(item.phase)
+            ?? (completedItemId ? agentMessagePhases.current.get(completedItemId) : undefined);
+          const completedInlineArtifacts = Array.isArray(item.inlineArtifacts)
+            ? item.inlineArtifacts.flatMap((value) => {
+                const artifact = parseInlineVisualizationArtifact(value);
+                return artifact ? [artifact] : [];
+              })
+            : [];
           const completedReasoningSummary = (Array.isArray(item.summary) && item.summary.length > 0)
             ? item.summary.map((part) => String(part)).join("\n\n").trim()
             : typeof item.summary === "string" ? item.summary.trim() : "";
@@ -608,17 +896,37 @@ export default function WebApp() {
             if (completedItemId && streamingTexts.current.has(completedItemId)) {
               const acc = streamingTexts.current.get(completedItemId)!;
               const eid = streamingLogIds.current.get(completedItemId);
-              if (eid)
-                setMessages((prev) =>
-                  prev.map((e) => (e.id === eid ? { ...e, text: acc, streaming: false } : e)),
-                );
+              if (eid) {
+                setMessages((prev) => acc.trim()
+                  ? prev.map((e) => (e.id === eid ? {
+                      ...e,
+                      text: acc,
+                      messagePhase: completedMessagePhase ?? e.messagePhase,
+                      inlineArtifacts: completedInlineArtifacts.length
+                        ? completedInlineArtifacts
+                        : e.inlineArtifacts,
+                      streaming: false,
+                    } : e))
+                  : prev.filter((e) => e.id !== eid));
+              }
               streamingTexts.current.delete(completedItemId);
               streamingLogIds.current.delete(completedItemId);
+              agentMessagePhases.current.delete(completedItemId);
               return null;
             }
+            if (completedItemId) agentMessagePhases.current.delete(completedItemId);
+            const completedText = stripLeadingProviderSentinel(
+              typeof item.text === "string" ? item.text : "",
+            );
+            if (!completedText.trim()) return null;
             return {
+              id: completedItemId || undefined,
               level: "assistant",
-              text: (typeof item.text === "string" ? item.text : "") || "(no response)",
+              text: completedText,
+              messagePhase: completedMessagePhase,
+              inlineArtifacts: completedInlineArtifacts.length
+                ? completedInlineArtifacts
+                : undefined,
             };
           }
 
@@ -628,6 +936,7 @@ export default function WebApp() {
             const status = typeof item.status === "string" ? item.status : "";
             const filePath = typeof item.filePath === "string" ? item.filePath : undefined;
             return {
+              id: completedItemId || undefined,
               level: "info" as const,
               text: `${toolType}: ${title}`,
               kind: "tool" as const,
@@ -662,6 +971,7 @@ export default function WebApp() {
             }
             if (!completedReasoningContent && !completedReasoningSummary) return null;
             return {
+              id: completedItemId || undefined,
               level: "system" as const,
               text: completedReasoningContent || completedReasoningSummary,
               reasoningSummary: completedReasoningSummary || undefined,
@@ -682,6 +992,7 @@ export default function WebApp() {
                 return { type: "ctx" as const, text: l };
               });
             return {
+              id: completedItemId || undefined,
               level: "info" as const,
               text: title,
               kind: "diff" as const,
@@ -715,6 +1026,7 @@ export default function WebApp() {
             }
             if (!completedReasoningContent && !completedReasoningSummary) return null;
             return {
+              id: completedItemId || undefined,
               level: "system" as const,
               text: completedReasoningContent || completedReasoningSummary,
               reasoningSummary: completedReasoningSummary || undefined,
@@ -761,6 +1073,7 @@ export default function WebApp() {
               return null;
             }
             return {
+              id: completedItemId || undefined,
               level: "info" as const,
               text: cmd,
               kind: "command_exec" as const,
@@ -792,7 +1105,7 @@ export default function WebApp() {
           const startedItemId = typeof item?.id === "string" ? item.id : itemId;
           if (itemType === "commandExecution" && startedItemId) {
             const command = commandText(item?.command);
-            const id = newLogId();
+            const id = startedItemId;
             commandLogIds.current.set(startedItemId, id);
             commandOutputs.current.set(startedItemId, "");
             commandStartedAt.current.set(startedItemId, Date.now());
@@ -813,6 +1126,7 @@ export default function WebApp() {
           }
           if (itemKind === "tool") {
             return {
+              id: startedItemId || undefined,
               level: "info" as const,
               text: "",
               kind: "tool" as const,
@@ -824,7 +1138,7 @@ export default function WebApp() {
           if ((itemKind === "reasoning" || itemType === "reasoning") && startedItemId) {
             const key = `reason_${startedItemId}`;
             if (streamingLogIds.current.has(key)) return null;
-            const id = newLogId();
+            const id = startedItemId;
             streamingTexts.current.set(key, "");
             streamingLogIds.current.set(key, id);
             setMessages((previous) => [
@@ -837,6 +1151,44 @@ export default function WebApp() {
                 streaming: true,
               },
             ]);
+            return null;
+          }
+          if (itemType === "agentMessage" && startedItemId) {
+            const startedMessagePhase = agentMessagePhase(item?.phase);
+            if (startedMessagePhase) {
+              agentMessagePhases.current.set(startedItemId, startedMessagePhase);
+            }
+            const streamedText = streamingTexts.current.get(startedItemId) ?? "";
+            const completedText = stripLeadingProviderSentinel(
+              typeof item?.text === "string" ? item.text : "",
+            );
+            const text = streamedText || completedText;
+            const existingId = streamingLogIds.current.get(startedItemId);
+            if (existingId) {
+              setMessages((previous) => previous.map((entry) =>
+                entry.id === existingId
+                  ? {
+                    ...entry,
+                    text,
+                    messagePhase: startedMessagePhase ?? entry.messagePhase,
+                    streaming: true,
+                  }
+                  : entry));
+            } else if (text) {
+              const id = startedItemId;
+              streamingTexts.current.set(startedItemId, text);
+              streamingLogIds.current.set(startedItemId, id);
+              setMessages((previous) => [
+                ...previous.slice(-199),
+                {
+                  id,
+                  level: "assistant",
+                  text,
+                  messagePhase: startedMessagePhase,
+                  streaming: true,
+                },
+              ]);
+            }
             return null;
           }
           if (itemType) {
@@ -897,7 +1249,6 @@ export default function WebApp() {
           setTurnStartedAt(null);
           setActiveTurnId(null);
           setStopping(false);
-          interruptRequestTurnId.current = null;
           return { level: "error" as const, text: `Turn error: ${msg}` };
         }
 
@@ -906,6 +1257,12 @@ export default function WebApp() {
           const type = typeof status?.type === "string" ? status.type : "unknown";
           const activeFlags = Array.isArray(status?.activeFlags) ? (status as Record<string, unknown>).activeFlags as string[] : [];
           const flagsStr = activeFlags.length > 0 ? ":" + activeFlags.join(",") : "";
+          const statusTurnId = typeof params.turnId === "string"
+            ? params.turnId
+            : typeof params.turn_id === "string" ? params.turn_id : null;
+          if (type === "active" && statusTurnId === interruptRequestTurnId.current) {
+            return null;
+          }
           setThreadStatus(type + flagsStr);
           if (type === "active") {
             setThinking(true);
@@ -916,14 +1273,12 @@ export default function WebApp() {
             setTurnStartedAt(null);
             setActiveTurnId(null);
             setStopping(false);
-            interruptRequestTurnId.current = null;
           }
           if (type === "error") {
             setThinking(false);
             setTurnStartedAt(null);
             setActiveTurnId(null);
             setStopping(false);
-            interruptRequestTurnId.current = null;
             return { level: "error" as const, text: "Thread error" };
           }
           if (type === "systemError") {
@@ -931,7 +1286,6 @@ export default function WebApp() {
             setTurnStartedAt(null);
             setActiveTurnId(null);
             setStopping(false);
-            interruptRequestTurnId.current = null;
             return {
               level: "error" as const,
               text: "System error. The runtime did not provide any additional error details.",
@@ -1055,6 +1409,16 @@ export default function WebApp() {
           if (!cmd) return null;
           const requestId = message.id;
           const approvalId = typeof params.itemId === "string" ? params.itemId : undefined;
+          const approvalMode = typeof params.mode === "string" ? params.mode : undefined;
+          const approvalUrl = typeof params.url === "string" ? params.url : undefined;
+          const approvalServerName = typeof params.serverName === "string"
+            ? params.serverName
+            : undefined;
+          const approvalTool = typeof params.tool === "string"
+            ? params.tool
+            : typeof params.toolName === "string"
+              ? params.toolName
+              : cmd.match(/\btool\s+["“']([^"”']+)["”']/i)?.[1];
           const approvalThreadId = typeof params.threadId === "string"
             ? params.threadId
             : typeof params.thread_id === "string" ? params.thread_id : null;
@@ -1067,13 +1431,16 @@ export default function WebApp() {
               approvalId,
               approvalRequestId: requestId,
               approvalStatus: "pending",
+              approvalMode,
+              approvalUrl,
+              approvalServerName,
+              approvalTool,
             };
             const current = pendingApprovalsByThread.current.get(approvalThreadId) ?? [];
             pendingApprovalsByThread.current.set(
               approvalThreadId,
               appendWebLogEntry(current, cachedApproval),
             );
-            saveWebApproval(event.workspace_id, approvalThreadId, cachedApproval);
           }
           if (belongsToBackgroundThread) return null;
           if (approvalId && (typeof requestId === "number" || typeof requestId === "string")) {
@@ -1092,6 +1459,10 @@ export default function WebApp() {
                 ? requestId
                 : undefined,
             approvalStatus: "pending" as const,
+            approvalMode,
+            approvalUrl,
+            approvalServerName,
+            approvalTool,
           };
         }
 
@@ -1110,7 +1481,6 @@ export default function WebApp() {
         case "serverRequest/resolved": {
           const requestId = params.requestId ?? params.request_id;
           if (typeof requestId !== "number" && typeof requestId !== "string") return null;
-          resolveStoredWebApproval(event.workspace_id, requestId, "resolved");
           for (const [threadId, approvals] of pendingApprovalsByThread.current) {
             const remaining = approvals.filter((entry) => entry.approvalRequestId !== requestId);
             if (remaining.length > 0) pendingApprovalsByThread.current.set(threadId, remaining);
@@ -1120,11 +1490,14 @@ export default function WebApp() {
           setMessages((previous) => {
             const approval = previous.find((entry) =>
               entry.kind === "approval" && entry.approvalRequestId === requestId);
-            const status = approval?.approvalStatus === "accepted" || approval?.approvalStatus === "declined"
+            const status: LogEntry["approvalStatus"] = isApprovalOutcome(approval?.approvalStatus)
               ? approval.approvalStatus
-              : "resolved";
+              : parseApprovalStatus(params.approvalStatus) ?? "resolved";
             return previous
-              .filter((entry) => !(entry.kind === "approval" && entry.approvalRequestId === requestId))
+              .map((entry) => entry.kind === "approval"
+                && entry.approvalRequestId === requestId
+                ? { ...entry, approvalStatus: status }
+                : entry)
               .map((entry) => entry.kind === "command_exec"
                 && (entry.approvalRequestId === requestId
                   || (approval?.approvalId && entry.approvalId === approval.approvalId))
@@ -1204,22 +1577,42 @@ export default function WebApp() {
         setThreadsByWorkspace(prev => {
           const received = arr.map((t: Record<string, unknown>) => ({
             id: String(t.id ?? ""),
-            label: String(t.name ?? t.label ?? "Thread"),
+            label: normalizeThreadName(t.name ?? t.label) ?? "Thread",
             updatedAt: parseThreadUpdatedAt(t.updatedAt ?? t.updated_at),
+            modelProvider: typeof t.modelProvider === "string"
+              ? t.modelProvider
+              : typeof t.model_provider === "string" ? t.model_provider : null,
+            model: typeof t.model === "string" ? t.model : null,
             turnCount: typeof t.turnCount === "number" ? t.turnCount : undefined,
             status: parseThreadStatus(t.status),
             optimistic: false,
           }));
+          const existing = prev[wid] ?? [];
+          const merged = received.map((thread) => {
+            const optimistic = existing.find((candidate) => candidate.id === thread.id);
+            const shouldKeepReturnedName = Boolean(
+              optimistic?.optimistic
+              && optimistic.label !== "Thread"
+              && thread.label === "Thread",
+            );
+            return shouldKeepReturnedName
+              ? { ...thread, label: optimistic?.label ?? thread.label, optimistic: true }
+              : thread;
+          });
           // Newly started threads are not listed until their first persisted turn.
           // Preserve the optimistic entry until Runtime returns the canonical row.
-          const pending = (prev[wid] ?? []).filter(
+          // A newly returned Runtime name also wins over a stale placeholder in
+          // the first task-list refresh.
+          const pending = existing.filter(
             (thread) => thread.optimistic && !received.some((next) => next.id === thread.id),
           );
-          return { ...prev, [wid]: [...pending, ...received] };
+          return { ...prev, [wid]: [...pending, ...merged] };
         });
       }
-    } catch { /* not fatal */ }
-  }, [activeWorkspaceId, client, workspaces]);
+    } catch (error) {
+      appendLog("error", error instanceof Error ? error.message : String(error));
+    }
+  }, [activeWorkspaceId, appendLog, client, workspaces]);
   refreshThreadsRef.current = refreshThreads;
 
   const connectWorkspace = useCallback(async (id: string) => {
@@ -1240,14 +1633,12 @@ export default function WebApp() {
       (event) => {
         if (!rememberAppServerEvent(recentAppServerEvents.current, event)) return;
         // Accept events for any workspace; caller filters
-        const wsId = activeWorkspaceId;
+        const wsId = activeWorkspaceIdRef.current;
         if (wsId && event.workspace_id !== wsId) return;
-        const tid = extractThreadIdFromEvent(event);
-        if (tid && !activeThreadIdRef.current) setActiveThreadId(tid);
         const entry = handleAppEvent(event);
         if (entry) {
-          const { level, text, ...extra } = entry;
-          appendLog(level, text, extra);
+          const { id, level, text, ...extra } = entry;
+          appendLog(level, text, extra, id);
         }
       },
       { onOpen: () => setGatewayState("online"), onError: () => setGatewayState("offline") },
@@ -1296,6 +1687,7 @@ export default function WebApp() {
       });
       if (activeWorkspaceId === workspaceId) {
         setActiveWorkspaceId(null);
+        activeThreadIdRef.current = null;
         setActiveThreadId(null);
         setMessages([]);
       }
@@ -1308,13 +1700,48 @@ export default function WebApp() {
   }, [activeWorkspaceId, appendLog, client, refreshWorkspaces, workspaces]);
 
 
- const startThread = useCallback(async (workspaceId?: string): Promise<string | null> => {
+ const startThread = useCallback(async (
+   workspaceId?: string,
+   retryTemporaryId?: string,
+ ): Promise<string | null> => {
    const wid = workspaceId ?? activeWorkspaceId;
    if (!wid) return null;
-   setBusy(true);
+   const temporaryId = retryTemporaryId ?? `pending-thread:${newLogId()}`;
+   const startedAt = Date.now();
+   setActiveWorkspaceId(wid);
+   activeThreadIdRef.current = temporaryId;
+   setActiveThreadId(temporaryId);
+   setThreadLoading(false);
+   setMessages([]);
+   setTokenUsage(null);
+   setGoal(null);
+   setThinking(false);
+   setThreadStatus("idle");
+   setActiveTurnId(null);
+   setStopping(false);
+   interruptRequestTurnId.current = null;
+   setThreadsByWorkspace((previous) => {
+     const existing = previous[wid] ?? [];
+     const pending: ThreadInfo = {
+       id: temporaryId,
+       label: "Thread",
+       updatedAt: startedAt,
+       modelProvider: currentProviderId,
+       model: providerModels.find((model) => model.id === selectedProviderModelId)?.model
+         ?? selectedProviderModelId,
+       status: "creating",
+       optimistic: true,
+       creationStatus: "creating",
+     };
+     return {
+       ...previous,
+       [wid]: retryTemporaryId
+         ? existing.map((thread) => thread.id === temporaryId ? pending : thread)
+         : [pending, ...existing],
+     };
+   });
    try {
-     await connectWorkspace(wid);
-     setActiveWorkspaceId(wid);
+     await client.connectWorkspace(wid);
      const result = await client.startThread(wid);
      // Handle Codex CLI JSON-RPC error embedded in result
      if (result && typeof result === "object" && "error" in result) {
@@ -1323,9 +1750,49 @@ export default function WebApp() {
        throw new Error(msg);
      }
      const tid = extractThreadId(result);
-     if (tid) {
-       // A new thread must begin with a clean transcript, even before its first
-       // user message makes it into `thread/list`.
+     if (!tid) throw new Error("Server did not return a Thread ID");
+     const resultRecord = result && typeof result === "object"
+       ? result as Record<string, unknown>
+       : null;
+     const createdThread = resultRecord?.thread && typeof resultRecord.thread === "object"
+       ? resultRecord.thread as Record<string, unknown>
+       : null;
+     const createdProvider = typeof createdThread?.modelProvider === "string"
+       ? createdThread.modelProvider
+       : typeof createdThread?.model_provider === "string"
+         ? createdThread.model_provider
+         : currentProviderId;
+     const createdModel = typeof createdThread?.model === "string"
+       ? createdThread.model
+       : providerModels.find((model) => model.id === selectedProviderModelId)?.model
+         ?? selectedProviderModelId;
+     const createdName = extractThreadName(resultRecord) ?? "Thread";
+     setThreadsByWorkspace((previous) => {
+       const existing = previous[wid] ?? [];
+       const replaced = existing.map((thread) => thread.id === temporaryId
+         ? {
+             ...thread,
+             id: tid,
+             label: createdName,
+             status: "idle",
+             optimistic: true,
+             modelProvider: createdProvider,
+             model: createdModel,
+             creationStatus: undefined,
+             creationError: undefined,
+           }
+         : thread);
+       return {
+         ...previous,
+         [wid]: replaced.filter(
+           (thread, index) => replaced.findIndex((candidate) => candidate.id === thread.id) === index,
+         ),
+       };
+     });
+     // Bind only the matching temporary window. Concurrent creation responses
+     // may resolve in any order without stealing the currently selected Thread.
+     if (activeThreadIdRef.current === temporaryId) {
+       activeThreadIdRef.current = tid;
        setActiveThreadId(tid);
        setMessages([]);
        setTokenUsage(null);
@@ -1335,27 +1802,25 @@ export default function WebApp() {
      setActiveTurnId(null);
      setStopping(false);
      interruptRequestTurnId.current = null;
-       setThreadsByWorkspace((previous) => {
-         const existing = previous[wid] ?? [];
-         if (existing.some((thread) => thread.id === tid)) {
-           return previous;
-         }
-         return {
-           ...previous,
-           [wid]: [{ id: tid, label: "Thread", updatedAt: Date.now(), optimistic: true }, ...existing],
-         };
-       });
      }
      await refreshThreads(wid);
-     appendLog("info", `Started thread${tid ? ` ${tid}` : ""}.`);
      return tid;
    } catch (error) {
-     appendLog("error", error instanceof Error ? error.message : String(error));
+     const message = error instanceof Error ? error.message : String(error);
+     setThreadsByWorkspace((previous) => ({
+       ...previous,
+       [wid]: (previous[wid] ?? []).map((thread) => thread.id === temporaryId
+         ? {
+             ...thread,
+             status: "failed",
+             creationStatus: "failed",
+             creationError: message,
+           }
+         : thread),
+     }));
      return null;
-   } finally {
-     setBusy(false);
    }
-  }, [activeWorkspaceId, appendLog, client, connectWorkspace, refreshThreads]);
+  }, [activeWorkspaceId, client, currentProviderId, providerModels, refreshThreads, selectedProviderModelId]);
 
   const archiveThread = useCallback(async (workspaceId: string, threadId: string) => {
     const thread = (threadsByWorkspace[workspaceId] ?? []).find((candidate) => candidate.id === threadId);
@@ -1368,6 +1833,7 @@ export default function WebApp() {
         [workspaceId]: (previous[workspaceId] ?? []).filter((candidate) => candidate.id !== threadId),
       }));
       if (activeThreadId === threadId) {
+        activeThreadIdRef.current = null;
         setActiveThreadId(null);
         setMessages([]);
         setThreadStatus("idle");
@@ -1394,7 +1860,13 @@ export default function WebApp() {
     setBusy(true);
     try {
       const selectedModel = providerModels.find((model) => model.id === selectedProviderModelId);
-      const response = await client.sendUserMessage(targetWorkspaceId, targetThreadId, text, selectedModel?.model ?? selectedProviderModelId);
+      const response = await client.sendUserMessage(
+        targetWorkspaceId,
+        targetThreadId,
+        text,
+        selectedModel?.model ?? selectedProviderModelId,
+        currentProviderId,
+      );
       const payload = unwrapWebRpcResult(response);
       const record = payload && typeof payload === "object"
         ? payload as Record<string, unknown>
@@ -1404,6 +1876,18 @@ export default function WebApp() {
         : record;
       const turnId = turn?.id ?? record?.turnId ?? record?.turn_id;
       if (typeof turnId === "string" && turnId) setActiveTurnId(turnId);
+      const returnedThreadName = normalizeThreadName(
+        record?.threadName ?? record?.thread_name,
+      );
+      if (returnedThreadName && returnedThreadName !== "Thread") {
+        setThreadsByWorkspace((previous) => ({
+          ...previous,
+          [targetWorkspaceId]: (previous[targetWorkspaceId] ?? []).map((thread) =>
+            thread.id === targetThreadId && thread.label === "Thread"
+              ? { ...thread, label: returnedThreadName, optimistic: false }
+              : thread),
+        }));
+      }
       return true;
     } catch (error) {
       setThinking(false);
@@ -1415,7 +1899,7 @@ export default function WebApp() {
     } finally {
       setBusy(false);
     }
-  }, [activeThreadId, activeWorkspaceId, appendLog, client, providerModels, selectedProviderModelId]);
+  }, [activeThreadId, activeWorkspaceId, appendLog, client, currentProviderId, providerModels, selectedProviderModelId]);
 
   const sendMessage = useCallback(async () => {
     const text = draft.trim();
@@ -1449,11 +1933,27 @@ export default function WebApp() {
     if (!stopping || !activeWorkspaceId || !activeThreadId || !activeTurnId) return;
     if (interruptRequestTurnId.current === activeTurnId) return;
     interruptRequestTurnId.current = activeTurnId;
-    void client.interruptTurn(activeWorkspaceId, activeThreadId, activeTurnId).catch((error) => {
-      if (interruptRequestTurnId.current === activeTurnId) interruptRequestTurnId.current = null;
-      setStopping(false);
-      appendLog("error", error instanceof Error ? error.message : String(error));
-    });
+    void client.interruptTurn(activeWorkspaceId, activeThreadId, activeTurnId)
+      .then(() => {
+        if (interruptRequestTurnId.current !== activeTurnId) return;
+        setThinking(false);
+        setTurnStartedAt(null);
+        setThreadStatus("idle");
+        setActiveTurnId(null);
+        setStopping(false);
+        setMessages(finalizeInterruptedTurnEntries);
+        setThreadsByWorkspace((previous) => ({
+          ...previous,
+          [activeWorkspaceId]: (previous[activeWorkspaceId] ?? []).map((thread) =>
+            thread.id === activeThreadId ? { ...thread, status: "idle" } : thread),
+        }));
+        void refreshThreadsRef.current?.(activeWorkspaceId);
+      })
+      .catch((error) => {
+        if (interruptRequestTurnId.current === activeTurnId) interruptRequestTurnId.current = null;
+        setStopping(false);
+        appendLog("error", error instanceof Error ? error.message : String(error));
+      });
   }, [activeThreadId, activeTurnId, activeWorkspaceId, appendLog, client, stopping]);
 
   useEffect(() => {
@@ -1509,11 +2009,6 @@ export default function WebApp() {
   ) => {
     try {
       await client.respondToServerRequest(workspaceId, requestId, { decision });
-      resolveStoredWebApproval(
-        workspaceId,
-        requestId,
-        decision === "accept" ? "accepted" : "declined",
-      );
       for (const [threadId, approvals] of pendingApprovalsByThread.current) {
         pendingApprovalsByThread.current.set(threadId, approvals.map((entry) =>
           entry.approvalRequestId === requestId
@@ -1534,64 +2029,117 @@ export default function WebApp() {
   const selectThread = useCallback(async (id: string) => {
     const hydrationSequence = threadHydrationSequence.current + 1;
     threadHydrationSequence.current = hydrationSequence;
+    activeThreadIdRef.current = id;
+    // Thread selection is a single visual state transition. Do not let the new
+    // transcript inherit live-turn state from the previously selected Thread,
+    // otherwise its last historical Turn renders expanded for one frame.
+    setThinking(false);
+    setThreadStatus("idle");
+    setTurnStartedAt(null);
     setActiveThreadId(id);
-    const restoredApprovals = activeWorkspaceId
-      ? loadWebApprovalHistory(activeWorkspaceId, id)
-      : [];
-    setMessages(mergeWebThreadHistory(
-      restoredApprovals,
-      pendingApprovalsByThread.current.get(id) ?? [],
-    ));
+    const selected = activeWorkspaceId
+      ? (threadsByWorkspace[activeWorkspaceId] ?? []).find((thread) => thread.id === id)
+      : undefined;
+    const threadProvider = selected?.modelProvider ?? null;
+    const threadModel = selected?.model ?? null;
+    activeThreadModelSelectionRef.current = threadProvider && threadModel
+      ? { threadId: id, providerId: threadProvider, modelId: threadModel }
+      : null;
+    if (selected?.creationStatus) {
+      setThreadLoading(false);
+      setMessages([]);
+      setTokenUsage(null);
+      setGoal(null);
+      setActiveTurnId(null);
+      setStopping(false);
+      interruptRequestTurnId.current = null;
+      return;
+    }
+    setThreadLoading(true);
+    setMessages(pendingApprovalsByThread.current.get(id) ?? []);
     setTokenUsage(null);
     setGoal(null);
     setActiveTurnId(null);
     setStopping(false);
     interruptRequestTurnId.current = null;
     const wid = activeWorkspaceId;
-    if (!wid) return;
-    try {
-      let resumed: Record<string, unknown> | null = null;
-      // Resuming an already-active thread may be rejected; history remains readable.
-      try {
-        resumed = await client.resumeThread(wid, id);
-      } catch {
-        // Best effort: `thread/read` below is the source for the browser projection.
+    if (!wid) {
+      setThreadLoading(false);
+      return;
+    }
+    if (threadProvider && threadModel) {
+      const cachedProvider = modelProviders.find((provider) => provider.id === threadProvider);
+      const cachedModels = modelSummariesForProvider(cachedProvider);
+      const immediateModels = cachedModels.length > 0
+        ? cachedModels
+        : [{ id: threadModel, model: threadModel, displayName: threadModel }];
+      setModelProviders((providers) => providers.map((provider) => ({
+        ...provider,
+        isCurrent: provider.id === threadProvider,
+      })));
+      setCurrentProviderId(threadProvider);
+      setProviderModels(immediateModels);
+      setSelectedProviderModelId(
+        immediateModels.find((model) => model.model === threadModel)?.id
+          ?? immediateModels[0]?.id
+          ?? null,
+      );
+      if (cachedModels.length === 0) {
+        // A catalog miss must not delay transcript hydration. This read-only
+        // lookup fills the picker after the Thread has already become usable.
+        void client.listModels(wid, threadProvider, threadModel).then((response) => {
+          if (threadHydrationSequence.current !== hydrationSequence) return;
+          const nextModels = parseModelListResponse(response);
+          if (nextModels.length === 0) return;
+          setProviderModels(nextModels);
+          setSelectedProviderModelId(
+            nextModels.find((model) => model.model === threadModel)?.id
+              ?? nextModels[0]?.id
+              ?? null,
+          );
+        }).catch((error) => {
+          if (threadHydrationSequence.current !== hydrationSequence) return;
+          setCatalogError(error instanceof Error ? error.message : String(error));
+        });
       }
-      // A resumed thread is the source for live status, but its embedded turns
-      // may be a summary projection. Request persisted turns explicitly with
-      // `itemsView: full` so history restores commands, reasoning, diffs, MCP
-      // calls, and other non-message items. Older runtimes fall back to read.
-      let persistedTurns: Record<string, unknown>[] | null = null;
-      try {
-        persistedTurns = await client.listThreadTurns(wid, id);
-      } catch {
-        // The paginated history API is experimental and may be absent on an
-        // older app-server; retain compatibility with thread/read.
-      }
-      const raw = resumed ?? await client.readThread(wid, id);
-      const payload = unwrapWebRpcResult(raw);
-      const obj = payload && typeof payload === "object"
-        ? payload as Record<string, unknown>
-        : {};
-      const thread = obj.thread && typeof obj.thread === "object"
-        ? obj.thread as Record<string, unknown>
-        : undefined;
-      const embeddedTurns = Array.isArray(thread?.turns)
-        ? thread.turns as Record<string, unknown>[]
-        : Array.isArray(obj.turns)
-          ? obj.turns as Record<string, unknown>[]
-          : [];
-      const turns = persistedTurns && persistedTurns.length > 0
-        ? persistedTurns
-        : embeddedTurns;
-      const status = thread?.status;
-      if (status && typeof status === "object") {
-        const statusType = (status as Record<string, unknown>).type;
-        if (typeof statusType === "string") {
-          setThreadStatus(statusType);
-          setThinking(statusType === "active");
+    }
+    const cachedTranscript = threadTranscriptCache.current.get(id);
+    const selectedIsActive = ["active", "running", "inProgress", "reconnecting"]
+      .includes(parseThreadStatus(selected?.status));
+    if (
+      cachedTranscript
+      && !selectedIsActive
+      && cachedTranscript.updatedAt >= (selected?.updatedAt ?? 0)
+    ) {
+      setMessages(cachedTranscript.messages);
+      setThreadStatus(cachedTranscript.status);
+      setThinking(cachedTranscript.thinking);
+      setActiveTurnId(cachedTranscript.activeTurnId);
+      setTurnStartedAt(cachedTranscript.turnStartedAt);
+      setThreadLoading(false);
+      return;
+    }
+    const revealHydratedThread = () => {
+      const reveal = () => {
+        if (threadHydrationSequence.current === hydrationSequence) {
+          setThreadLoading(false);
         }
+      };
+      if (typeof window.requestAnimationFrame === "function") {
+        window.requestAnimationFrame(reveal);
+      } else {
+        window.setTimeout(reveal, 0);
       }
+    };
+    try {
+      // `thread/turns/list` is the authoritative full-fidelity history source.
+      // The adapter resumes an unbound Runtime Thread internally, so an
+      // additional thread/read or explicit resume only duplicates work.
+      const turns = await client.listThreadTurns(wid, id);
+      if (threadHydrationSequence.current !== hydrationSequence) return;
+      const statusType = parseThreadStatus(selected?.status);
+      setThreadStatus(statusType);
+      setThinking(["active", "running", "inProgress"].includes(statusType));
       const activeTurn = [...turns].reverse().find((turn) => {
         const turnStatus = turn.status;
         return turnStatus === "inProgress"
@@ -1601,35 +2149,51 @@ export default function WebApp() {
       });
       setActiveTurnId(typeof activeTurn?.id === "string" ? activeTurn.id : null);
       if (activeTurn) {
-        const rawStartedAt = activeTurn.startedAt ?? activeTurn.started_at;
+        const rawStartedAt = activeTurn.startedAt;
         setTurnStartedAt(typeof rawStartedAt === "number" && Number.isFinite(rawStartedAt)
           ? rawStartedAt < 10_000_000_000 ? rawStartedAt * 1000 : rawStartedAt
           : Date.now());
       } else {
         setTurnStartedAt(null);
       }
-      const historyThread = thread
-        ? { ...thread, turns }
-        : { turns, status: obj.status };
+      const historyThread = {
+        id,
+        turns,
+        status: { type: statusType },
+      };
       const loaded = buildWebThreadHistory(historyThread, newLogId);
-      if (threadHydrationSequence.current !== hydrationSequence) return;
       setMessages((current) => mergeWebThreadHistory(loaded, current));
-    } catch { /* history load is best-effort */ }
-  }, [activeWorkspaceId, client]);
+      revealHydratedThread();
+    } catch (error) {
+      if (threadHydrationSequence.current !== hydrationSequence) return;
+      setMessages((current) => appendWebLogEntry(current, {
+        id: newLogId(),
+        level: "error",
+        text: error instanceof Error ? error.message : "Thread history could not be loaded",
+      }));
+      revealHydratedThread();
+    }
+  }, [activeWorkspaceId, client, modelProviders, threadsByWorkspace]);
 
   /* ─── Render ─── */
 
   const activeUserInputRequest = userInputRequests.find((request) =>
     request.workspace_id === activeWorkspaceId && request.params.thread_id === activeThreadId,
   ) ?? null;
-  const activeThreadTitle = activeWorkspaceId && activeThreadId
-    ? threadsByWorkspace[activeWorkspaceId]?.find((thread) => thread.id === activeThreadId)?.label ?? "Thread"
+  const activeThread = activeWorkspaceId && activeThreadId
+    ? threadsByWorkspace[activeWorkspaceId]?.find((thread) => thread.id === activeThreadId) ?? null
     : null;
+  const activeThreadTitle = activeThread?.label ?? (activeThreadId ? "Thread" : null);
+  const retryActiveThreadCreation = () => {
+    if (!activeWorkspaceId || activeThread?.creationStatus !== "failed") return;
+    void startThread(activeWorkspaceId, activeThread.id);
+  };
 
   return (
     <Layout
       theme={theme}
       sidebarCollapsed={sidebarCollapsed}
+      onDismissSidebar={() => setSidebarCollapsed(true)}
       rightPanelOpen={filePanelOpen}
       rightPanelWidth={filePanelWidth}
       rightPanel={
@@ -1682,6 +2246,10 @@ export default function WebApp() {
         workspaceName={activeWorkspace?.name ?? null}
         threadTitle={activeThreadTitle}
         conversationId={activeThreadId}
+        threadLoading={threadLoading}
+        threadCreationStatus={activeThread?.creationStatus ?? null}
+        threadCreationError={activeThread?.creationError ?? null}
+        onRetryThreadCreation={retryActiveThreadCreation}
         sidebarCollapsed={sidebarCollapsed}
         onToggleSidebar={() => setSidebarCollapsed((collapsed) => !collapsed)}
         filePanelOpen={filePanelOpen}
@@ -1702,6 +2270,10 @@ export default function WebApp() {
             setCatalogError(null);
             try {
               await client.writeModelProvider(activeWorkspaceId, input);
+              if (input.action === "upsert" && input.select === true && typeof input.id === "string") {
+                await selectProviderAndDefaultModel(input.id);
+                return;
+              }
               await refreshModelCatalog();
             } catch (error) {
               setCatalogError(error instanceof Error ? error.message : String(error));
@@ -1710,8 +2282,9 @@ export default function WebApp() {
               setCatalogLoading(false);
             }
           }}
+          onSelectProvider={(providerId) => { void selectProviderAndDefaultModel(providerId); }}
           selectedModelId={selectedProviderModelId}
-          onSelectModel={setSelectedProviderModelId}
+          onSelectModel={(modelId) => { void selectThreadModel(modelId); }}
 
         messages={messages}
         workspaceId={activeWorkspaceId ?? undefined}
@@ -1729,7 +2302,12 @@ export default function WebApp() {
         submittingUserInput={activeUserInputRequest?.request_id === submittingUserInputId}
         onSubmitUserInput={(request, response) => { void submitUserInput(request, response); }}
         busy={busy}
-        sendDisabled={!activeWorkspaceId}
+        sendDisabled={
+          !activeWorkspaceId
+          || threadLoading
+          || activeThread?.creationStatus === "creating"
+          || activeThread?.creationStatus === "failed"
+        }
         thinking={thinking}
         turnStartedAt={turnStartedAt}
         onResolveApproval={resolveApproval}

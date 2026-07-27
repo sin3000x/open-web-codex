@@ -47,6 +47,7 @@ use crate::models_endpoint::OpenAiModelsEndpoint;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ProviderCapabilities {
     pub namespace_tools: bool,
+    pub tool_search: bool,
     pub image_generation: bool,
     pub web_search: bool,
 }
@@ -55,6 +56,7 @@ impl Default for ProviderCapabilities {
     fn default() -> Self {
         Self {
             namespace_tools: true,
+            tool_search: true,
             image_generation: true,
             web_search: true,
         }
@@ -289,6 +291,15 @@ impl ConfiguredModelProvider {
 impl ModelProvider for ConfiguredModelProvider {
     fn info(&self) -> &ModelProviderInfo {
         &self.info
+    }
+
+    fn capabilities(&self) -> ProviderCapabilities {
+        ProviderCapabilities {
+            namespace_tools: true,
+            tool_search: !self.info.is_chat_wire_api(),
+            image_generation: self.info.supports_image_generation,
+            web_search: self.info.supports_web_search,
+        }
     }
 
     fn auth_manager(&self) -> Option<Arc<AuthManager>> {
@@ -538,6 +549,8 @@ mod tests {
             websocket_connect_timeout_ms: None,
             requires_openai_auth: false,
             supports_websockets: false,
+            supports_web_search: false,
+            supports_image_generation: false,
         }
     }
 
@@ -601,6 +614,52 @@ mod tests {
         );
 
         assert_eq!(provider.capabilities(), ProviderCapabilities::default());
+    }
+
+    #[test]
+    fn configured_chat_provider_uses_safe_tool_capability_defaults() {
+        let provider = create_model_provider(
+            ModelProviderInfo {
+                name: "third-party chat".to_string(),
+                wire_api: WireApi::Chat,
+                ..ModelProviderInfo::default()
+            },
+            /*auth_manager*/ None,
+        );
+
+        assert_eq!(
+            provider.capabilities(),
+            ProviderCapabilities {
+                namespace_tools: true,
+                tool_search: false,
+                image_generation: false,
+                web_search: false,
+            }
+        );
+    }
+
+    #[test]
+    fn configured_chat_provider_honors_explicit_tool_capability_opt_ins() {
+        let provider = create_model_provider(
+            ModelProviderInfo {
+                name: "third-party chat".to_string(),
+                wire_api: WireApi::Chat,
+                supports_web_search: true,
+                supports_image_generation: true,
+                ..ModelProviderInfo::default()
+            },
+            /*auth_manager*/ None,
+        );
+
+        assert_eq!(
+            provider.capabilities(),
+            ProviderCapabilities {
+                namespace_tools: true,
+                tool_search: false,
+                image_generation: true,
+                web_search: true,
+            }
+        );
     }
 
     #[test]
@@ -773,8 +832,7 @@ mod tests {
             provider.account_state(),
             Ok(ProviderAccountState {
                 account: Some(ProviderAccount::AmazonBedrock {
-                    credential_source:
-                        codex_protocol::account::AmazonBedrockCredentialSource::AwsManaged,
+                    uses_codex_managed_credentials: false,
                 }),
                 requires_openai_auth: false,
             })

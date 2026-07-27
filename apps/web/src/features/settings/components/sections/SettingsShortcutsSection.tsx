@@ -83,16 +83,16 @@ export function SettingsShortcutsSection({
     () => [
       {
         title: "File",
-        subtitle: "Create agents and worktrees from the keyboard.",
+        subtitle: "Create threads and worktrees from the keyboard.",
         items: [
           {
-            label: "New Agent",
+            label: "New Thread",
             draftKey: "newAgent",
             settingKey: "newAgentShortcut",
             help: `Default: ${formatShortcut("cmd+n")}`,
           },
           {
-            label: "New Worktree Agent",
+            label: "New Worktree Thread",
             draftKey: "newWorktreeAgent",
             settingKey: "newWorktreeAgentShortcut",
             help: `Default: ${formatShortcut("cmd+shift+n")}`,

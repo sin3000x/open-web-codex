@@ -4,13 +4,70 @@ use crate::error::ApiError;
 use crate::provider::Provider;
 use codex_client::HttpTransport;
 use codex_client::RequestTelemetry;
+use codex_protocol::config_types::ReasoningSummary;
+use codex_protocol::openai_models::ConfigShellToolType;
 use codex_protocol::openai_models::ModelInfo;
+use codex_protocol::openai_models::ModelVisibility;
 use codex_protocol::openai_models::ModelsResponse;
-use codex_protocol::openai_models::OpenAiModelEntry;
+use codex_protocol::openai_models::ReasoningEffort;
+use codex_protocol::openai_models::TruncationPolicyConfig;
+use codex_protocol::openai_models::WebSearchToolType;
+use codex_protocol::openai_models::default_input_modalities;
 use http::HeaderMap;
 use http::Method;
 use http::header::ETAG;
 use std::sync::Arc;
+
+#[derive(serde::Deserialize)]
+struct OpenAiModelEntry {
+    id: String,
+}
+
+impl From<OpenAiModelEntry> for ModelInfo {
+    fn from(entry: OpenAiModelEntry) -> Self {
+        Self {
+            slug: entry.id.clone(),
+            display_name: entry.id,
+            description: None,
+            default_reasoning_level: Some(ReasoningEffort::None),
+            supported_reasoning_levels: Vec::new(),
+            shell_type: ConfigShellToolType::ShellCommand,
+            visibility: ModelVisibility::List,
+            supported_in_api: true,
+            priority: 0,
+            additional_speed_tiers: Vec::new(),
+            service_tiers: Vec::new(),
+            default_service_tier: None,
+            availability_nux: None,
+            upgrade: None,
+            base_instructions: "base instructions".to_string(),
+            model_messages: None,
+            include_skills_usage_instructions: false,
+            supports_reasoning_summary_parameter: false,
+            default_reasoning_summary: ReasoningSummary::Auto,
+            support_verbosity: false,
+            default_verbosity: None,
+            apply_patch_tool_type: None,
+            web_search_tool_type: WebSearchToolType::Text,
+            truncation_policy: TruncationPolicyConfig::tokens(128_000),
+            supports_parallel_tool_calls: false,
+            supports_image_detail_original: false,
+            context_window: None,
+            max_context_window: None,
+            auto_compact_token_limit: None,
+            comp_hash: None,
+            effective_context_window_percent: 95,
+            experimental_supported_tools: Vec::new(),
+            input_modalities: default_input_modalities(),
+            used_fallback_model_metadata: false,
+            supports_search_tool: false,
+            use_responses_lite: false,
+            auto_review_model_override: None,
+            tool_mode: None,
+            multi_agent_version: None,
+        }
+    }
+}
 
 /// Client for fetching model lists from an OpenAI-compatible `/models` endpoint.
 ///
@@ -136,7 +193,7 @@ mod tests {
     #[derive(Clone)]
     struct CapturingTransport {
         last_request: Arc<Mutex<Option<Request>>>,
-        body: Arc<ModelsResponse>,
+        body: Arc<Vec<u8>>,
         etag: Option<String>,
     }
 
@@ -144,7 +201,7 @@ mod tests {
         fn default() -> Self {
             Self {
                 last_request: Arc::new(Mutex::new(None)),
-                body: Arc::new(ModelsResponse { models: Vec::new() }),
+                body: Arc::new(serde_json::to_vec(&ModelsResponse { models: Vec::new() }).unwrap()),
                 etag: None,
             }
         }
@@ -153,7 +210,6 @@ mod tests {
     impl HttpTransport for CapturingTransport {
         async fn execute(&self, req: Request) -> Result<Response, TransportError> {
             *self.last_request.lock().unwrap() = Some(req);
-            let body = serde_json::to_vec(&*self.body).unwrap();
             let mut headers = HeaderMap::new();
             if let Some(etag) = &self.etag {
                 headers.insert(ETAG, etag.parse().unwrap());
@@ -161,7 +217,7 @@ mod tests {
             Ok(Response {
                 status: StatusCode::OK,
                 headers,
-                body: body.into(),
+                body: self.body.as_ref().clone().into(),
             })
         }
 
@@ -200,7 +256,7 @@ mod tests {
 
         let transport = CapturingTransport {
             last_request: Arc::new(Mutex::new(None)),
-            body: Arc::new(response),
+            body: Arc::new(serde_json::to_vec(&response).unwrap()),
             etag: None,
         };
 
@@ -261,7 +317,7 @@ mod tests {
 
         let transport = CapturingTransport {
             last_request: Arc::new(Mutex::new(None)),
-            body: Arc::new(response),
+            body: Arc::new(serde_json::to_vec(&response).unwrap()),
             etag: None,
         };
 
@@ -281,12 +337,87 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn parses_openai_models_response_without_protocol_owned_dto() {
+        let transport = CapturingTransport {
+            last_request: Arc::new(Mutex::new(None)),
+            body: Arc::new(
+                serde_json::to_vec(&json!({
+                    "object": "list",
+                    "data": [{
+                        "id": "deepseek-chat",
+                        "object": "model",
+                        "created": 1_700_000_000,
+                        "owned_by": "deepseek"
+                    }]
+                }))
+                .unwrap(),
+            ),
+            etag: None,
+        };
+
+        let provider = provider("https://example.com/v1");
+        let request_url = ModelsClient::<CapturingTransport>::request_url(&provider, "0.99.0");
+        let client = ModelsClient::new(transport, provider, Arc::new(DummyAuth))
+            .with_openai_models_format(true);
+
+        let (models, _) = client
+            .list_models(request_url, HeaderMap::new())
+            .await
+            .expect("OpenAI-compatible models request should succeed");
+
+        assert_eq!(
+            models,
+            vec![ModelInfo {
+                slug: "deepseek-chat".to_string(),
+                display_name: "deepseek-chat".to_string(),
+                description: None,
+                default_reasoning_level: Some(ReasoningEffort::None),
+                supported_reasoning_levels: Vec::new(),
+                shell_type: ConfigShellToolType::ShellCommand,
+                visibility: ModelVisibility::List,
+                supported_in_api: true,
+                priority: 0,
+                additional_speed_tiers: Vec::new(),
+                service_tiers: Vec::new(),
+                default_service_tier: None,
+                availability_nux: None,
+                upgrade: None,
+                base_instructions: "base instructions".to_string(),
+                model_messages: None,
+                include_skills_usage_instructions: false,
+                supports_reasoning_summary_parameter: false,
+                default_reasoning_summary: ReasoningSummary::Auto,
+                support_verbosity: false,
+                default_verbosity: None,
+                apply_patch_tool_type: None,
+                web_search_tool_type: WebSearchToolType::Text,
+                truncation_policy: TruncationPolicyConfig::tokens(128_000),
+                supports_parallel_tool_calls: false,
+                supports_image_detail_original: false,
+                context_window: None,
+                max_context_window: None,
+                auto_compact_token_limit: None,
+                comp_hash: None,
+                effective_context_window_percent: 95,
+                experimental_supported_tools: Vec::new(),
+                input_modalities: default_input_modalities(),
+                used_fallback_model_metadata: false,
+                supports_search_tool: false,
+                use_responses_lite: false,
+                auto_review_model_override: None,
+                tool_mode: None,
+                multi_agent_version: None,
+            }]
+        );
+    }
+
+    #[tokio::test]
     async fn list_models_includes_etag() {
         let response = ModelsResponse { models: Vec::new() };
 
         let transport = CapturingTransport {
             last_request: Arc::new(Mutex::new(None)),
-            body: Arc::new(response),
+            body: Arc::new(serde_json::to_vec(&response).unwrap()),
             etag: Some("\"abc\"".to_string()),
         };
 

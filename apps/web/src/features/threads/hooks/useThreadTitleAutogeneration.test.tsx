@@ -17,7 +17,7 @@ describe("useThreadTitleAutogeneration", () => {
   function setup({
     enabled = true,
     initialCustomName,
-    threadName = "New Agent",
+    threadName = "Thread",
     existingItems = [],
   }: {
     enabled?: boolean;

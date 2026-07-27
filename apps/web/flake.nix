@@ -1,5 +1,5 @@
 {
-  description = "CodexMonitor Tauri app for orchestrating Codex agents";
+  description = "open-web-codex browser and platform server";
 
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixpkgs-unstable";
@@ -12,113 +12,61 @@
         pkgs = import nixpkgs { inherit system; };
         packageJson = builtins.fromJSON (builtins.readFile ./package.json);
 
-        linuxPackages = pkgs.lib.optionals pkgs.stdenv.isLinux [
-          pkgs.alsa-lib
-          pkgs.glib-networking
-          pkgs.gtk3
-          pkgs.libayatana-appindicator
-          pkgs.librsvg
-          pkgs.libsoup_3
-          pkgs.libxkbcommon
-          pkgs.webkitgtk_4_1
-        ];
-
-        frontend = pkgs.buildNpmPackage {
-          pname = "codex-monitor-frontend";
+        frontend = pkgs.stdenv.mkDerivation {
+          pname = "open-web-codex-frontend";
           version = packageJson.version;
           src = ./.;
-          nodejs = pkgs.nodejs_20;
-          npmDepsHash = "sha256-YbHVvsYijeCw0FlTWx4yhvfNH+yHRAm7fcfYKG/SkU0=";
-          npmBuildScript = "build";
-          installPhase = ''
-            mkdir -p $out
-            cp -R dist $out/
-          '';
-        };
-
-        tauriConfig = builtins.toJSON {
-          build = {
-            frontendDist = "dist";
-            devUrl = null;
-          };
-        };
-
-        appPackage = pkgs.rustPlatform.buildRustPackage {
-          pname = "codex-monitor";
-          version = packageJson.version;
-          src = ./src-tauri;
-
-          cargoLock = {
-            lockFile = ./src-tauri/Cargo.lock;
-            outputHashes = {
-              "fix-path-env-0.0.0" = "sha256-UygkxJZoiJlsgp8PLf1zaSVsJZx1GGdQyTXqaFv3oGk=";
-            };
-          };
-
+          npmDeps = pkgs.importNpmLock { npmRoot = ./.; };
           nativeBuildInputs = [
-            pkgs.cargo-tauri
-            pkgs.cmake
-            pkgs.llvmPackages.libclang
-            pkgs.perl
-            pkgs.pkg-config
-          ] ++ pkgs.lib.optionals pkgs.stdenv.isLinux [
-            pkgs.wrapGAppsHook3
+            pkgs.nodejs_20
+            pkgs.importNpmLock.npmConfigHook
           ];
-
-          buildInputs = [
-            pkgs.openssl
-          ] ++ linuxPackages;
-
-          TAURI_CONFIG = tauriConfig;
-
-          LIBCLANG_PATH = "${pkgs.llvmPackages.libclang.lib}/lib";
-
-          preBuild = ''
-            mkdir -p dist
-            cp -R ${frontend}/dist/. dist
+          buildPhase = ''
+            runHook preBuild
+            npm run build
+            runHook postBuild
           '';
-
-          cargoBuildFlags = [
-            "--features"
-            "custom-protocol"
-          ];
-
           installPhase = ''
-            mkdir -p $out/bin
-            target_dir="target/${pkgs.stdenv.hostPlatform.rust.rustcTarget}"
-            cp "$target_dir/release/codex-monitor" $out/bin/
+            runHook preInstall
+            mkdir -p $out/share/open-web-codex
+            cp -R dist/. $out/share/open-web-codex/
+            runHook postInstall
           '';
         };
-      in
-      {
-        devShells.default = pkgs.mkShell {
-          packages = [
-            pkgs.cargo
-            pkgs.clang
-            pkgs.cmake
-            pkgs.git
-            pkgs.nodejs_20
-            pkgs.openssl
-            pkgs.pkg-config
-            pkgs.rust-analyzer
-            pkgs.rustc
-            pkgs.rustfmt
-            pkgs.rustPlatform.rustLibSrc
-          ] ++ pkgs.lib.optionals pkgs.stdenv.isLinux [
-            pkgs.llvmPackages.libclang
-          ] ++ linuxPackages;
 
+        server = pkgs.rustPlatform.buildRustPackage {
+          pname = "open-web-codex-server";
+          version = packageJson.version;
+          src = ./.;
+          cargoLock.lockFile = ./Cargo.lock;
+          cargoBuildFlags = [ "-p" "open-web-codex-server" ];
+          doCheck = false;
+          nativeBuildInputs = [ pkgs.makeWrapper ];
+          postInstall = ''
+            wrapProgram $out/bin/open-web-codex-server \
+              --set-default OPEN_WEB_CODEX_WEB_DIST ${frontend}/share/open-web-codex
+          '';
+        };
+      in {
+        devShells.default = pkgs.mkShell {
+          packages = with pkgs; [
+            cargo
+            git
+            nodejs_20
+            openssl
+            postgresql
+            rust-analyzer
+            rustc
+            rustfmt
+            rustPlatform.rustLibSrc
+          ];
           shellHook = ''
             export RUST_SRC_PATH=${pkgs.rustPlatform.rustLibSrc}
-          '' + pkgs.lib.optionalString pkgs.stdenv.isLinux ''
-            export LIBCLANG_PATH="${pkgs.llvmPackages.libclang.lib}/lib"
-            export LD_LIBRARY_PATH="${pkgs.lib.makeLibraryPath linuxPackages}:$LD_LIBRARY_PATH"
-            export GIO_MODULE_PATH="${pkgs.glib-networking}/lib/gio/modules"
           '';
         };
 
         formatter = pkgs.alejandra;
-
-        packages.default = appPackage;
+        packages.default = server;
+        packages.frontend = frontend;
       });
 }

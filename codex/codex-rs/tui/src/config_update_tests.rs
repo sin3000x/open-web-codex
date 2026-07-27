@@ -75,6 +75,8 @@ fn build_model_provider_edit_omits_null_fields() {
             "wire_api": "chat",
             "requires_openai_auth": false,
             "supports_websockets": false,
+            "supports_web_search": false,
+            "supports_image_generation": false,
         })
     );
 }

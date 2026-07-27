@@ -1,0 +1,16 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+root_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+repo_root="$(cd "$root_dir/../.." && pwd)"
+data_dir="${OPEN_WEB_CODEX_DATA_DIR:-$repo_root/.local/open-web-codex}"
+venv_dir="${OPEN_WEB_CODEX_HELLO_AGENT_VENV:-$data_dir/tool-envs/hello-agent}"
+python_bin="$venv_dir/bin/python"
+
+if [[ ! -x "$python_bin" ]]; then
+  printf 'hello-agent: run bin/setup-env first\n' >&2
+  exit 70
+fi
+
+export PYTHONPATH="$root_dir${PYTHONPATH:+:$PYTHONPATH}"
+exec "$python_bin" -m hello_agent.server "$@"

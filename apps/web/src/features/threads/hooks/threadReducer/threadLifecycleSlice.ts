@@ -57,7 +57,7 @@ export function reduceThreadLifecycle(
       }
       const thread: ThreadSummary = {
         id: action.threadId,
-        name: "New Agent",
+        name: "Thread",
         updatedAt: 0,
       };
       return {

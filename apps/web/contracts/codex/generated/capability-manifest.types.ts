@@ -21,7 +21,7 @@ export interface CapabilityDeclaration {
   status: CapabilityStatus;
   experimental?: boolean;
   methods: MethodSet;
-  limits: Record<string, string | number | boolean | null>;
+  limits?: Record<string, string | number | boolean | null>;
   reason?: StructuredReason;
   metadata?: Record<string, unknown>;
 }

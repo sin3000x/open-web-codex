@@ -103,19 +103,17 @@ describe("useComposerAutocompleteState slash commands", () => {
         "compact",
         "fast",
         "fork",
-        "mcp",
         "new",
         "resume",
         "review",
         "status",
       ]),
     );
-    expect(labels.slice(0, 9)).toEqual([
+    expect(labels.slice(0, 8)).toEqual([
       "apps",
       "compact",
       "fast",
       "fork",
-      "mcp",
       "new",
       "resume",
       "review",
@@ -154,7 +152,6 @@ describe("useComposerAutocompleteState slash commands", () => {
       "compact",
       "fast",
       "fork",
-      "mcp",
       "new",
       "resume",
       "review",

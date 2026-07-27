@@ -9,14 +9,30 @@ type Props = {
   startedAt?: number | null;
   activeItem?: ReactNode;
   timelineItemCount?: number;
+  activityLabel?: string;
   children: ReactNode;
 };
 
-export default function ExecutionGroup({ items, active, startedAt, activeItem, timelineItemCount = 0, children }: Props) {
-  const [open, setOpen] = useState(active);
+export default function ExecutionGroup({
+  items,
+  active,
+  startedAt,
+  activeItem,
+  timelineItemCount = 0,
+  activityLabel = "Working…",
+  children,
+}: Props) {
+  const [manuallyOpen, setManuallyOpen] = useState(false);
   const [fallbackStartedAt] = useState(Date.now);
   const [elapsed, setElapsed] = useState(0);
-  const toolCount = useMemo(() => items.filter((item) => item.kind && item.kind !== "reasoning").length, [items]);
+  // Live activity is always visible. Once it completes, derive the collapsed
+  // state during that same render so historical details never remain expanded
+  // for one paint while an effect catches up.
+  const open = active || manuallyOpen;
+  const toolCount = useMemo(() => items.filter((item) =>
+    item.kind === "tool"
+    || item.kind === "command_exec"
+    || item.kind === "diff").length, [items]);
   const messageCount = useMemo(() => items.filter((item) => item.level === "assistant"
     || (item.kind === "reasoning"
       && (!/^(reasoning completed|reasoning in progress|reasoning)$/i.test(item.text.trim())
@@ -31,12 +47,6 @@ export default function ExecutionGroup({ items, active, startedAt, activeItem, t
     return () => window.clearInterval(timer);
   }, [active, fallbackStartedAt, startedAt]);
 
-  useEffect(() => {
-    // Live activity stays at the top level. Once the turn completes, collapse
-    // that activity behind the summary while the final answer remains visible.
-    setOpen(active);
-  }, [active]);
-
   const elapsedLabel = `${Math.floor(elapsed / 60)}:${String(elapsed % 60).padStart(2, "0")}`;
   return (
     <section className={`web-execution-group${active ? " is-active" : ""}`}>
@@ -44,7 +54,7 @@ export default function ExecutionGroup({ items, active, startedAt, activeItem, t
         <button
           type="button"
           className="web-execution-summary"
-          onClick={() => { if (!active) setOpen((value) => !value); }}
+          onClick={() => { if (!active) setManuallyOpen((value) => !value); }}
           aria-expanded={open}
           aria-disabled={active}
         >
@@ -59,7 +69,7 @@ export default function ExecutionGroup({ items, active, startedAt, activeItem, t
           <span className="web-thinking-spinner" aria-hidden="true" />
           <span className="web-execution-elapsed">{elapsedLabel}</span>
           <Brain size={14} aria-hidden="true" />
-          <span>Working…</span>
+          <span>{activityLabel}</span>
         </div>
       )}
     </section>

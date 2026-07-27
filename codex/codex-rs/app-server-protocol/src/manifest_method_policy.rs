@@ -1,10 +1,10 @@
 use std::collections::HashSet;
 
-use crate::capability_manifest::CapabilityDeclaration;
 use crate::ClientNotificationMethod;
 use crate::ClientRequestMethod;
 use crate::ServerNotificationMethod;
 use crate::ServerRequestMethod;
+use crate::capability_manifest::CapabilityDeclaration;
 
 /// Wire methods intentionally excluded from product capability attribution.
 ///
@@ -12,17 +12,21 @@ use crate::ServerRequestMethod;
 /// deprecated, or not part of the Web platform contract. Exclusion here does
 /// not remove Runtime support; it only means Alpha Manifest does not promise
 /// them to browsers.
-pub const EXCLUDED_FROM_PRODUCT_ATTRIBUTION: &[&str] = &[
-    "rawResponseItem/completed",
-    "rawResponse/completed",
-    "thread/compacted",
+pub const EXCLUDED_FROM_PRODUCT_ATTRIBUTION: &[ServerNotificationMethod] = &[
+    ServerNotificationMethod::RawResponseItemCompleted,
+    ServerNotificationMethod::RawResponseCompleted,
+    ServerNotificationMethod::ContextCompacted,
 ];
 
 pub fn all_registered_wire_methods() -> HashSet<String> {
     ClientRequestMethod::ALL
         .iter()
         .map(|method| method.wire_name())
-        .chain(ServerRequestMethod::ALL.iter().map(|method| method.wire_name()))
+        .chain(
+            ServerRequestMethod::ALL
+                .iter()
+                .map(|method| method.wire_name()),
+        )
         .chain(
             ServerNotificationMethod::ALL
                 .iter()
@@ -51,8 +55,11 @@ pub fn attributed_manifest_methods(capabilities: &[CapabilityDeclaration]) -> Ha
         .collect()
 }
 
-pub fn excluded_from_product_attribution() -> HashSet<&'static str> {
-    EXCLUDED_FROM_PRODUCT_ATTRIBUTION.iter().copied().collect()
+pub fn excluded_from_product_attribution() -> HashSet<String> {
+    EXCLUDED_FROM_PRODUCT_ATTRIBUTION
+        .iter()
+        .map(|method| method.wire_name())
+        .collect()
 }
 
 pub fn manifest_method_policy_is_consistent(
@@ -67,7 +74,7 @@ pub fn manifest_method_policy_is_consistent(
     }
 
     for method in &attributed {
-        if excluded.contains(method.as_str()) {
+        if excluded.contains(method) {
             return Err(format!(
                 "capability attribution must not include excluded method {method}"
             ));
@@ -75,8 +82,11 @@ pub fn manifest_method_policy_is_consistent(
     }
 
     for method in EXCLUDED_FROM_PRODUCT_ATTRIBUTION {
-        if !registered.contains(*method) {
-            return Err(format!("excluded method {method} is not registered in the protocol"));
+        let method = method.wire_name();
+        if !registered.contains(&method) {
+            return Err(format!(
+                "excluded method {method} is not registered in the protocol"
+            ));
         }
     }
 
@@ -91,7 +101,7 @@ pub fn unattributed_registry_methods(capabilities: &[CapabilityDeclaration]) -> 
 
     let mut unattributed = registered
         .into_iter()
-        .filter(|method| !attributed.contains(method) && !excluded.contains(method.as_str()))
+        .filter(|method| !attributed.contains(method) && !excluded.contains(method))
         .collect::<Vec<_>>();
     unattributed.sort();
     unattributed
@@ -110,24 +120,25 @@ mod tests {
 
         let attributed = attributed_manifest_methods(&manifest.capabilities);
         for method in EXCLUDED_FROM_PRODUCT_ATTRIBUTION {
+            let method = method.wire_name();
             assert!(
-                !attributed.contains(*method),
+                !attributed.contains(&method),
                 "excluded method {method} must not appear in capability attribution"
             );
         }
     }
 
     #[test]
-    fn alpha_manifest_leaves_internal_methods_unattributed() {
+    fn runtime_manifest_leaves_internal_methods_unattributed() {
         let manifest = build_manifest();
         let unattributed = unattributed_registry_methods(&manifest.capabilities);
         assert!(
             !unattributed.is_empty(),
-            "alpha manifest should not attribute every registry method"
+            "runtime manifest should not attribute every registry method"
         );
         assert!(
             unattributed.contains(&"thread/deleted".to_string()),
-            "expected unattributed lifecycle methods while alpha coverage is partial"
+            "expected unattributed lifecycle methods while product coverage is partial"
         );
     }
 }

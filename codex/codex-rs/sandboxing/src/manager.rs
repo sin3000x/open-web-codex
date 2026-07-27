@@ -532,7 +532,21 @@ fn wrap_windows_sandbox_exec_request_for_direct_spawn(
 
     let inner_command = std::mem::take(&mut request.command);
     let proxy_enforced = request.network.is_some();
-    let use_elevated = windows_sandbox_uses_elevated_backend(request.windows_sandbox_level);
+    let network_proxy_restricting_sid = request
+        .network
+        .as_ref()
+        .map(|network| {
+            network
+                .network_proxy_restricting_sid(request.network_environment_id.as_deref())
+                .ok_or_else(|| {
+                    SandboxTransformError::WindowsSandboxPreparation(
+                        "managed Windows proxy route is missing its restricting SID".to_string(),
+                    )
+                })
+        })
+        .transpose()?;
+    let use_elevated =
+        windows_sandbox_uses_elevated_backend(request.windows_sandbox_level, proxy_enforced);
     let overrides = if use_elevated {
         resolve_windows_elevated_filesystem_overrides(
             request.sandbox,
@@ -575,6 +589,7 @@ fn wrap_windows_sandbox_exec_request_for_direct_spawn(
             request.windows_sandbox_level,
             request.windows_sandbox_private_desktop,
             proxy_enforced,
+            network_proxy_restricting_sid.as_deref(),
             proxy_settings_mode,
             read_roots_override,
             read_roots_include_platform_defaults,

@@ -26,7 +26,7 @@ pub trait CodexAdapter: Send + Sync {
 
 两个实现:
 
-- **RealCodexAdapter**: 当前通过 loopback daemon HTTP/SSE 连接 Runtime，属于迁移实现；生产目标是由 Profile Host 管理 app-server stdin/stdout 和 Profile 生命周期
+- **RealCodexAdapter**: 当前直接复用原生 Profile Host 的 app-server stdin/stdout 连接、Manifest 协商和有界事件流，不再依赖 Tauri daemon；多用户 Profile Registry 和类型化服务接口仍在迁移中
 - **FakeCodexAdapter**: 内存中模拟 app-server 行为, 用于开发和集成测试
 
 ## 理由
@@ -48,6 +48,6 @@ pub trait CodexAdapter: Send + Sync {
 
 ## 当前约束
 
-`rpc` 是内部迁移接口，不能原样成为浏览器公共 API。后续 Profile Host
-落地时，应将它收窄为 Thread/Turn/Approval/Capability 等类型化内部操作，
-并在调用前完成 Profile、Thread 和 Workspace 归属校验。
+`rpc` 是内部迁移接口，不能原样成为浏览器公共 API。原生 Profile Host
+已经落地，下一步必须将 Adapter 收窄为 Thread/Turn/Approval/Capability
+等类型化内部操作，并在调用前完成 Profile、Thread 和 Workspace 归属校验。

@@ -16,6 +16,7 @@ type ThreadInfo = {
   updatedAt: number;
   turnCount?: number;
   status?: string;
+  creationStatus?: "creating" | "failed";
 };
 
 type Props = {

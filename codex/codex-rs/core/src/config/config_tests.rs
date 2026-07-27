@@ -55,6 +55,7 @@ use codex_config::types::NotificationMethod;
 use codex_config::types::Notifications;
 use codex_config::types::OtelConfigToml;
 use codex_config::types::OtelExporterKind;
+use codex_config::types::ResumeCwdMode;
 use codex_config::types::SandboxWorkspaceWrite;
 use codex_config::types::SessionPickerViewMode;
 use codex_config::types::SkillsConfig;
@@ -75,6 +76,7 @@ use codex_model_provider_info::OLLAMA_OSS_PROVIDER_ID;
 use codex_model_provider_info::WireApi;
 use codex_models_manager::bundled_models_response;
 use codex_network_proxy::NetworkMode;
+use codex_protocol::config_types::ModelProviderAuthInfo;
 use codex_protocol::config_types::SERVICE_TIER_DEFAULT_REQUEST_VALUE;
 use codex_protocol::config_types::ServiceTier;
 use codex_protocol::models::ActivePermissionProfile;
@@ -99,92 +101,6 @@ use serde::Deserialize;
 use tempfile::tempdir;
 
 use super::*;
-
-async fn load_config_with_elevated_only_windows_sandbox_requirement(
-    cfg: ConfigToml,
-    overrides: ConfigOverrides,
-    codex_home: AbsolutePathBuf,
-) -> std::io::Result<Config> {
-    let requirements_toml = ConfigRequirementsToml {
-        windows: Some(codex_config::WindowsRequirementsToml {
-            allowed_sandbox_implementations: Some(vec![WindowsSandboxModeToml::Elevated]),
-        }),
-        ..Default::default()
-    };
-    let mut requirements_with_sources = codex_config::ConfigRequirementsWithSources::default();
-    requirements_with_sources.merge_unset_fields(
-        codex_config::RequirementSource::Unknown,
-        requirements_toml.clone(),
-    );
-    let requirements = ConfigRequirements::try_from(requirements_with_sources)?;
-    let config_layer_stack = ConfigLayerStack::new(Vec::new(), requirements, requirements_toml)?;
-    Config::load_config_with_layer_stack(
-        codex_exec_server::LOCAL_FS.as_ref(),
-        cfg,
-        overrides,
-        codex_home,
-        config_layer_stack,
-    )
-    .await
-}
-
-#[test]
-fn windows_network_proxy_validation() {
-    let elevated_only = ConfigRequirementsToml {
-        windows: Some(codex_config::WindowsRequirementsToml {
-            allowed_sandbox_implementations: Some(vec![WindowsSandboxModeToml::Elevated]),
-        }),
-        ..Default::default()
-    };
-    for (is_windows, requirements, network_proxy_enabled, allowed) in [
-        (true, ConfigRequirementsToml::default(), true, false),
-        (true, ConfigRequirementsToml::default(), false, true),
-        (true, elevated_only, true, true),
-        (
-            true,
-            ConfigRequirementsToml {
-                windows: Some(codex_config::WindowsRequirementsToml {
-                    allowed_sandbox_implementations: Some(vec![
-                        WindowsSandboxModeToml::Elevated,
-                        WindowsSandboxModeToml::Unelevated,
-                    ]),
-                }),
-                ..Default::default()
-            },
-            true,
-            false,
-        ),
-        (false, ConfigRequirementsToml::default(), true, true),
-    ] {
-        assert_eq!(
-            validate_windows_network_proxy_requirements_for_platform(
-                is_windows,
-                &requirements,
-                network_proxy_enabled,
-            )
-            .is_ok(),
-            allowed
-        );
-    }
-
-    for (is_windows, sandbox_level, network_proxy_enabled, allowed) in [
-        (true, WindowsSandboxLevel::Disabled, true, false),
-        (true, WindowsSandboxLevel::RestrictedToken, true, false),
-        (true, WindowsSandboxLevel::Elevated, true, true),
-        (true, WindowsSandboxLevel::RestrictedToken, false, true),
-        (false, WindowsSandboxLevel::RestrictedToken, true, true),
-    ] {
-        assert_eq!(
-            validate_windows_sandbox_network_proxy_compatibility_for_platform(
-                is_windows,
-                sandbox_level,
-                network_proxy_enabled,
-            )
-            .is_ok(),
-            allowed
-        );
-    }
-}
 use core_test_support::PathBufExt;
 use core_test_support::PathExt;
 use core_test_support::TempDirExt;
@@ -931,6 +847,53 @@ region = "us-west-2"
 }
 
 #[tokio::test]
+async fn load_config_applies_amazon_bedrock_transport_overrides() {
+    let cfg = toml::from_str::<ConfigToml>(
+        r#"
+model_provider = "amazon-bedrock"
+
+[model_providers.amazon-bedrock]
+base_url = "https://bedrock.example.com/v1"
+http_headers = { "X-Custom-Header" = "value" }
+
+[model_providers.amazon-bedrock.auth]
+command = "print-token"
+"#,
+    )
+    .expect("Amazon Bedrock transport overrides should deserialize");
+
+    let config = Config::load_from_base_config_with_overrides(
+        cfg,
+        ConfigOverrides::default(),
+        tempdir().expect("tempdir").abs(),
+    )
+    .await
+    .expect("load config");
+
+    let mut expected_provider = built_in_model_providers(/*openai_base_url*/ None)
+        .remove("amazon-bedrock")
+        .expect("Amazon Bedrock provider should be built in");
+    expected_provider.base_url = Some("https://bedrock.example.com/v1".to_string());
+    expected_provider.auth = Some(ModelProviderAuthInfo {
+        command: "print-token".to_string(),
+        args: Vec::new(),
+        timeout_ms: std::num::NonZeroU64::new(5_000).expect("timeout should be non-zero"),
+        refresh_interval_ms: 300_000,
+        cwd: std::env::current_dir()
+            .expect("current directory should be available")
+            .try_into()
+            .expect("current directory should be absolute"),
+    });
+    expected_provider
+        .http_headers
+        .get_or_insert_default()
+        .insert("X-Custom-Header".to_string(), "value".to_string());
+
+    assert_eq!(config.model_provider_id, "amazon-bedrock");
+    assert_eq!(config.model_provider, expected_provider);
+}
+
+#[tokio::test]
 async fn load_config_rejects_unsupported_amazon_bedrock_overrides() {
     let cfg = toml::from_str::<ConfigToml>(
         r#"
@@ -938,13 +901,8 @@ model_provider = "amazon-bedrock"
 
 [model_providers.amazon-bedrock]
 name = "Custom Bedrock"
-base_url = "https://bedrock.example.com/v1"
 requires_openai_auth = true
 supports_websockets = true
-
-[model_providers.amazon-bedrock.aws]
-profile = "codex-bedrock"
-region = "us-west-2"
 "#,
     )
     .expect("Amazon Bedrock unsupported overrides should deserialize");
@@ -959,7 +917,7 @@ region = "us-west-2"
 
     assert_eq!(err.kind(), std::io::ErrorKind::InvalidData);
     assert!(err.to_string().contains(
-        "model_providers.amazon-bedrock only supports changing `aws.profile` and `aws.region`; other non-default provider fields are not supported"
+        "model_providers.amazon-bedrock only supports changing `base_url`, `auth`, `http_headers`, `aws.profile`, and `aws.region`; other non-default provider fields are not supported"
     ));
 }
 
@@ -989,6 +947,7 @@ fn config_toml_deserializes_model_availability_nux() {
             pet: None,
             pet_anchor: TuiPetAnchor::Composer,
             session_picker_view: None,
+            resume_cwd: None,
             keymap: TuiKeymap::default(),
             model_availability_nux: ModelAvailabilityNuxConfig {
                 shown_count: HashMap::from([
@@ -1652,7 +1611,7 @@ async fn network_proxy_feature_matrix_preserves_sandbox_network_semantics() -> s
                 ..Default::default()
             },
         };
-        let config = load_config_with_elevated_only_windows_sandbox_requirement(
+        let config = Config::load_from_base_config_with_overrides(
             base_config,
             ConfigOverrides {
                 cwd: Some(cwd.path().to_path_buf()),
@@ -1697,13 +1656,6 @@ sandbox = "elevated"
     )?;
     let config = ConfigBuilder::without_managed_config_for_tests()
         .codex_home(codex_home.path().to_path_buf())
-        .cloud_config_bundle(
-            CloudConfigBundleFixture::loader_with_enterprise_requirement(
-                r#"[windows]
-allowed_sandbox_implementations = ["elevated"]
-"#,
-            ),
-        )
         .cli_overrides(vec![
             (
                 "features.network_proxy.enabled".to_string(),
@@ -1760,6 +1712,22 @@ respect_system_proxy = true
         config.http_client_factory().outbound_proxy_policy(),
         codex_http_client::OutboundProxyPolicy::RespectSystemProxy
     );
+    assert_eq!(
+        config
+            .auth_route_config()
+            .http_client_factory()
+            .outbound_proxy_policy(),
+        codex_http_client::OutboundProxyPolicy::RespectSystemProxy
+    );
+    assert_eq!(
+        config.plugins_config_input().remote_plugin_service_config(),
+        codex_core_plugins::remote::RemotePluginServiceConfig::new(
+            config.chatgpt_base_url,
+            codex_http_client::HttpClientFactory::new(
+                codex_http_client::OutboundProxyPolicy::RespectSystemProxy,
+            ),
+        )
+    );
     Ok(())
 }
 
@@ -1786,6 +1754,12 @@ respect_system_proxy = true
         &configured,
         Some(&disabled)
     )?);
+    assert_eq!(
+        resolve_bootstrap_auth_route_config(&configured, Some(&disabled))?
+            .http_client_factory()
+            .outbound_proxy_policy(),
+        codex_http_client::OutboundProxyPolicy::ReqwestDefault
+    );
 
     let configured = ConfigToml::default();
     let enabled = Sourced::new(
@@ -1798,6 +1772,12 @@ respect_system_proxy = true
         &configured,
         Some(&enabled)
     )?);
+    assert_eq!(
+        resolve_bootstrap_auth_route_config(&configured, Some(&enabled))?
+            .http_client_factory()
+            .outbound_proxy_policy(),
+        codex_http_client::OutboundProxyPolicy::RespectSystemProxy
+    );
     Ok(())
 }
 
@@ -1836,9 +1816,6 @@ async fn experimental_network_requirements_enable_proxy_without_feature() -> std
                 r#"
 [experimental_network]
 enabled = true
-
-[windows]
-allowed_sandbox_implementations = ["elevated"]
 "#,
             ),
         )
@@ -1862,7 +1839,7 @@ allowed_sandbox_implementations = ["elevated"]
 async fn network_proxy_feature_uses_profile_network_proxy_settings() -> std::io::Result<()> {
     let codex_home = TempDir::new()?;
     let cwd = TempDir::new()?;
-    let config = load_config_with_elevated_only_windows_sandbox_requirement(
+    let config = Config::load_from_base_config_with_overrides(
         ConfigToml {
             features: Some(toml::from_str("network_proxy = true").expect("valid features")),
             default_permissions: Some("dev".to_string()),
@@ -2079,18 +2056,21 @@ async fn default_permissions_profile_populates_runtime_sandbox_policy() -> std::
                     value: FileSystemSpecialPath::Minimal,
                 },
                 access: FileSystemAccessMode::Read,
+                missing_path_behavior: None,
             },
             FileSystemSandboxEntry {
                 path: FileSystemPath::Path {
                     path: cwd_root.clone(),
                 },
                 access: FileSystemAccessMode::Write,
+                missing_path_behavior: None,
             },
             FileSystemSandboxEntry {
                 path: FileSystemPath::Path {
                     path: cwd_root.join("docs"),
                 },
                 access: FileSystemAccessMode::Read,
+                missing_path_behavior: None,
             },
         ]),
     );
@@ -2337,12 +2317,14 @@ async fn permission_profile_override_keeps_memories_root_out_of_legacy_projectio
                     value: FileSystemSpecialPath::Root,
                 },
                 access: FileSystemAccessMode::Read,
+                missing_path_behavior: None,
             },
             FileSystemSandboxEntry {
                 path: FileSystemPath::Special {
                     value: FileSystemSpecialPath::project_roots(/*subpath*/ None),
                 },
                 access: FileSystemAccessMode::Write,
+                missing_path_behavior: None,
             },
         ]),
         NetworkSandboxPolicy::Restricted,
@@ -2503,6 +2485,7 @@ async fn workspace_root_glob_none_compiles_to_filesystem_pattern_entry() -> std:
                         pattern: expected_pattern,
                     },
                     access: FileSystemAccessMode::Deny,
+                    missing_path_behavior: None,
                 })
         );
     }
@@ -2842,6 +2825,7 @@ async fn default_permissions_profile_can_extend_builtin_workspace() -> std::io::
                     value: FileSystemSpecialPath::SlashTmp,
                 },
                 access: FileSystemAccessMode::Write,
+                missing_path_behavior: None,
             }
         )),
         "expected profile extending :workspace to keep inherited :slash_tmp writes, policy: {policy:?}"
@@ -2854,6 +2838,7 @@ async fn default_permissions_profile_can_extend_builtin_workspace() -> std::io::
                     value: FileSystemSpecialPath::Tmpdir,
                 },
                 access: FileSystemAccessMode::Read,
+                missing_path_behavior: None,
             }
         )),
         "expected child :tmpdir read entry to replace the inherited write entry, policy: {policy:?}"
@@ -2866,6 +2851,7 @@ async fn default_permissions_profile_can_extend_builtin_workspace() -> std::io::
                     value: FileSystemSpecialPath::Tmpdir,
                 },
                 access: FileSystemAccessMode::Write,
+                missing_path_behavior: None,
             }
         )),
         "expected inherited :tmpdir write entry to be removed, policy: {policy:?}"
@@ -3488,6 +3474,7 @@ async fn permissions_profiles_allow_unknown_special_paths() -> std::io::Result<(
                 ),
             },
             access: FileSystemAccessMode::Read,
+            missing_path_behavior: None,
         }]),
     );
     assert_eq!(
@@ -3534,6 +3521,7 @@ async fn permissions_profiles_allow_unknown_special_paths_with_nested_entries()
                 value: FileSystemSpecialPath::unknown(":future_special_path", Some("docs".into())),
             },
             access: FileSystemAccessMode::Read,
+            missing_path_behavior: None,
         }]),
     );
     assert!(
@@ -3738,6 +3726,19 @@ session_picker_view = "dense"
 }
 
 #[test]
+fn tui_resume_cwd_deserializes_from_toml() {
+    let cfg = r#"
+[tui]
+resume_cwd = "current"
+"#;
+    let parsed = toml::from_str::<ConfigToml>(cfg).expect("TOML deserialization should succeed");
+    assert_eq!(
+        parsed.tui.as_ref().and_then(|t| t.resume_cwd),
+        Some(ResumeCwdMode::Current),
+    );
+}
+
+#[test]
 fn tui_pet_deserializes_from_toml() {
     let cfg = r#"
 [tui]
@@ -3838,6 +3839,7 @@ fn tui_config_missing_notifications_field_defaults_to_enabled() {
             pet: None,
             pet_anchor: TuiPetAnchor::Composer,
             session_picker_view: None,
+            resume_cwd: None,
             keymap: TuiKeymap::default(),
             model_availability_nux: ModelAvailabilityNuxConfig::default(),
             terminal_resize_reflow_max_rows: None,
@@ -4018,6 +4020,35 @@ async fn runtime_config_resolves_session_picker_view_default_and_override() {
         cfg.tui_session_picker_view,
         SessionPickerViewMode::Comfortable
     );
+}
+
+#[tokio::test]
+async fn runtime_config_resolves_resume_cwd_default_and_override() {
+    let cfg = Config::load_from_base_config_with_overrides(
+        ConfigToml::default(),
+        ConfigOverrides::default(),
+        tempdir().expect("tempdir").abs(),
+    )
+    .await
+    .expect("load default config");
+
+    assert_eq!(cfg.tui_resume_cwd, None);
+
+    let cfg = Config::load_from_base_config_with_overrides(
+        ConfigToml {
+            tui: Some(Tui {
+                resume_cwd: Some(ResumeCwdMode::Session),
+                ..Default::default()
+            }),
+            ..Default::default()
+        },
+        ConfigOverrides::default(),
+        tempdir().expect("tempdir").abs(),
+    )
+    .await
+    .expect("load root override config");
+
+    assert_eq!(cfg.tui_resume_cwd, Some(ResumeCwdMode::Session));
 }
 
 #[tokio::test]
@@ -4246,6 +4277,7 @@ exclude_slash_tmp = true
                         .contains(&FileSystemSandboxEntry {
                             path: FileSystemPath::Path { path: cwd.abs() },
                             access: FileSystemAccessMode::Write,
+                            missing_path_behavior: None,
                         })
                 );
                 assert!(
@@ -4256,6 +4288,7 @@ exclude_slash_tmp = true
                                 path: extra_root.clone(),
                             },
                             access: FileSystemAccessMode::Write,
+                            missing_path_behavior: None,
                         })
                 );
                 for subpath in [".git", ".agents", ".codex"] {
@@ -4270,6 +4303,9 @@ exclude_slash_tmp = true
                                     ),
                                 },
                                 access: FileSystemAccessMode::Read,
+                                missing_path_behavior: Some(
+                                    codex_protocol::permissions::FileSystemSandboxEntryMissingPathBehavior::Skip,
+                                ),
                             }),
                         "case `{name}` should materialize `{subpath}` for the runtime workspace \
                          root"
@@ -7444,8 +7480,11 @@ async fn load_config_rejects_missing_agent_role_config_file() -> std::io::Result
     let missing_path = codex_home.path().join("agents").join("researcher.toml");
     let cfg = ConfigToml {
         agents: Some(AgentsToml {
-            max_threads: None,
+            enabled: None,
+            max_concurrent_threads_per_session: None,
             max_depth: None,
+            default_subagent_model: None,
+            default_subagent_reasoning_effort: None,
             job_max_runtime_seconds: None,
             interrupt_message: None,
             roles: BTreeMap::from([(
@@ -8364,11 +8403,34 @@ model = "gpt-5-mini"
     Ok(())
 }
 
+#[test]
+fn legacy_agent_job_max_runtime_seconds_is_accepted_as_noop() {
+    let parsed = toml::from_str::<ConfigToml>(
+        r#"
+[agents]
+job_max_runtime_seconds = 900
+"#,
+    )
+    .expect("legacy agent job setting should deserialize");
+
+    assert_eq!(
+        parsed.agents,
+        Some(AgentsToml {
+            job_max_runtime_seconds: Some(900),
+            ..Default::default()
+        })
+    );
+}
+
 #[tokio::test]
-async fn load_config_resolves_agent_interrupt_message() -> std::io::Result<()> {
+async fn load_config_resolves_agent_controls() -> std::io::Result<()> {
     let codex_home = TempDir::new()?;
     let cfg = ConfigToml {
         agents: Some(AgentsToml {
+            enabled: Some(false),
+            max_depth: Some(2),
+            default_subagent_model: Some("gpt-5.6-terra".to_string()),
+            default_subagent_reasoning_effort: Some(ReasoningEffort::High),
             interrupt_message: Some(false),
             ..Default::default()
         }),
@@ -8382,9 +8444,45 @@ async fn load_config_resolves_agent_interrupt_message() -> std::io::Result<()> {
     )
     .await?;
 
-    assert!(!config.agent_interrupt_message_enabled);
+    assert_eq!(
+        (
+            config.agents_enabled,
+            config.agent_max_depth,
+            config.agent_default_subagent_model.as_deref(),
+            config.agent_default_subagent_reasoning_effort,
+            config.agent_interrupt_message_enabled,
+        ),
+        (
+            false,
+            2,
+            Some("gpt-5.6-terra"),
+            Some(ReasoningEffort::High),
+            false,
+        )
+    );
 
     Ok(())
+}
+
+#[test]
+fn agents_max_threads_alias_matches_canonical_config() {
+    let canonical: ConfigToml = toml::from_str(
+        r#"[agents]
+max_concurrent_threads_per_session = 7
+"#,
+    )
+    .expect("canonical agents thread limit should parse");
+    let legacy: ConfigToml = toml::from_str(
+        r#"[agents]
+max_threads = 7
+"#,
+    )
+    .expect("legacy agents thread limit should parse");
+
+    assert_eq!(legacy, canonical);
+    let serialized = toml::to_string(&legacy).expect("agents config should serialize");
+    assert!(serialized.contains("max_concurrent_threads_per_session = 7"));
+    assert!(!serialized.contains("max_threads"));
 }
 
 #[tokio::test]
@@ -8392,8 +8490,11 @@ async fn load_config_normalizes_agent_role_nickname_candidates() -> std::io::Res
     let codex_home = TempDir::new()?;
     let cfg = ConfigToml {
         agents: Some(AgentsToml {
-            max_threads: None,
+            enabled: None,
+            max_concurrent_threads_per_session: None,
             max_depth: None,
+            default_subagent_model: None,
+            default_subagent_reasoning_effort: None,
             job_max_runtime_seconds: None,
             interrupt_message: None,
             roles: BTreeMap::from([(
@@ -8435,8 +8536,11 @@ async fn load_config_rejects_empty_agent_role_nickname_candidates() -> std::io::
     let codex_home = TempDir::new()?;
     let cfg = ConfigToml {
         agents: Some(AgentsToml {
-            max_threads: None,
+            enabled: None,
+            max_concurrent_threads_per_session: None,
             max_depth: None,
+            default_subagent_model: None,
+            default_subagent_reasoning_effort: None,
             job_max_runtime_seconds: None,
             interrupt_message: None,
             roles: BTreeMap::from([(
@@ -8472,8 +8576,11 @@ async fn load_config_rejects_duplicate_agent_role_nickname_candidates() -> std::
     let codex_home = TempDir::new()?;
     let cfg = ConfigToml {
         agents: Some(AgentsToml {
-            max_threads: None,
+            enabled: None,
+            max_concurrent_threads_per_session: None,
             max_depth: None,
+            default_subagent_model: None,
+            default_subagent_reasoning_effort: None,
             job_max_runtime_seconds: None,
             interrupt_message: None,
             roles: BTreeMap::from([(
@@ -8509,8 +8616,11 @@ async fn load_config_rejects_unsafe_agent_role_nickname_candidates() -> std::io:
     let codex_home = TempDir::new()?;
     let cfg = ConfigToml {
         agents: Some(AgentsToml {
-            max_threads: None,
+            enabled: None,
+            max_concurrent_threads_per_session: None,
             max_depth: None,
+            default_subagent_model: None,
+            default_subagent_reasoning_effort: None,
             job_max_runtime_seconds: None,
             interrupt_message: None,
             roles: BTreeMap::from([(
@@ -9018,6 +9128,12 @@ async fn test_requirements_web_search_mode_allowlist_does_not_warn_when_unset() 
     let fixture = create_test_fixture()?;
 
     let requirements_toml = codex_config::ConfigRequirementsToml {
+        sqlite_home: None,
+        log_dir: None,
+        model_catalog_json: None,
+        check_for_update_on_startup: None,
+        allow_login_shell: None,
+        feedback: None,
         allowed_approval_policies: None,
         allowed_approvals_reviewers: None,
         allowed_sandbox_modes: None,
@@ -9912,12 +10028,14 @@ async fn permission_profile_override_preserves_split_write_roots() -> std::io::R
                 value: FileSystemSpecialPath::Root,
             },
             access: FileSystemAccessMode::Read,
+            missing_path_behavior: None,
         },
         FileSystemSandboxEntry {
             path: FileSystemPath::Path {
                 path: outside_root.clone(),
             },
             access: FileSystemAccessMode::Write,
+            missing_path_behavior: None,
         },
     ]);
     let permission_profile = PermissionProfile::from_runtime_permissions_with_enforcement(
@@ -10485,6 +10603,9 @@ tool_namespace = "agents"
 hide_spawn_agent_metadata = true
 expose_spawn_agent_model_overrides = false
 non_code_mode_only = true
+
+[agents]
+max_concurrent_threads_per_session = 9
 "#,
     )?;
 
@@ -10504,7 +10625,7 @@ non_code_mode_only = true
             config.agent_max_threads,
             config.effective_agent_max_threads(MultiAgentVersion::V2)
         ),
-        (None, Some(4))
+        (Some(9), Some(4))
     );
     assert_eq!(
         config.multi_agent_v2.usage_hint_text.as_deref(),
@@ -10672,7 +10793,7 @@ subagent_usage_hint_text = ""
 }
 
 #[tokio::test]
-async fn multi_agent_v2_feature_rejects_agents_max_threads() -> std::io::Result<()> {
+async fn multi_agent_v2_uses_agents_max_concurrent_threads_per_session() -> std::io::Result<()> {
     let codex_home = TempDir::new()?;
     std::fs::write(
         codex_home.path().join(CONFIG_TOML_FILE),
@@ -10680,7 +10801,7 @@ async fn multi_agent_v2_feature_rejects_agents_max_threads() -> std::io::Result<
 enabled = true
 
 [agents]
-max_threads = 3
+max_concurrent_threads_per_session = 7
 "#,
     )?;
 
@@ -10689,25 +10810,19 @@ max_threads = 3
         .fallback_cwd(Some(codex_home.path().to_path_buf()))
         .build()
         .await?;
-    let err = config
-        .validate_multi_agent_v2_config()
-        .expect_err("agents.max_threads should conflict with multi_agent_v2");
-
-    assert_eq!(err.kind(), std::io::ErrorKind::InvalidInput);
     assert_eq!(
-        err.to_string(),
-        "agents.max_threads cannot be set when features.multi_agent_v2 is enabled"
-    );
-    assert_eq!(
-        config.effective_agent_max_threads(MultiAgentVersion::V2),
-        Some(3)
+        (
+            config.multi_agent_v2.max_concurrent_threads_per_session,
+            config.effective_agent_max_threads(MultiAgentVersion::V2),
+        ),
+        (8, Some(7))
     );
 
     Ok(())
 }
 
 #[tokio::test]
-async fn catalog_v2_allows_agents_max_threads_when_feature_disabled() -> std::io::Result<()> {
+async fn catalog_v2_allows_agents_thread_limit_when_feature_disabled() -> std::io::Result<()> {
     let codex_home = TempDir::new()?;
     std::fs::write(
         codex_home.path().join(CONFIG_TOML_FILE),
@@ -10715,7 +10830,7 @@ async fn catalog_v2_allows_agents_max_threads_when_feature_disabled() -> std::io
 enabled = false
 
 [agents]
-max_threads = 3
+max_concurrent_threads_per_session = 3
 "#,
     )?;
 
@@ -10725,10 +10840,12 @@ max_threads = 3
         .build()
         .await?;
 
-    config.validate_multi_agent_v2_config()?;
     assert_eq!(
-        config.effective_agent_max_threads(MultiAgentVersion::V2),
-        Some(3)
+        (
+            config.multi_agent_v2.max_concurrent_threads_per_session,
+            config.effective_agent_max_threads(MultiAgentVersion::V2),
+        ),
+        (4, Some(3))
     );
 
     Ok(())
@@ -11635,4 +11752,135 @@ fn test_tui_notification_condition_rejects_unknown_value() {
             && err.contains("always"),
         "unexpected error: {err}"
     );
+}
+
+async fn load_with_enterprise_requirement(
+    codex_home: &TempDir,
+    requirements: impl Into<String>,
+) -> std::io::Result<Config> {
+    ConfigBuilder::without_managed_config_for_tests()
+        .codex_home(codex_home.path().to_path_buf())
+        .fallback_cwd(Some(codex_home.path().to_path_buf()))
+        .cloud_config_bundle(
+            CloudConfigBundleFixture::loader_with_enterprise_requirement(requirements),
+        )
+        .build()
+        .await
+}
+
+#[tokio::test]
+async fn exact_requirements_apply_to_runtime_config() -> std::io::Result<()> {
+    let codex_home = TempDir::new()?;
+    let catalog_path = codex_home.path().join("required-models.json");
+    let mut catalog = bundled_models_response()
+        .unwrap_or_else(|err| panic!("bundled models.json should parse: {err}"));
+    catalog.models = catalog.models.into_iter().take(1).collect();
+    std::fs::write(
+        &catalog_path,
+        serde_json::to_string(&catalog).expect("serialize catalog"),
+    )?;
+    std::fs::write(
+        codex_home.path().join(CONFIG_TOML_FILE),
+        r#"
+check_for_update_on_startup = true
+allow_login_shell = true
+
+[feedback]
+enabled = true
+
+[windows]
+sandbox_private_desktop = true
+"#,
+    )?;
+
+    let required_sqlite_home = codex_home.path().join("required-state");
+    let required_log_dir = codex_home.path().join("required-logs");
+    let requirements = format!(
+        r#"
+sqlite_home = {:?}
+log_dir = {:?}
+model_catalog_json = {:?}
+check_for_update_on_startup = false
+allow_login_shell = false
+
+[feedback]
+enabled = false
+
+[windows]
+sandbox_private_desktop = false
+"#,
+        required_sqlite_home.display(),
+        required_log_dir.display(),
+        catalog_path.display(),
+    );
+    let config = load_with_enterprise_requirement(&codex_home, requirements).await?;
+
+    assert_eq!(config.sqlite_home, required_sqlite_home);
+    assert_eq!(config.log_dir, required_log_dir);
+    assert_eq!(config.model_catalog, Some(catalog));
+    assert!(!config.check_for_update_on_startup);
+    assert!(!config.permissions.allow_login_shell);
+    assert!(!config.feedback_enabled);
+    assert!(!config.permissions.windows_sandbox_private_desktop);
+    assert!(config.startup_warnings.iter().any(|warning| {
+        warning.contains("Configured value for `check_for_update_on_startup` is overridden")
+    }));
+    Ok(())
+}
+
+#[tokio::test]
+async fn absent_allow_login_shell_does_not_report_an_override() -> std::io::Result<()> {
+    let codex_home = TempDir::new()?;
+    let config = load_with_enterprise_requirement(&codex_home, "allow_login_shell = false").await?;
+
+    assert!(!config.permissions.allow_login_shell);
+    assert!(
+        config
+            .startup_warnings
+            .iter()
+            .all(|warning| !warning.contains("allow_login_shell"))
+    );
+    Ok(())
+}
+
+#[test]
+fn sqlite_home_env_conflict_reports_an_override() -> std::io::Result<()> {
+    let codex_home = TempDir::new()?;
+    let required = AbsolutePathBuf::try_from(codex_home.path().join("required-state"))?;
+    let environment = codex_home.path().join("environment-state");
+    let requirement = Sourced::new(required.clone(), RequirementSource::Unknown);
+    let mut warnings = Vec::new();
+
+    super::requirements::push_sqlite_home_env_override_warning(
+        /*configured_sqlite_home*/ None,
+        Some(environment.as_path()),
+        Some(&requirement),
+        &mut warnings,
+    );
+    assert_eq!(
+        warnings,
+        vec![format!(
+            "Environment value for `$CODEX_SQLITE_HOME` is overridden by the required `sqlite_home` value {required:?} from {}.",
+            RequirementSource::Unknown
+        )]
+    );
+
+    warnings.clear();
+    super::requirements::push_sqlite_home_env_override_warning(
+        /*configured_sqlite_home*/ None,
+        Some(required.as_path()),
+        Some(&requirement),
+        &mut warnings,
+    );
+    assert!(warnings.is_empty());
+
+    super::requirements::push_sqlite_home_env_override_warning(
+        Some(&required),
+        Some(environment.as_path()),
+        Some(&requirement),
+        &mut warnings,
+    );
+    assert!(warnings.is_empty());
+
+    Ok(())
 }

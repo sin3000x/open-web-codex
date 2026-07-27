@@ -1,65 +1,7 @@
 import type { ConversationItem } from "../types";
+import { stripLeadingProviderSentinel } from "./providerText";
 import { parseCollabToolCallItem } from "./threadItems.collab";
 import { asNumber, asString } from "./threadItems.shared";
-
-type ThreadItemSource = "live" | "history";
-
-const SENSITIVE_FIELD =
-  /(?:authorization|cookie|credential|password|secret|token|api[_-]?key|stdin|chars)/i;
-
-function redactSensitive(value: unknown, key = ""): unknown {
-  if (SENSITIVE_FIELD.test(key)) {
-    return "[redacted]";
-  }
-  if (Array.isArray(value)) {
-    return value.map((entry) => redactSensitive(entry));
-  }
-  if (value && typeof value === "object") {
-    return Object.fromEntries(
-      Object.entries(value as Record<string, unknown>).map(([entryKey, entryValue]) => [
-        entryKey,
-        redactSensitive(entryValue, entryKey),
-      ]),
-    );
-  }
-  return value;
-}
-
-function jsonText(value: unknown) {
-  if (value == null || value === "") {
-    return "";
-  }
-  if (typeof value === "string") {
-    return value;
-  }
-  try {
-    return JSON.stringify(redactSensitive(value), null, 2);
-  } catch {
-    return String(value);
-  }
-}
-
-function contentItemsText(value: unknown) {
-  if (!Array.isArray(value)) {
-    return "";
-  }
-  return value
-    .map((entry) => {
-      if (!entry || typeof entry !== "object") {
-        return "";
-      }
-      const record = entry as Record<string, unknown>;
-      if (record.type === "inputText") {
-        return asString(record.text);
-      }
-      if (record.type === "inputImage") {
-        return asString(record.imageUrl ?? record.image_url);
-      }
-      return "";
-    })
-    .filter(Boolean)
-    .join("\n");
-}
 
 function extractImageInputValue(input: Record<string, unknown>) {
   const value =
@@ -100,9 +42,8 @@ function parseUserInputs(inputs: Array<Record<string, unknown>>) {
   return { text: textParts.join(" ").trim(), images };
 }
 
-export function normalizeThreadItem(
+export function buildConversationItem(
   item: Record<string, unknown>,
-  source: ThreadItemSource,
 ): ConversationItem | null {
   const type = asString(item.type);
   const id = asString(item.id);
@@ -110,14 +51,7 @@ export function normalizeThreadItem(
     return null;
   }
   if (type === "agentMessage") {
-    return source === "history"
-      ? {
-          id,
-          kind: "message",
-          role: "assistant",
-          text: asString(item.text),
-        }
-      : null;
+    return null;
   }
   if (type === "userMessage") {
     const content = Array.isArray(item.content) ? item.content : [];
@@ -131,9 +65,7 @@ export function normalizeThreadItem(
     };
   }
   if (type === "reasoning") {
-    const summary = Array.isArray(item.summary)
-      ? item.summary.map((entry) => asString(entry)).join("\n")
-      : asString(item.summary ?? "");
+    const summary = asString(item.summary ?? "");
     const content = Array.isArray(item.content)
       ? item.content.map((entry) => asString(entry)).join("\n")
       : asString(item.content ?? "");
@@ -215,7 +147,7 @@ export function normalizeThreadItem(
   if (type === "mcpToolCall") {
     const server = asString(item.server ?? "");
     const tool = asString(item.tool ?? "");
-    const args = jsonText(item.arguments);
+    const args = item.arguments ? JSON.stringify(item.arguments, null, 2) : "";
     return {
       id,
       kind: "tool",
@@ -223,40 +155,7 @@ export function normalizeThreadItem(
       title: `Tool: ${server}${tool ? ` / ${tool}` : ""}`,
       detail: args,
       status: asString(item.status ?? ""),
-      output: jsonText(item.result ?? item.error),
-    };
-  }
-  if (type === "hookPrompt") {
-    const fragments = Array.isArray(item.fragments) ? item.fragments : [];
-    const text = fragments
-      .map((fragment) =>
-        fragment && typeof fragment === "object"
-          ? asString((fragment as Record<string, unknown>).text)
-          : "",
-      )
-      .filter(Boolean)
-      .join("\n");
-    return {
-      id,
-      kind: "tool",
-      toolType: type,
-      title: "Hook prompt",
-      detail: "",
-      status: "completed",
-      output: text,
-    };
-  }
-  if (type === "dynamicToolCall") {
-    const tool = asString(item.tool).trim() || "Tool";
-    const namespace = asString(item.namespace).trim();
-    return {
-      id,
-      kind: "tool",
-      toolType: type,
-      title: namespace ? `Tool: ${namespace} / ${tool}` : `Tool: ${tool}`,
-      detail: jsonText(item.arguments),
-      status: asString(item.status).trim() || "completed",
-      output: contentItemsText(item.contentItems),
+      output: asString(item.result ?? item.error ?? ""),
     };
   }
   if (type === "collabToolCall" || type === "collabAgentToolCall") {
@@ -285,43 +184,6 @@ export function normalizeThreadItem(
       output: "",
     };
   }
-  if (type === "imageGeneration") {
-    return {
-      id,
-      kind: "tool",
-      toolType: type,
-      title: "Image generation",
-      detail: asString(item.revisedPrompt ?? ""),
-      status: asString(item.status).trim() || "completed",
-      output: asString(item.savedPath ?? item.result ?? ""),
-    };
-  }
-  if (type === "sleep") {
-    const durationMs = asNumber(item.durationMs ?? item.duration_ms) ?? 0;
-    return {
-      id,
-      kind: "tool",
-      toolType: type,
-      title: "Wait",
-      detail: `Waited ${durationMs}ms`,
-      status: asString(item.status).trim() || "completed",
-      output: "",
-      durationMs,
-    };
-  }
-  if (type === "subAgentActivity") {
-    return {
-      id,
-      kind: "tool",
-      toolType: type,
-      title: "Sub-agent activity",
-      detail: [asString(item.kind), asString(item.agentPath ?? item.agent_path)]
-        .filter(Boolean)
-        .join(" · "),
-      status: asString(item.status).trim() || "completed",
-      output: "",
-    };
-  }
   if (type === "contextCompaction") {
     const status = asString(item.status ?? "").trim();
     return {
@@ -342,27 +204,46 @@ export function normalizeThreadItem(
       text: asString(item.review ?? ""),
     };
   }
-  return {
-    id,
-    kind: "tool",
-    toolType: type,
-    title: `Unsupported item: ${type}`,
-    detail: jsonText(item),
-    status: asString(item.status).trim() || "unknown",
-    output: "",
-  };
-}
-
-export function buildConversationItem(
-  item: Record<string, unknown>,
-): ConversationItem | null {
-  return normalizeThreadItem(item, "live");
+  return null;
 }
 
 export function buildConversationItemFromThreadItem(
   item: Record<string, unknown>,
 ): ConversationItem | null {
-  return normalizeThreadItem(item, "history");
+  const type = asString(item.type);
+  const id = asString(item.id);
+  if (!id || !type) {
+    return null;
+  }
+  if (type === "userMessage") {
+    const content = Array.isArray(item.content) ? item.content : [];
+    const { text, images } = parseUserInputs(content as Array<Record<string, unknown>>);
+    return {
+      id,
+      kind: "message",
+      role: "user",
+      text,
+      images: images.length > 0 ? images : undefined,
+    };
+  }
+  if (type === "agentMessage") {
+    return {
+      id,
+      kind: "message",
+      role: "assistant",
+      text: stripLeadingProviderSentinel(asString(item.text)),
+    };
+  }
+  if (type === "reasoning") {
+    const summary = Array.isArray(item.summary)
+      ? item.summary.map((entry) => asString(entry)).join("\n")
+      : asString(item.summary ?? "");
+    const content = Array.isArray(item.content)
+      ? item.content.map((entry) => asString(entry)).join("\n")
+      : asString(item.content ?? "");
+    return { id, kind: "reasoning", summary, content };
+  }
+  return buildConversationItem(item);
 }
 
 export function buildItemsFromThread(thread: Record<string, unknown>) {

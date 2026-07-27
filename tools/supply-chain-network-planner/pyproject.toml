@@ -1,0 +1,32 @@
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "open-web-codex-supply-chain-network-planner"
+version = "0.1.0"
+description = "Deterministic supply-chain network planning MCP tools for Codex"
+requires-python = ">=3.11"
+dependencies = [
+  "mcp>=1.27,<2",
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=8,<10",
+]
+
+[project.scripts]
+supply-chain-network-planner = "supply_chain_planner.server:main"
+
+[tool.setuptools.packages.find]
+include = ["supply_chain_planner*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP"]

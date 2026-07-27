@@ -1,0 +1,4 @@
+interface:
+  display_name: "Prepare Network Baseline"
+  short_description: "Validate network data and build route inputs."
+  default_prompt: "Use $prepare-network-baseline to prepare an immutable network snapshot and route matrix for this request."

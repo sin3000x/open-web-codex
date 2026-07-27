@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { appendTerminalInteractionOutput, buildWebThreadHistory, isUserThreadItem, mergeWebThreadHistory, unwrapWebRpcResult } from "./webThreadHistory";
+import { agentMessagePhase, appendTerminalInteractionOutput, buildWebThreadHistory, isUserThreadItem, mergeWebThreadHistory, unwrapWebRpcResult } from "./webThreadHistory";
 
 describe("isUserThreadItem", () => {
   it("recognizes both live and persisted user message shapes", () => {
@@ -9,13 +9,32 @@ describe("isUserThreadItem", () => {
   });
 });
 
+describe("agentMessagePhase", () => {
+  it("accepts only phases from the generated Codex contract", () => {
+    expect(agentMessagePhase("commentary")).toBe("commentary");
+    expect(agentMessagePhase("final_answer")).toBe("final_answer");
+    expect(agentMessagePhase("analysis")).toBeUndefined();
+    expect(agentMessagePhase(null)).toBeUndefined();
+  });
+});
+
 describe("mergeWebThreadHistory", () => {
   it("preserves messages sent while historical turns are loading", () => {
     expect(mergeWebThreadHistory(
-      [{ id: "old", level: "assistant", text: "Earlier response" }],
+      [{
+        id: "old",
+        level: "assistant",
+        text: "Earlier response",
+        messagePhase: "final_answer",
+      }],
       [{ id: "optimistic", level: "user", text: "New request" }],
     )).toEqual([
-      { id: "old", level: "assistant", text: "Earlier response" },
+      {
+        id: "old",
+        level: "assistant",
+        text: "Earlier response",
+        messagePhase: "final_answer",
+      },
       { id: "optimistic", level: "user", text: "New request" },
     ]);
   });
@@ -25,6 +44,80 @@ describe("mergeWebThreadHistory", () => {
       [{ id: "persisted", level: "user", text: "New request" }],
       [{ id: "optimistic", level: "user", text: "New request" }],
     )).toHaveLength(1);
+  });
+
+  it("merges a live assistant projection with persisted history by runtime item id", () => {
+    expect(mergeWebThreadHistory(
+      [{
+        id: "item-8",
+        level: "assistant",
+        text: "Inspecting Shanghai boundaries",
+        messagePhase: "commentary",
+      }],
+      [{ id: "item-8", level: "assistant", text: "Inspecting Shanghai boundaries", streaming: true }],
+    )).toEqual([
+      {
+        id: "item-8",
+        level: "assistant",
+        text: "Inspecting Shanghai boundaries",
+        messagePhase: "commentary",
+        streaming: true,
+      },
+    ]);
+  });
+
+  it("does not let a stale started Tool event overwrite authoritative completed history", () => {
+    expect(mergeWebThreadHistory(
+      [{
+        id: "call-map",
+        level: "info",
+        text: "create_map_card",
+        kind: "tool",
+        toolStatus: "completed",
+      }],
+      [{
+        id: "call-map",
+        level: "info",
+        text: "create_map_card",
+        kind: "tool",
+        toolStatus: "inProgress",
+        streaming: true,
+      }],
+    )).toEqual([{
+      id: "call-map",
+      level: "info",
+      text: "create_map_card",
+      kind: "tool",
+      toolStatus: "completed",
+    }]);
+  });
+
+  it("merges a live approval with its Server-projected historical approval", () => {
+    expect(mergeWebThreadHistory(
+      [{
+        id: "approval-history",
+        level: "info",
+        text: "Allow map tool?",
+        kind: "approval",
+        approvalRequestId: "approval-1",
+        approvalStatus: "resolved",
+      }],
+      [{
+        id: "approval-live",
+        level: "info",
+        text: "Allow map tool?",
+        kind: "approval",
+        approvalRequestId: "approval-1",
+        approvalStatus: "pending",
+      }],
+    )).toEqual([{
+      id: "approval-history",
+      level: "info",
+      text: "Allow map tool?",
+      kind: "approval",
+      approvalRequestId: "approval-1",
+      approvalStatus: "resolved",
+    }]);
   });
 });
 
@@ -41,6 +134,81 @@ describe("appendTerminalInteractionOutput", () => {
 });
 
 describe("buildWebThreadHistory", () => {
+  it("drops whitespace-only restored agent messages", () => {
+    expect(buildWebThreadHistory({
+      turns: [{
+        items: [{
+          id: "blank-commentary",
+          type: "agentMessage",
+          text: "\n\n  ",
+          phase: "commentary",
+        }],
+      }],
+    }, () => "unused")).toEqual([]);
+  });
+
+  it("restores Server-projected approvals in Turn item order", () => {
+    const result = buildWebThreadHistory({
+      turns: [{
+        items: [
+          {
+            id: "tool-1",
+            type: "mcpToolCall",
+            server: "map_utils",
+            tool: "batch_geocode",
+            status: "completed",
+          },
+          {
+            id: "approval-1",
+            type: "platformApproval",
+            text: "Allow batch_geocode?",
+            approvalRequestId: "request-1",
+            approvalStatus: "resolved",
+            approvalServerName: "map_utils",
+            approvalTool: "batch_geocode",
+          },
+          {
+            id: "reply-1",
+            type: "agentMessage",
+            text: "Coordinates loaded.",
+            phase: "commentary",
+          },
+        ],
+      }],
+    }, () => "unused");
+
+    expect(result.map((entry) => entry.id)).toEqual([
+      "tool-1",
+      "approval-1",
+      "reply-1",
+    ]);
+    expect(result[1]).toMatchObject({
+      kind: "approval",
+      approvalRequestId: "request-1",
+      approvalStatus: "resolved",
+      approvalTool: "batch_geocode",
+    });
+  });
+
+  it.each([
+    ["accepted", "accepted"],
+    ["declined", "declined"],
+    ["answered", "answered"],
+  ] as const)("restores the %s approval outcome without collapsing it to resolved", (status, expected) => {
+    const [entry] = buildWebThreadHistory({
+      turns: [{
+        items: [{
+          id: `approval-${status}`,
+          type: "platformApproval",
+          text: "Approval response",
+          approvalStatus: status,
+        }],
+      }],
+    }, () => "unused");
+
+    expect(entry.approvalStatus).toBe(expected);
+  });
+
   it("unwraps nested gateway and app-server result envelopes", () => {
     const thread = {
       id: "019f5b75-2266-7910-bc60-b4470041c4e7",
@@ -111,6 +279,27 @@ describe("buildWebThreadHistory", () => {
     expect(entry.reasoningSummary).toBeUndefined();
   });
 
+  it("strips provider sentinels from restored assistant history", () => {
+    const result = buildWebThreadHistory({
+      turns: [{
+        items: [
+          {
+            id: "assistant",
+            type: "agentMessage",
+            text: "<｜begin▁of▁sentence｜># Route unavailable",
+            phase: "final_answer",
+          },
+        ],
+      }],
+    }, () => "fallback-id");
+
+    expect(result).toMatchObject([{
+      level: "assistant",
+      text: "# Route unavailable",
+      messagePhase: "final_answer",
+    }]);
+  });
+
   it("restores persisted dynamic tools as commands, diffs, and expandable tool cards", () => {
     let id = 0;
     const result = buildWebThreadHistory({
@@ -149,7 +338,7 @@ describe("buildWebThreadHistory", () => {
             status: "completed",
             contentItems: [{ type: "inputText", text: "Nested tool result" }],
           },
-          { id: "final", type: "agentMessage", text: "完成。" },
+          { id: "final", type: "agentMessage", text: "完成。", phase: "final_answer" },
         ],
       }],
     }, () => `log-${++id}`);
@@ -160,7 +349,7 @@ describe("buildWebThreadHistory", () => {
       { kind: "diff", diffTitle: "File changes" },
       { kind: "tool", toolTitle: "update_goal", toolOutput: "Goal updated" },
       { kind: "tool", toolTitle: "exec", toolOutput: "Nested tool result" },
-      { level: "assistant", text: "完成。" },
+      { level: "assistant", text: "完成。", messagePhase: "final_answer" },
     ]);
   });
 
@@ -182,6 +371,69 @@ describe("buildWebThreadHistory", () => {
 
     expect(result).toHaveLength(9);
     expect(result.every((entry) => entry.kind === "tool")).toBe(true);
+  });
+
+  it("restores authorized typed Artifacts on their Agent Message", () => {
+    const [entry] = buildWebThreadHistory({
+      turns: [{ items: [{
+        id: "assistant-map",
+        type: "agentMessage",
+        text: [
+          "Before.",
+          '::codex-inline-vis{artifact="map-locations"}',
+          "After.",
+        ].join("\n"),
+        inlineArtifacts: [{
+          ref: "map-locations",
+          renderer: {
+            kind: "map.v3",
+            payload: {
+            title: "Locations",
+            intent: "visualization",
+            status: "ready",
+            sources: {
+              locations: {
+                type: "geojson",
+                data: {
+                type: "artifact",
+                format: "geojson",
+                artifact_id: "8e98ff2f-82ee-4cc9-a3e6-2974debf8666",
+                url: "/api/runs/975f1f1c-4b58-47ad-a12c-c32aeae566e7/artifacts/8e98ff2f-82ee-4cc9-a3e6-2974debf8666",
+              },
+              },
+            },
+            layers: [{
+              id: "points",
+              source: "locations",
+              type: "circle",
+              paint: { "circle-color": "#ef4444" },
+            }],
+            },
+          },
+        }],
+      }] }],
+    }, () => "generated");
+
+    expect(entry).toMatchObject({
+      id: "assistant-map",
+      level: "assistant",
+      text: 'Before.\n::codex-inline-vis{artifact="map-locations"}\nAfter.',
+      inlineArtifacts: [{
+        ref: "map-locations",
+        rendererKind: "map.v3",
+        card: {
+          kind: "map.v3",
+          title: "Locations",
+          sources: [{
+            id: "locations",
+            data: {
+              type: "artifact",
+              artifactId: "8e98ff2f-82ee-4cc9-a3e6-2974debf8666",
+            },
+          }],
+        },
+      }],
+    });
   });
 
   it("redacts sensitive dynamic tool arguments", () => {

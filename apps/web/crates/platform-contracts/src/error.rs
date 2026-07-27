@@ -29,23 +29,47 @@ pub enum ErrorKind {
 
 impl PlatformError {
     pub fn bad_request(message: impl Into<String>) -> Self {
-        Self { kind: ErrorKind::BadRequest, message: message.into(), request_id: None, retry_after_ms: None }
+        Self {
+            kind: ErrorKind::BadRequest,
+            message: message.into(),
+            request_id: None,
+            retry_after_ms: None,
+        }
     }
 
     pub fn not_found(message: impl Into<String>) -> Self {
-        Self { kind: ErrorKind::NotFound, message: message.into(), request_id: None, retry_after_ms: None }
+        Self {
+            kind: ErrorKind::NotFound,
+            message: message.into(),
+            request_id: None,
+            retry_after_ms: None,
+        }
     }
-
 
     pub fn internal(message: impl Into<String>) -> Self {
-        Self { kind: ErrorKind::Internal, message: message.into(), request_id: None, retry_after_ms: None }
+        Self {
+            kind: ErrorKind::Internal,
+            message: message.into(),
+            request_id: None,
+            retry_after_ms: None,
+        }
     }
     pub fn unauthorized(message: impl Into<String>) -> Self {
-        Self { kind: ErrorKind::Unauthorized, message: message.into(), request_id: None, retry_after_ms: None }
+        Self {
+            kind: ErrorKind::Unauthorized,
+            message: message.into(),
+            request_id: None,
+            retry_after_ms: None,
+        }
     }
 
     pub fn forbidden(message: impl Into<String>) -> Self {
-        Self { kind: ErrorKind::Forbidden, message: message.into(), request_id: None, retry_after_ms: None }
+        Self {
+            kind: ErrorKind::Forbidden,
+            message: message.into(),
+            request_id: None,
+            retry_after_ms: None,
+        }
     }
 
     pub fn with_request_id(mut self, request_id: String) -> Self {

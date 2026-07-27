@@ -1,0 +1,4 @@
+interface:
+  display_name: "Prepare Planning Dataset"
+  short_description: "Build a governed supply-chain planning dataset."
+  default_prompt: "Use $prepare-planning-dataset to prepare a validated planning dataset from the authorized read-only source."

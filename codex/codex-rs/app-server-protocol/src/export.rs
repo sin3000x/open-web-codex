@@ -48,10 +48,11 @@ const JSON_V1_ALLOWLIST: &[&str] = &["InitializeParams", "InitializeResponse"];
 const EXPERIMENTAL_CLIENT_METHOD_DEPENDENCY_TYPES: &[&str] = &[
     "EnvironmentShellInfo",
     "EnvironmentStatusKind",
-    "PathUri",
     "RemoteControlClient",
     "RemoteControlClientsListOrder",
     "ThreadBackgroundTerminal",
+    "ThreadSearchOccurrence",
+    "ThreadSearchTextRange",
 ];
 const SPECIAL_DEFINITIONS: &[&str] = &[
     "ClientNotification",
@@ -264,8 +265,16 @@ fn filter_experimental_ts(out_dir: &Path) -> Result<()> {
     // post-processing because they encode method/field information locally.
     filter_request_ts(out_dir, "ClientRequest.ts", EXPERIMENTAL_CLIENT_METHODS)?;
     filter_request_ts(out_dir, "ServerRequest.ts", EXPERIMENTAL_SERVER_METHODS)?;
-    filter_request_ts(out_dir, "ServerNotification.ts", EXPERIMENTAL_SERVER_NOTIFICATIONS)?;
-    filter_request_ts(out_dir, "ClientNotification.ts", EXPERIMENTAL_CLIENT_NOTIFICATIONS)?;
+    filter_request_ts(
+        out_dir,
+        "ServerNotification.ts",
+        EXPERIMENTAL_SERVER_NOTIFICATIONS,
+    )?;
+    filter_request_ts(
+        out_dir,
+        "ClientNotification.ts",
+        EXPERIMENTAL_CLIENT_NOTIFICATIONS,
+    )?;
     filter_experimental_type_fields_ts(out_dir, &registered_fields)?;
     remove_generated_type_files(out_dir, &experimental_method_types, "ts")?;
     Ok(())
@@ -3114,8 +3123,9 @@ permissionProfile?: string | null};
         let server_request_json = fs::read_to_string(output_dir.join("ServerRequest.json"))?;
         let server_notification_json =
             fs::read_to_string(output_dir.join("ServerNotification.json"))?;
-        let experimental_methods: HashSet<_> =
-            crate::registry_experimental_wire_methods().into_iter().collect();
+        let experimental_methods: HashSet<_> = crate::registry_experimental_wire_methods()
+            .into_iter()
+            .collect();
 
         for method in &experimental_methods {
             assert!(

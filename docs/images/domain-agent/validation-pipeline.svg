@@ -1,0 +1,46 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="520" viewBox="0 0 1200 520" role="img" aria-labelledby="title desc">
+  <title id="title">领域 Agent 校验流水线</title>
+  <desc id="desc">Skill 执行产生结果，依次经过结构、规则、计算、冲突和跨 Skill 一致性校验，形成最终交付物。</desc>
+  <defs>
+    <style>
+      text { font-family: Inter, "Noto Sans SC", "Microsoft YaHei", sans-serif; fill: #172033; }
+      .title { font-size: 30px; font-weight: 700; }
+      .label { font-size: 20px; font-weight: 700; }
+      .small { font-size: 16px; fill: #4d5a70; }
+      .box { fill: #ffffff; stroke: #7182a0; stroke-width: 2; rx: 16; }
+      .validation { fill: #fff7df; stroke: #c7932e; }
+      .final { fill: #eaf8f0; stroke: #3e9a68; }
+      .arrow { stroke: #66758f; stroke-width: 3; fill: none; marker-end: url(#arrow); }
+    </style>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#66758f"/>
+    </marker>
+  </defs>
+  <rect width="1200" height="520" fill="#f7f9fc"/>
+  <text x="600" y="48" text-anchor="middle" class="title">领域 Agent 校验流水线</text>
+
+  <rect x="55" y="185" width="200" height="90" class="box"/>
+  <text x="155" y="220" text-anchor="middle" class="label">Skill Execution</text>
+  <text x="155" y="252" text-anchor="middle" class="small">执行专业流程</text>
+  <path d="M255 230 H315" class="arrow"/>
+
+  <rect x="315" y="185" width="200" height="90" class="box"/>
+  <text x="415" y="220" text-anchor="middle" class="label">Generated Result</text>
+  <text x="415" y="252" text-anchor="middle" class="small">结构化中间结果</text>
+  <path d="M515 230 H575" class="arrow"/>
+
+  <rect x="575" y="105" width="350" height="250" class="box validation"/>
+  <text x="750" y="145" text-anchor="middle" class="label">Validation Layer</text>
+  <text x="615" y="185" class="small">✓ Schema Validation</text>
+  <text x="615" y="220" class="small">✓ Rule Validation</text>
+  <text x="615" y="255" class="small">✓ Calculation Validation</text>
+  <text x="615" y="290" class="small">✓ Conflict Detection</text>
+  <text x="615" y="325" class="small">✓ Cross-Skill Consistency Check</text>
+  <path d="M925 230 H985" class="arrow"/>
+
+  <rect x="985" y="185" width="180" height="90" class="box final"/>
+  <text x="1075" y="220" text-anchor="middle" class="label">Final Deliverable</text>
+  <text x="1075" y="252" text-anchor="middle" class="small">可审计交付物</text>
+
+  <text x="750" y="410" text-anchor="middle" class="small">领域正确性不能完全依赖模型推理；关键约束应由确定性规则验证。</text>
+</svg>

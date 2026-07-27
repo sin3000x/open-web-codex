@@ -1,0 +1,53 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+root_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+repo_root="$(cd "$root_dir/../.." && pwd)"
+data_dir="${OPEN_WEB_CODEX_DATA_DIR:-$repo_root/.local/open-web-codex}"
+venv_dir="${OPEN_WEB_CODEX_SUPPLY_CHAIN_MCP_VENV:-$data_dir/tool-envs/supply-chain-network-planner}"
+python_bin="$venv_dir/bin/python"
+log_dir="${OPEN_WEB_CODEX_LOG_DIR:-$data_dir/logs}"
+log_file="$log_dir/supply-chain-network-planner-launcher.log"
+server_module="supply_chain_planner.server"
+
+if [[ "${1:-}" == "--data-server" ]]; then
+  server_module="supply_chain_planner.data_server"
+  shift
+fi
+
+mkdir -p "$log_dir"
+
+log() {
+  printf '[%s] %s\n' "$(date -u '+%Y-%m-%dT%H:%M:%SZ')" "$*" >>"$log_file"
+}
+
+if [[ ! -x "$python_bin" ]]; then
+  if [[ "${SUPPLY_CHAIN_MCP_AUTO_INSTALL:-0}" != "1" ]]; then
+    cat >&2 <<EOF
+supply-chain-network-planner: shared Python environment is missing: $venv_dir
+supply-chain-network-planner: run bin/setup-env or set SUPPLY_CHAIN_MCP_AUTO_INSTALL=1 for manual development.
+EOF
+    exit 70
+  fi
+  command -v python3 >/dev/null 2>&1 || {
+    printf 'supply-chain-network-planner: python3 is required\n' >&2
+    exit 127
+  }
+  python3 -m venv "$venv_dir"
+fi
+
+export PYTHONPATH="$root_dir${PYTHONPATH:+:$PYTHONPATH}"
+
+if ! "$python_bin" -c 'import mcp, pydantic, supply_chain_planner.server, supply_chain_planner.data_server' >/dev/null 2>&1; then
+  if [[ "${SUPPLY_CHAIN_MCP_AUTO_INSTALL:-0}" != "1" ]]; then
+    cat >&2 <<EOF
+supply-chain-network-planner: dependencies are not installed in $venv_dir
+supply-chain-network-planner: run bin/setup-env or set SUPPLY_CHAIN_MCP_AUTO_INSTALL=1 for manual development.
+EOF
+    exit 70
+  fi
+  "$python_bin" -m pip install --disable-pip-version-check -e "$root_dir" >&2
+fi
+
+log "starting server module=$server_module cwd=$(pwd) root_dir=$root_dir"
+exec "$python_bin" -m "$server_module" "$@" 2>>"$log_file"

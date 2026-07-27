@@ -1,0 +1,22 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+root_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+repo_root="$(cd "$root_dir/../.." && pwd)"
+data_dir="${OPEN_WEB_CODEX_DATA_DIR:-$repo_root/.local/open-web-codex}"
+venv_dir="${OPEN_WEB_CODEX_SUPPLY_CHAIN_MCP_VENV:-$data_dir/tool-envs/supply-chain-network-planner}"
+
+if ! command -v python3 >/dev/null 2>&1; then
+  printf 'supply-chain-network-planner: Python 3.11 or newer is required\n' >&2
+  exit 127
+fi
+
+if ! python3 -c 'import sys; raise SystemExit(0 if sys.version_info >= (3, 11) else 1)'; then
+  printf 'supply-chain-network-planner: Python 3.11 or newer is required; found %s\n' \
+    "$(python3 -c 'import platform; print(platform.python_version())')" >&2
+  exit 1
+fi
+
+python3 -m venv "$venv_dir"
+"$venv_dir/bin/python" -m pip install --disable-pip-version-check -e "$root_dir[dev]"
+printf 'Supply-chain planner environment is ready: %s\n' "$venv_dir"

@@ -4,21 +4,13 @@ import { fileURLToPath, URL } from "node:url";
 import { defineConfig } from "vitest/config";
 import react from "@vitejs/plugin-react";
 
-// @ts-expect-error process is a nodejs global
-const host = process.env.TAURI_DEV_HOST;
-
 const packageJson = JSON.parse(
   readFileSync(new URL("./package.json", import.meta.url), "utf-8"),
-) as {
-  version: string;
-};
+) as { version: string };
 
-function resolveCommitHash() {
-  const ciCommit =
-    process.env.GIT_COMMIT ?? process.env.GITHUB_SHA ?? process.env.CI_COMMIT_SHA;
-  if (typeof ciCommit === "string" && ciCommit.trim().length > 0) {
-    return ciCommit.trim().slice(0, 12);
-  }
+function commitHash() {
+  const supplied = process.env.GIT_COMMIT ?? process.env.GITHUB_SHA ?? process.env.CI_COMMIT_SHA;
+  if (supplied?.trim()) return supplied.trim().slice(0, 12);
   try {
     return execSync("git rev-parse --short=12 HEAD", { encoding: "utf8" }).trim();
   } catch {
@@ -26,9 +18,9 @@ function resolveCommitHash() {
   }
 }
 
-function resolveBuildDate() {
+function buildDate() {
   const sourceDateEpoch = process.env.SOURCE_DATE_EPOCH;
-  if (typeof sourceDateEpoch === "string" && /^\d+$/.test(sourceDateEpoch)) {
+  if (sourceDateEpoch && /^\d+$/.test(sourceDateEpoch)) {
     const milliseconds = Number(sourceDateEpoch) * 1000;
     if (Number.isFinite(milliseconds) && milliseconds > 0) {
       return new Date(milliseconds).toISOString();
@@ -37,34 +29,34 @@ function resolveBuildDate() {
   return new Date().toISOString();
 }
 
-function resolveGitBranch() {
-  const ciBranch =
-    process.env.GIT_BRANCH ?? process.env.GITHUB_REF_NAME ?? process.env.CI_COMMIT_REF_NAME;
-  if (typeof ciBranch === "string" && ciBranch.trim().length > 0) {
-    return ciBranch.trim();
-  }
+function gitBranch() {
+  const supplied = process.env.GIT_BRANCH ?? process.env.GITHUB_REF_NAME ?? process.env.CI_COMMIT_REF_NAME;
+  if (supplied?.trim()) return supplied.trim();
   try {
-    const branch = execSync("git rev-parse --abbrev-ref HEAD", {
-      encoding: "utf8",
-    }).trim();
-    if (!branch || branch === "HEAD") {
-      return "unknown";
-    }
-    return branch;
+    const branch = execSync("git rev-parse --abbrev-ref HEAD", { encoding: "utf8" }).trim();
+    return branch && branch !== "HEAD" ? branch : "unknown";
   } catch {
     return "unknown";
   }
 }
 
-const appCommitHash = resolveCommitHash();
-const appBuildDate = resolveBuildDate();
-const appGitBranch = resolveGitBranch();
-
-// https://vite.dev/config/
-export default defineConfig(async () => ({
+export default defineConfig({
   plugins: [react()],
   resolve: {
     alias: {
+      "@tauri-apps/api/app": fileURLToPath(new URL("./browser/browser/app.ts", import.meta.url)),
+      "@tauri-apps/api/core": fileURLToPath(new URL("./browser/browser/core.ts", import.meta.url)),
+      "@tauri-apps/api/dpi": fileURLToPath(new URL("./browser/browser/dpi.ts", import.meta.url)),
+      "@tauri-apps/api/event": fileURLToPath(new URL("./browser/browser/event.ts", import.meta.url)),
+      "@tauri-apps/api/menu": fileURLToPath(new URL("./browser/browser/menu.ts", import.meta.url)),
+      "@tauri-apps/api/webview": fileURLToPath(new URL("./browser/browser/webview.ts", import.meta.url)),
+      "@tauri-apps/api/window": fileURLToPath(new URL("./browser/browser/window.ts", import.meta.url)),
+      "@tauri-apps/plugin-dialog": fileURLToPath(new URL("./browser/browser/dialog.ts", import.meta.url)),
+      "@tauri-apps/plugin-notification": fileURLToPath(new URL("./browser/browser/notification.ts", import.meta.url)),
+      "@tauri-apps/plugin-opener": fileURLToPath(new URL("./browser/browser/opener.ts", import.meta.url)),
+      "@tauri-apps/plugin-process": fileURLToPath(new URL("./browser/browser/process.ts", import.meta.url)),
+      "@tauri-apps/plugin-updater": fileURLToPath(new URL("./browser/browser/updater.ts", import.meta.url)),
+      "tauri-plugin-liquid-glass-api": fileURLToPath(new URL("./browser/browser/liquidGlass.ts", import.meta.url)),
       "@": fileURLToPath(new URL("./src", import.meta.url)),
       "@app": fileURLToPath(new URL("./src/features/app", import.meta.url)),
       "@settings": fileURLToPath(new URL("./src/features/settings", import.meta.url)),
@@ -78,37 +70,24 @@ export default defineConfig(async () => ({
   },
   define: {
     __APP_VERSION__: JSON.stringify(packageJson.version),
-    __APP_COMMIT_HASH__: JSON.stringify(appCommitHash),
-    __APP_BUILD_DATE__: JSON.stringify(appBuildDate),
-    __APP_GIT_BRANCH__: JSON.stringify(appGitBranch),
+    __APP_COMMIT_HASH__: JSON.stringify(commitHash()),
+    __APP_BUILD_DATE__: JSON.stringify(buildDate()),
+    __APP_GIT_BRANCH__: JSON.stringify(gitBranch()),
+  },
+  server: {
+    host: process.env.OPEN_WEB_CODEX_FRONTEND_HOST ?? "127.0.0.1",
+    port: Number(process.env.OPEN_WEB_CODEX_FRONTEND_PORT ?? 1420),
+    strictPort: true,
+    proxy: {
+      "/api": {
+        target: process.env.OPEN_WEB_CODEX_DEV_SERVER ?? "http://127.0.0.1:4800",
+        ws: true,
+      },
+    },
   },
   test: {
     environment: "node",
-    include: ["src/**/*.test.ts", "src/**/*.test.tsx"],
+    include: ["src/**/*.test.ts", "src/**/*.test.tsx", "browser/**/*.test.ts", "browser/**/*.test.tsx"],
     setupFiles: ["src/test/vitest.setup.ts"],
   },
-
-  // Vite options tailored for Tauri development and only applied in `tauri dev` or `tauri build`
-  //
-  // 1. prevent Vite from obscuring rust errors
-  clearScreen: false,
-  // 2. tauri expects a fixed port, fail if that port is not available
-  server: {
-    port: 1420,
-    strictPort: true,
-    host: host || false,
-    // SPA fallback: serve index.html for all routes (including /web)
-    historyApiFallback: true,
-    hmr: host
-      ? {
-          protocol: "ws",
-          host,
-          port: 1421,
-        }
-      : undefined,
-    watch: {
-      // 3. tell Vite to ignore watching `src-tauri`
-      ignored: ["**/src-tauri/**", "**/.codex-worktrees/**"],
-    },
-  },
-}));
+});

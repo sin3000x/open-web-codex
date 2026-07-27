@@ -1,4 +1,5 @@
 import type { ConversationItem } from "../types";
+import { stripLeadingProviderSentinel } from "./providerText";
 import {
   DEFAULT_MAX_ITEMS_PER_THREAD,
   type ExploreEntry,
@@ -34,7 +35,7 @@ const RG_FLAGS_WITH_VALUES = new Set([
 
 export function normalizeItem(item: ConversationItem): ConversationItem {
   if (item.kind === "message") {
-    return { ...item, text: truncateText(item.text) };
+    return { ...item, text: truncateText(stripLeadingProviderSentinel(item.text)) };
   }
   if (item.kind === "userInput") {
     return {

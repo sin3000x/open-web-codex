@@ -59,23 +59,30 @@ export default function FileManager({ workspaceId, selectedPath, onSelectedPathC
   const [treeOpen, setTreeOpen] = useState(true);
   const [query, setQuery] = useState("");
   const resizeSession = useRef<ResizeSession | null>(null);
+  const refreshRequest = useRef(0);
 
   const refresh = async () => {
     if (!workspaceId) return;
+    const request = ++refreshRequest.current;
     setLoading(true);
     setError(null);
     try {
       const [nextFiles, git] = await Promise.all([listFiles(workspaceId), loadGitStatus(workspaceId).catch(() => ({ files: [] }))]);
+      if (request !== refreshRequest.current) return;
       setFiles(nextFiles);
       setStatuses(new Map(git.files.map((file) => [file.path, file.status])));
     } catch (reason) {
+      if (request !== refreshRequest.current) return;
       setError(reason instanceof Error ? reason.message : String(reason));
     } finally {
-      setLoading(false);
+      if (request === refreshRequest.current) setLoading(false);
     }
   };
 
-  useEffect(() => { void refresh(); }, [workspaceId]);
+  useEffect(() => {
+    void refresh();
+    return () => { refreshRequest.current += 1; };
+  }, [workspaceId, listFiles, loadGitStatus]);
 
   useEffect(() => {
     let cancelled = false;

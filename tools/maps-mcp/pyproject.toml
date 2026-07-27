@@ -1,0 +1,25 @@
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "open-web-codex-maps-mcp"
+version = "0.1.0"
+description = "Workspace-scoped Google Maps and Mapbox MCP tools for Codex"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+  "mcp>=1.27,<2",
+]
+
+[project.scripts]
+maps-mcp = "maps_mcp.server:main"
+
+[tool.setuptools.packages.find]
+include = ["maps_mcp*"]
+
+[tool.ruff]
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP"]

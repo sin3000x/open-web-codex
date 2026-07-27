@@ -16,6 +16,32 @@ describe("initial workspace status parsing", () => {
     });
   });
 
+  it("uses the durable MCP startup-status projection without requiring inventory", () => {
+    expect(parseInitialMcpServers({
+      data: [
+        { name: "map_utils", status: "ready", error: null, failureReason: null },
+        {
+          name: "broken",
+          status: "failed",
+          error: "handshake failed",
+          failureReason: "initializeFailed",
+        },
+      ],
+    })).toEqual({
+      map_utils: {
+        name: "map_utils",
+        status: "ready",
+        failureReason: null,
+      },
+      broken: {
+        name: "broken",
+        status: "failed",
+        error: "handshake failed",
+        failureReason: "initializeFailed",
+      },
+    });
+  });
+
   it("extracts the canonical rate-limit snapshot", () => {
     const rateLimits = {
       primary: { usedPercent: 12 },

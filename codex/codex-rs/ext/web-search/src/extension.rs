@@ -14,6 +14,7 @@ use codex_extension_api::ExtensionData;
 use codex_extension_api::ExtensionFuture;
 use codex_extension_api::ExtensionRegistryBuilder;
 use codex_extension_api::ThreadLifecycleContributor;
+use codex_extension_api::ThreadOriginator;
 use codex_extension_api::ThreadStartInput;
 use codex_extension_api::ToolContributor;
 use codex_login::AuthManager;
@@ -119,6 +120,7 @@ impl ToolContributor for WebSearchExtension {
         &self,
         session_store: &ExtensionData,
         thread_store: &ExtensionData,
+        _step_store: &ExtensionData,
     ) -> Vec<Arc<dyn codex_extension_api::ToolExecutor<codex_extension_api::ToolCall>>> {
         let Some(config) = thread_store.get::<WebSearchExtensionConfig>() else {
             return Vec::new();
@@ -134,6 +136,9 @@ impl ToolContributor for WebSearchExtension {
                 Some(self.auth_manager.clone()),
             ),
             settings: config.settings.clone(),
+            originator: thread_store
+                .get::<ThreadOriginator>()
+                .map(|originator| originator.0.clone()),
         })]
     }
 }
@@ -203,7 +208,9 @@ mod tests {
         let tool_names = registry
             .tool_contributors()
             .iter()
-            .flat_map(|contributor| contributor.tools(&session_store, &thread_store))
+            .flat_map(|contributor| {
+                contributor.tools(&session_store, &thread_store, &ExtensionData::new("step"))
+            })
             .map(|tool| (tool.tool_name(), tool.supports_parallel_tool_calls()))
             .collect::<Vec<_>>();
 

@@ -5,7 +5,7 @@
 | 字段 | 内容 |
 | --- | --- |
 | 文档状态 | V1 产品与研发评审基线 |
-| 更新时间 | 2026-07-12 |
+| 更新时间 | 2026-07-25 |
 | 产品形态 | 单组织、多用户、自托管 Codex Web Harness |
 | 用户客户端 | 标准浏览器 |
 | Agent Runtime | 服务端定制 Codex `app-server` |
@@ -30,20 +30,23 @@
 
 1. 浏览器即可使用完整 Codex 工作流，不要求用户安装桌面客户端或本地 CLI。
 2. 每个成员拥有隔离且持久的 Codex Profile，身份、Provider、Thread、记忆与集成可以跨 Task 延续。
-3. 每次运行使用独立 Git Worktree，高风险行为经过可追踪审批。
+3. Thread/Chat 使用 Codex 官方 `cwd` 语义在经授权的 Workspace 中工作；Workspace
+   独立于 Thread/Run，可被多个 Thread 使用，平台不为每个 Thread 或 Run 隐式创建
+   checkout；高风险行为经过可追踪审批。
 4. 团队可以观察、接管、审查和恢复 Agent 工作，而不改变 Codex 原生执行语义。
 5. Codex 构建通过版本化合同接入，官方上游升级可验证、可灰度、可回滚。
 
 ### 1.2 产品原则
 
 - **Codex 原生优先：** Runtime 已提供的能力不在平台重复实现。
+- **官方路线优先：** Workspace、Thread/Turn 与工具语义跟随官方 Codex；平台只增加多用户授权、持久工作流和浏览器安全边界。
 - **事实来源唯一：** 平台、Codex Profile 与 Git 各自拥有明确的数据边界。
 - **默认隔离：** 用户、Profile、Workspace、Secret 和事件流默认互相隔离。
 - **人在回路：** 命令、文件变更、权限提升和结构化输入必须可审查。
 - **可恢复：** 页面刷新、网络断开、进程退出和服务重启不能产生无明确终态的 Run。
 - **能力协商：** UI 只启用当前构建明确声明且平台适配的能力。
 - **显式交付：** 平台不自动 Commit、Force Push、Merge 或删除远端分支。
-- **渐进交付：** 先完成单用户纵向闭环，再增加多用户和 Studio，不以“大爆炸”方式替换桌面端。
+- **渐进交付：** 先完成浏览器纵向闭环，再增加多用户和 Studio；所有新能力沿平台边界演进。
 
 ### 1.3 最终目标的完成定义
 
@@ -51,7 +54,10 @@
 
 1. 标准浏览器可以完成创建项目、长期对话、运行控制、审批、Diff、Commit/Push、恢复和 Codex Studio 管理，不依赖用户本机 CLI、桌面进程或浏览器扩展。
 2. Codex 原生 Thread/Turn、上下文压缩、记忆、多 Agent、模型、Skills、Plugins、MCP 和工具语义通过 app-server 桥接复用；平台只提供授权、生命周期、持久工作流和安全投影。
-3. 每个用户的身份、Profile Home、配置、Secret、Thread、记忆与扩展状态隔离；每个 Run 的 Workspace、事件、审批和交付权限隔离，并有跨用户负向测试证明。
+3. 每个用户的身份、Profile Home、配置、Secret、Thread、记忆与扩展状态隔离；
+   Workspace 作为独立授权的执行目录存在，Codex Thread 保存当前 `cwd`，平台验证其
+   位于用户有权使用的 Workspace 内；Run 的事件、审批和交付权限独立审计，并有跨
+   用户负向测试证明。
 4. Runtime 与 Web 通过生成的版本化合同和 Capability Manifest 协商；不支持或未验证的能力在 UI 中明确禁用，不能由平台 fallback 实现。
 5. `codex/` 能持续同步官方 `openai/codex/main`。产品定制集中在稳定桥接 seam，任何上游高频文件修改都有必要性、测试和 patch map 记录。
 
@@ -67,7 +73,9 @@
 - 展示消息、计划、工具、命令输出、Diff、审批与多 Agent 轨迹。
 - 每用户独立、持久的 Profile 与 `CODEX_HOME`。
 - 支持 OpenAI 与第三方 Provider，模型列表按 Provider 隔离并可刷新。
-- 每个 Run 使用独立可写 Worktree，完成 Diff、Commit 和 Push。
+- Thread/Chat 可以选择经授权的可写 Workspace，并通过 Codex 的 `cwd` 在其中完成
+  Diff、Commit 和 Push；Workspace 不归 Thread 所有，同一 Workspace 可以承载多个
+  经授权的 Thread。
 - 支持持久化审批、Control Lease、事件补发和审计。
 - 以能力门控逐步开放 Profiles、MCP、Plugins、Memory、Agents 和 Skills Studio。
 - 固定并验证 Codex 构建，支持官方上游同步、灰度和回滚。
@@ -114,11 +122,11 @@
 | Profile | 用户级持久 Codex 身份与运行目录 | PostgreSQL 映射 + Profile Home |
 | Thread | Codex 对话与模型可见上下文 | Codex Profile |
 | Turn | Thread 中一次模型执行 | Codex Profile |
-| Workspace | Run 的独立 Git Worktree | Git + Runner |
+| Workspace | 独立于 Thread/Run 的经授权执行目录；可以是管理员登记的现有目录，也可以是用户显式创建的托管 clone/worktree | Platform authorization + filesystem/Git |
 | Provider | 模型服务、Wire API、模型目录和上下文配置 | Codex Profile |
 | Approval | Codex Server Request 的持久平台决策记录 | PostgreSQL |
 | Control Lease | 控制 Task/Run 的短期租约 | PostgreSQL |
-| Artifact | 日志、测试报告、补丁、附件等运行产物 | Object Storage/本地受控存储 |
+| Artifact | 具有独立身份、授权和保留周期的日志、测试报告、补丁、附件或可视化数据；生产 Run/Thread/Turn/Item 只记录来源 | Object Storage/本地受控存储 + PostgreSQL 授权 |
 | Capability Manifest | 构建实际支持的方法、事件、版本和限制 | Codex 构建产物 |
 
 ### 4.1 Profile 与 Workspace 边界
@@ -126,9 +134,12 @@
 - 一个成员默认绑定一个个人 Profile。
 - 一个 Profile 拥有独立 `CODEX_HOME`、身份、Provider、配置、Threads、Memory、Skills、Plugins 和 MCP。
 - 同一 Profile 同时最多运行一个主 app-server 进程。
-- 一个 Profile 可以处理多个已授权 Workspace，但 Profile Host 必须先验证 Workspace 归属。
-- Workspace 属于 Run；Profile 不拥有 Workspace，Run 结束也不删除 Profile。
-- Task 恢复可以创建后继 Run/Worktree，并继续原 Thread；不得复用另一 Task 的可写目录。
+- 一个 Profile 可以处理多个已授权 Workspace。Profile Host 必须验证传给 Codex 的
+  `cwd` 位于当前用户和 Profile 有权使用的 Workspace 内。
+- Workspace 拥有独立生命周期，不属于 Thread、Task 或 Run。多个 Thread 可以选择
+  同一个 Workspace；Codex Runtime 负责保存和更新每个 Thread 的当前 `cwd`。
+- 托管 clone/worktree 只能由用户或平台策略显式创建、保留和删除，不能在新建
+  Thread、恢复 Thread 或创建后继 Run 时隐式生成。
 
 ### 4.2 多用户隔离键
 
@@ -138,13 +149,16 @@
 authenticated user
   -> organization membership
   -> project membership and action permission
-  -> task / run
-  -> profile and codex thread
-  -> workspace / approval / event / artifact
+  -> profile / workspace grant
+  -> task / codex thread
+  -> run / approval / event
+  -> durable artifact grant + producer provenance
 ```
 
 - 数据库查询不能只凭资源 ID 命中后返回，必须同时验证组织、成员关系、状态和动作权限。
-- Profile Host 必须验证 `profile_id + user_id`，Runner 必须验证 `run_id + workspace_id`；浏览器不能提供可信本地路径。
+- Profile Host 必须验证 `profile_id + user_id` 和 Thread 当前 `cwd` 的 Workspace
+  授权；Runner 必须验证 Run、Task、Thread 与所用 Workspace 权限一致。浏览器不能
+  提供可信本地路径。
 - Codex Thread ID、app-server request ID 和 Profile 路径只能作为内部映射，不能成为绕过平台资源归属的公共 API 标识。
 - 缓存、事件订阅、模型目录和 Secret 引用的 key 必须包含 Profile 或用户作用域；禁止使用跨用户全局“当前 Profile/Provider”。
 - 自动化测试必须覆盖相邻用户、相邻项目和猜测 ID 的拒绝路径，不能只验证正常用户流程。
@@ -164,7 +178,7 @@ authenticated user
 
 | 路由 | 页面 | 权限 | 主要操作 |
 | --- | --- | --- | --- |
-| `/login` | 登录/邀请 | 未登录 | 登录、接受邀请、恢复会话 |
+| `/login` | 当前不暴露 | — | 单用户阶段由根入口自动建立本地 Session；多用户登录与邀请暂不进入当前界面 |
 | `/onboarding` | 初始化向导 | 首位 Owner | 组织、Profile、Git、首个项目 |
 | `/dashboard` | 工作台 | 已登录 | 发现待办、恢复 Task、创建 Task |
 | `/projects` | 项目列表 | 已登录 | 搜索、筛选、创建项目 |
@@ -208,9 +222,12 @@ authenticated user
 ### WF-02 邀请加入
 
 - 前置：邀请有效且用户未被禁用。
-- 正常：用户验证身份、接受角色、创建个人 Profile 或进入 Profile 初始化，再进入工作台。
-- 异常：邀请过期、邮箱不匹配、已使用、成员被禁用时不得自动登录。
-- 终态：Membership active、Session 可吊销、产生 `member.joined` 审计。
+- 当前正常流程：Server 确保隐式本地 Owner、Organization 与 Profile 绑定，浏览器自动
+  获取本地 Session 并进入工作台，不显示登录或注册界面。
+- 当前异常流程：本地 Owner、Membership、Profile 或 Session 无法建立时显示启动错误，
+  不回退到登录或注册表单。
+- 当前终态：本地 Session 绑定 Organization；服务端仍按 Session、Profile 和资源归属
+  执行授权。邀请、多成员登录和成员禁用流程暂不进入当前单用户界面。
 
 ### WF-03 创建项目
 
@@ -233,10 +250,14 @@ authenticated user
 - 异常：分支消失、附件失败、能力不兼容、配额不足时保留草稿并给出修复入口。
 - 终态：Task active，Run queued；创建者获得初始 Control Lease。
 
-### WF-06 排队与 Workspace 准备
+### WF-06 排队、Workspace 选择与 Runtime 准备
 
-- 正常：调度器领取 Run；Runner 创建 Worktree；Profile Host 启动/复用 app-server，完成合同握手并创建或恢复 Thread。
-- 异常：容量不足保持 queued；凭据失败进入 blocked/failed；取消 provisioning 必须停止后续步骤并清理半成品。
+- 正常：用户从有权使用的 Workspace 中选择执行目录；需要新的托管 clone/worktree
+  时先显式创建独立 Workspace。调度器领取 Run 后验证授权，Profile Host 启动或
+  复用 app-server，并通过官方 `thread/start`、`thread/resume` 或
+  `thread/settings/update` 合同传递 `cwd`。创建或恢复 Thread 不创建 checkout。
+- 异常：Workspace 未授权、`cwd` 越界或目录不可用时拒绝启动；容量不足保持
+  queued；凭据失败进入 blocked/failed；取消 provisioning 必须停止后续步骤。
 - 终态：Run running/cancelled/failed，不允许永久停在 provisioning。
 
 ### WF-07 运行中交互
@@ -259,7 +280,9 @@ authenticated user
 
 ### WF-10 故障恢复与继续
 
-- 正常：浏览器重连补发事件；Server/Host 重启后从数据库、Profile 和 Git 三方核对状态；用户可创建后继 Run 继续原 Thread。
+- 正常：浏览器重连补发事件；Server/Host 重启后从数据库、Profile 和 Git 三方
+  核对状态；用户可创建后继 Run，Codex 恢复原 Thread 及其当前 `cwd`，平台重新
+  验证对应 Workspace 权限。
 - 异常：Thread 缺失、Workspace 损坏、版本不兼容分别进入 blocked，并给出只读诊断或新建 Thread 选择。
 - 终态：Run 恢复 running/waiting，或进入 interrupted/failed/blocked，不保持伪 running。
 
@@ -271,9 +294,12 @@ authenticated user
 
 ### WF-12 归档与清理
 
-- 正常：归档 Task，终止活动 Run，按保留期删除 Worktree/Artifact，保留审计与 Thread 映射。
+- 正常：归档 Task，终止活动 Run，保留审计与 Thread 映射，并释放 Task 持有的
+  Workspace 授权引用。Workspace 不随 Thread/Task 归档自动删除；显式删除托管
+  Workspace 前必须确认没有其他授权引用、活动进程或未交付变更。
 - 异常：清理失败进入重试队列并告警；不得删除 Profile Home 或其他 Task 数据。
-- 终态：Task archived，Workspace removed/retained_by_policy。
+- 终态：Task archived；Workspace 保持原有状态，除非另一个显式 Workspace
+  生命周期操作改变它。
 
 ### WF-13 Codex Studio 操作
 
@@ -312,7 +338,7 @@ authenticated user
 | --- | --- | --- |
 | PRJ-001 | P0 | 仅允许通过受控 Git URL 创建项目，不接受服务器任意本地路径 |
 | PRJ-002 | P0 | 结构化区分 URL、DNS、认证、仓库和分支错误 |
-| PRJ-003 | P0 | Repository Mirror 与 Agent 可写 Worktree 分离 |
+| PRJ-003 | P0 | Repository Mirror 与可写 Workspace 是独立资源；托管 clone/worktree 只能显式创建，生命周期不绑定 Thread 或 Run |
 | PRJ-004 | P0 | Git Credential 以 Secret 引用保存，API 不返回明文 |
 | PRJ-005 | P1 | 支持项目默认分支、成员、Profile/模型和审批策略 |
 | PRJ-006 | P1 | 支持重新验证、Fetch、归档和受控危险操作 |
@@ -342,12 +368,17 @@ authenticated user
 | TASK-003 | P0 | 支持归档、恢复、筛选、搜索和 Run 历史 |
 | RUN-001 | P0 | Run 完整实现 queued→provisioning→running→终态状态机 |
 | RUN-002 | P0 | Scheduler 使用领取租约、心跳和超时回收避免重复执行 |
-| RUN-003 | P0 | 每个 Run 使用独立 Worktree，路径由服务端生成和校验 |
+| RUN-003 | P0 | 每个 Run 必须验证 Thread 当前 `cwd` 位于经授权 Workspace 内，不能创建、拥有或隐式切换 checkout |
 | RUN-004 | P0 | 支持取消、继续、失败诊断和清理重试 |
 | EVT-001 | P0 | WebSocket 事件具有单 Task 单调序号和恢复游标 |
 | EVT-002 | P0 | 页面重连按游标补发，重复事件可幂等应用 |
 | EVT-003 | P0 | 未知事件不得导致连接中断，并记录兼容性指标 |
 | EVT-004 | P1 | 大输出分块、限长并转存 Artifact，事件正文有硬上限 |
+| EVT-005 | P1 | Agent 回复可在正文任意位置嵌入平台结构化卡片引用；卡片 payload 由平台鉴权、持久化和限额控制，浏览器按 capability 渲染，不把原始 app-server 协议暴露给用户 |
+| MAP-001 | P1 | 地理相关回复支持地图卡片，可表达点、线、面、边界、路线、距离和地理数据可视化结果 |
+| MAP-002 | P1 | 地图卡片使用服务端生成并持久化的 GeoJSON Artifact 引用，避免要求 LLM 在回复中逐字输出大型 GeoJSON |
+| MAP-003 | P1 | 地图卡片支持样式解析、Mapbox GL 渲染、错误占位、移动端可用布局和全屏查看 |
+| MAP-004 | P1 | 地图卡片触发以提示模板和平台后处理为主；除非官方 Runtime 缺少必要边界，不在 `codex/` 增加地理业务逻辑 |
 
 ### 7.5 审批、输入与协作
 
@@ -442,6 +473,9 @@ creating -> ready -> in_use -> retained -> removing -> removed
     |          |        |          |           |
     \----------+--------+----------+----------> cleanup_failed
 ```
+
+Workspace 状态独立于 Thread 和 Run。`in_use` 表示存在活动使用者，不表示被某个
+Thread 独占；删除是单独的授权操作，不由 Thread/Task 归档隐式触发。
 
 ### 8.4 Approval
 
@@ -541,7 +575,7 @@ Lease 使用数据库时间与版本号；客户端时间不能决定有效性�
 | Session | 30 天/主动吊销 | 是 | 吊销后立即失效 |
 | 审计 | 180 天 | 90–365 天 | 不允许普通用户删除 |
 | Run 事件投影 | 90 天 | 是 | 不删除 Codex 原生 Thread |
-| Worktree | Run 终态后 7 天 | 1–30 天 | 清理前确认无活动 Run |
+| 托管 Workspace | 显式删除或 Project 保留策略触发后 7 天 | 1–30 天 | 清理前确认无活动使用者、未交付变更和其他授权引用 |
 | Artifact | 30 天 | 是 | 按引用和保留策略删除 |
 | Profile Home | Membership 有效期 | 管理策略 | 危险操作、备份和审计 |
 | Repository Mirror | Project 生命周期 | 否 | 项目删除流程清理 |
@@ -567,7 +601,9 @@ Lease 使用数据库时间与版本号；客户端时间不能决定有效性�
 
 ### 14.1 Alpha
 
-单管理员、单部署、单或少量项目。必须完成：项目导入、Profile/Provider、Task/Run、Worktree、Thread/Turn、实时事件、审批、取消/继续、Diff、Commit、浏览器刷新恢复和 Host 重启恢复。
+单管理员、单部署、单或少量项目。必须完成：项目导入、Profile/Provider、
+Task/Run、授权 Workspace、Thread/Turn、实时事件、审批、取消/继续、Diff、Commit、
+浏览器刷新恢复和 Host 重启恢复。
 
 Alpha 不承诺多用户、Push、完整 Studio 或生产 SLA。
 
@@ -579,7 +615,7 @@ Beta 门禁：两名用户并发故障注入无串流；备份恢复演练通过
 
 ### 14.3 V1 GA
 
-完成容量、安全、浏览器、可访问性、升级回滚和运维手册。Studio 模块仅发布通过独立能力门禁的部分。Web 稳定运行一个 Beta 发布周期后删除 Tauri。
+完成容量、安全、浏览器、可访问性、升级回滚和运维手册。Studio 模块仅发布通过独立能力门禁的部分。生产形态只有浏览器与平台服务，不包含本地桌面运行时。
 
 ## 15. 风险与产品处理
 
@@ -592,7 +628,7 @@ Beta 门禁：两名用户并发故障注入无串流；备份恢复演练通过
 | Agent 恶意命令 | 宿主/数据泄露 | rootless、出网策略、审批、最小凭据 |
 | 事件与数据库不一致 | UI 伪 running/重复审批 | 序号、幂等、租约、巡检与三方恢复 |
 | V1 范围膨胀 | Alpha 长期不可用 | Studio 不阻塞纵向闭环，按能力独立发布 |
-| Tauri 过早删除 | 回退路径消失 | Beta 稳定周期后再删 |
+| 平台功能回归 | 浏览器纵向闭环不可用 | 合同、PostgreSQL 集成、真实 app-server 与浏览器 E2E 共同门禁 |
 
 ## 16. 待决策项
 
@@ -601,7 +637,7 @@ Beta 门禁：两名用户并发故障注入无串流；备份恢复演练通过
 1. Alpha 首发仅 Linux Runner，还是同时支持 macOS Runner。
 2. Git 首发采用通用 HTTPS/SSH Credential，还是优先 GitHub App。
 3. Alpha 登录采用本地 Owner 凭据还是直接接 OIDC；生产必须支持可吊销会话。
-4. 默认 Worktree、Artifact、事件和审计保留时间。
+4. 默认托管 Workspace、Artifact、事件和审计保留时间。
 5. 第三方 Provider 是否允许组织管理员设置域名白名单与出网策略。
 6. MCP/Plugin 安装来源白名单与签名/完整性要求。
 7. Alpha 是否包含 Push；本 PRD 默认 Alpha 只要求 Commit，Beta 要求 Push。
@@ -612,7 +648,9 @@ Beta 门禁：两名用户并发故障注入无串流；备份恢复演练通过
 V1 只有在以下条件全部满足时才能发布：
 
 - 两名以上用户可同时运行不同 Task，Profile、事件、Secret、Workspace 无串流。
-- 每个 Run 使用独立可写 Worktree，普通用户不能注册任意服务器路径。
+- 每个 Thread/Chat 的当前 `cwd` 都位于经授权 Workspace 内；Workspace 独立于
+  Thread/Run 并可被多个 Thread 使用。创建或恢复 Thread/Run 不隐式创建 checkout，
+  普通用户不能注册任意服务器路径。
 - 同一 Profile 使用持久 Home 和唯一主 app-server；Host 重启后恢复 Thread、Provider 与记忆连续性。
 - 页面刷新、网络断开、Server/Host/Runner 重启后 Run 进入可解释状态。
 - 审批、Lease、Commit、Push 和危险 Studio 操作均可追溯。

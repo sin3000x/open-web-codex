@@ -94,7 +94,7 @@ impl From<CoreReviewDecision> for CommandExecutionApprovalDecision {
                 network_policy_amendment: network_policy_amendment.into(),
             },
             CoreReviewDecision::Abort => Self::Cancel,
-            CoreReviewDecision::Denied => Self::Decline,
+            CoreReviewDecision::Denied { .. } => Self::Decline,
             CoreReviewDecision::TimedOut => Self::Decline,
         }
     }
@@ -398,7 +398,6 @@ pub struct McpToolCallAppContext {
     pub link_id: Option<String>,
     pub resource_uri: Option<String>,
     pub app_name: Option<String>,
-    pub template_id: Option<String>,
     pub action_name: Option<String>,
 }
 
@@ -950,7 +949,6 @@ impl From<CoreTurnItem> for ThreadItem {
                         link_id: mcp.link_id,
                         resource_uri: mcp.mcp_app_resource_uri.clone(),
                         app_name: mcp.app_name,
-                        template_id: mcp.template_id,
                         action_name: mcp.action_name,
                     }),
                     mcp_app_resource_uri: mcp.mcp_app_resource_uri,
@@ -1554,6 +1552,8 @@ pub enum DynamicToolCallOutputContentItem {
     InputText { text: String },
     #[serde(rename_all = "camelCase")]
     InputImage { image_url: String },
+    #[serde(rename_all = "camelCase")]
+    InputAudio { audio_url: String },
 }
 
 impl From<codex_protocol::dynamic_tools::DynamicToolCallOutputContentItem>
@@ -1567,6 +1567,9 @@ impl From<codex_protocol::dynamic_tools::DynamicToolCallOutputContentItem>
             codex_protocol::dynamic_tools::DynamicToolCallOutputContentItem::InputImage {
                 image_url,
             } => Self::InputImage { image_url },
+            codex_protocol::dynamic_tools::DynamicToolCallOutputContentItem::InputAudio {
+                audio_url,
+            } => Self::InputAudio { audio_url },
         }
     }
 }
@@ -1579,6 +1582,9 @@ impl From<DynamicToolCallOutputContentItem>
             DynamicToolCallOutputContentItem::InputText { text } => Self::InputText { text },
             DynamicToolCallOutputContentItem::InputImage { image_url } => {
                 Self::InputImage { image_url }
+            }
+            DynamicToolCallOutputContentItem::InputAudio { audio_url } => {
+                Self::InputAudio { audio_url }
             }
         }
     }

@@ -17,7 +17,6 @@ use tokio::io::BufReader;
 use tokio::process::Child;
 use tokio_util::sync::CancellationToken;
 
-use crate::config::validate_windows_sandbox_network_proxy_compatibility;
 use crate::sandboxing::ExecOptions;
 use crate::sandboxing::ExecRequest;
 use crate::sandboxing::SandboxPermissions;
@@ -412,13 +411,10 @@ pub fn build_exec_request(
             )
         })
         .map_err(CodexErr::from)?;
-    validate_windows_sandbox_network_proxy_compatibility(
+    let use_windows_elevated_backend = windows_sandbox_uses_elevated_backend(
         exec_req.windows_sandbox_level,
         exec_req.network.is_some(),
-    )
-    .map_err(CodexErr::Io)?;
-    let use_windows_elevated_backend =
-        windows_sandbox_uses_elevated_backend(exec_req.windows_sandbox_level);
+    );
     exec_req.windows_sandbox_filesystem_overrides = if use_windows_elevated_backend {
         resolve_windows_elevated_filesystem_overrides(
             exec_req.sandbox,
@@ -465,6 +461,7 @@ pub(crate) async fn execute_exec_request(
         exec_server_sandbox: _,
         exec_server_enforce_managed_network: _,
         exec_server_managed_network: _,
+        exec_server_network_proxy: _,
     } = exec_request;
 
     // TODO(anp): Keep PathUri through the local process launch boundary.
@@ -635,6 +632,18 @@ async fn exec_windows_sandbox(
                 network_proxy_environment_error(network_environment_id.as_deref(), err)
             })?;
     }
+    let network_proxy_restricting_sid = network
+        .as_ref()
+        .map(|network| {
+            network
+                .network_proxy_restricting_sid(network_environment_id.as_deref())
+                .ok_or_else(|| {
+                    CodexErr::Io(io::Error::other(
+                        "managed Windows proxy route is missing its restricting SID",
+                    ))
+                })
+        })
+        .transpose()?;
 
     // Windows sandbox capture still receives timeout and cancellation separately.
     let (cancellation, timeout_ms) = if capture_policy.uses_expiration() {
@@ -662,9 +671,7 @@ async fn exec_windows_sandbox(
     let command_path = command.first().cloned();
     let sandbox_level = windows_sandbox_level;
     let proxy_enforced = network.is_some();
-    validate_windows_sandbox_network_proxy_compatibility(sandbox_level, proxy_enforced)
-        .map_err(CodexErr::Io)?;
-    let use_elevated = windows_sandbox_uses_elevated_backend(sandbox_level);
+    let use_elevated = windows_sandbox_uses_elevated_backend(sandbox_level, proxy_enforced);
     let additional_deny_write_paths = windows_sandbox_filesystem_overrides
         .map(|overrides| overrides.additional_deny_write_paths.clone())
         .unwrap_or_default();
@@ -691,6 +698,7 @@ async fn exec_windows_sandbox(
                     cancellation,
                     use_private_desktop: windows_sandbox_private_desktop,
                     proxy_enforced,
+                    network_proxy_restricting_sid,
                     read_roots_override: elevated_read_roots_override.as_deref(),
                     read_roots_include_platform_defaults:
                         elevated_read_roots_include_platform_defaults,

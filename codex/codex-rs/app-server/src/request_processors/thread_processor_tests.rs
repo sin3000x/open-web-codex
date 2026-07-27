@@ -520,12 +520,14 @@ mod thread_processor_behavior_tests {
                     FileSystemSandboxEntry {
                         path: FileSystemPath::Path { path: cwd.clone() },
                         access: FileSystemAccessMode::Write,
+                        missing_path_behavior: None,
                     },
                     FileSystemSandboxEntry {
                         path: FileSystemPath::GlobPattern {
                             pattern: "/tmp/project/**/*.env".to_string(),
                         },
                         access: FileSystemAccessMode::Deny,
+                        missing_path_behavior: None,
                     },
                 ]),
                 NetworkSandboxPolicy::Restricted,
@@ -686,6 +688,8 @@ mod thread_processor_behavior_tests {
             websocket_connect_timeout_ms: None,
             requires_openai_auth: false,
             supports_websockets: true,
+            supports_image_generation: false,
+            supports_web_search: false,
             models: Vec::new(),
         };
         let config_manager = ConfigManager::new(

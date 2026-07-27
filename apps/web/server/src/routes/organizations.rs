@@ -63,22 +63,27 @@ pub async fn create_organization(
     }
 
     let slug = req.slug.unwrap_or_else(|| {
-        req.name.to_lowercase().replace(' ', "-").replace(|c: char| !c.is_alphanumeric() && c != '-', "")
+        req.name
+            .to_lowercase()
+            .replace(' ', "-")
+            .replace(|c: char| !c.is_alphanumeric() && c != '-', "")
     });
 
-    // Create org
+    let mut transaction = state.db.begin().await.map_err(internal_database_error)?;
     let org = sqlx::query(
         "INSERT INTO organizations (name, slug) VALUES ($1, $2) \
          RETURNING id, name, slug, created_at, updated_at",
     )
     .bind(&req.name)
     .bind(&slug)
-    .fetch_one(&state.db)
+    .fetch_one(&mut *transaction)
     .await
-    .map_err(|e| {
+    .map_err(|_| {
         (
             StatusCode::CONFLICT,
-            Json(PlatformError::bad_request(format!("slug '{slug}' already taken: {e}"))),
+            Json(PlatformError::bad_request(format!(
+                "slug '{slug}' is unavailable"
+            ))),
         )
     })?;
 
@@ -88,14 +93,13 @@ pub async fn create_organization(
     )
     .bind(org.get::<Uuid, _>("id"))
     .bind(auth.user_id)
-    .execute(&state.db)
+    .execute(&mut *transaction)
     .await
-    .map_err(|e| {
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(PlatformError::internal(format!("{e}"))),
-        )
-    })?;
+    .map_err(internal_database_error)?;
+    transaction
+        .commit()
+        .await
+        .map_err(internal_database_error)?;
 
     Ok(Json(Organization {
         id: org.get("id"),
@@ -250,23 +254,23 @@ pub async fn add_member(
     if caller_role != "owner" && caller_role != "admin" {
         return Err((
             StatusCode::FORBIDDEN,
-            Json(PlatformError::forbidden("only owners and admins can add members")),
+            Json(PlatformError::forbidden(
+                "only owners and admins can add members",
+            )),
         ));
     }
 
     // Find user by email
-    let target_user: Option<(Uuid,)> = sqlx::query_as(
-        "SELECT id FROM users WHERE email = $1",
-    )
-    .bind(&req.email)
-    .fetch_optional(&state.db)
-    .await
-    .map_err(|e| {
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(PlatformError::internal(format!("{e}"))),
-        )
-    })?;
+    let target_user: Option<(Uuid,)> = sqlx::query_as("SELECT id FROM users WHERE email = $1")
+        .bind(&req.email)
+        .fetch_optional(&state.db)
+        .await
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(PlatformError::internal(format!("{e}"))),
+            )
+        })?;
 
     let (target_id,) = target_user.ok_or_else(|| {
         (
@@ -276,6 +280,19 @@ pub async fn add_member(
     })?;
 
     let target_role = req.role.unwrap_or_else(|| "member".to_string());
+    let allowed = match target_role.as_str() {
+        "member" => caller_role == "owner" || caller_role == "admin",
+        "admin" | "owner" => caller_role == "owner",
+        _ => false,
+    };
+    if !allowed {
+        return Err((
+            StatusCode::FORBIDDEN,
+            Json(PlatformError::forbidden(
+                "caller cannot grant the requested Organization role",
+            )),
+        ));
+    }
 
     let row = sqlx::query(
         "INSERT INTO memberships (organization_id, user_id, role) VALUES ($1, $2, $3) \
@@ -286,10 +303,12 @@ pub async fn add_member(
     .bind(&target_role)
     .fetch_one(&state.db)
     .await
-    .map_err(|e| {
+    .map_err(|_| {
         (
             StatusCode::CONFLICT,
-            Json(PlatformError::bad_request(format!("user already a member: {e}"))),
+            Json(PlatformError::bad_request(
+                "user is already a member or the role is invalid",
+            )),
         )
     })?;
 
@@ -300,4 +319,11 @@ pub async fn add_member(
         role: row.get("role"),
         created_at: row.get("created_at"),
     }))
+}
+
+fn internal_database_error(_error: sqlx::Error) -> (StatusCode, Json<PlatformError>) {
+    (
+        StatusCode::INTERNAL_SERVER_ERROR,
+        Json(PlatformError::internal("database operation failed")),
+    )
 }

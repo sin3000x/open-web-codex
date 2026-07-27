@@ -1,5 +1,5 @@
 use crate::auth::SharedAuthProvider;
-use crate::common::ChatCompletionsApiRequest;
+use crate::chat_translate::ChatCompletionsApiRequest;
 use crate::common::ResponseStream;
 use crate::endpoint::session::EndpointSession;
 use crate::error::ApiError;
@@ -16,6 +16,7 @@ use codex_protocol::protocol::SessionSource;
 use http::HeaderMap;
 use http::HeaderValue;
 use http::Method;
+use std::collections::HashMap;
 use std::sync::Arc;
 use tracing::instrument;
 
@@ -73,6 +74,11 @@ impl<T: HttpTransport> ChatCompletionsClient<T> {
             extra_headers,
         } = options;
 
+        let tool_targets = request
+            .tools
+            .iter()
+            .map(|tool| (tool.function.name.clone(), tool.target.clone()))
+            .collect::<HashMap<_, _>>();
         let body = EncodedJsonBody::encode(&request).map_err(|e| {
             ApiError::Stream(format!("failed to encode chat completions request: {e}"))
         })?;
@@ -106,6 +112,7 @@ impl<T: HttpTransport> ChatCompletionsClient<T> {
             stream_response,
             self.session.provider().stream_idle_timeout,
             self.sse_telemetry.clone(),
+            tool_targets,
         ))
     }
 }

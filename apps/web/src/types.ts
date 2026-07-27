@@ -63,27 +63,6 @@ export type AppServerEvent = {
   message: Record<string, unknown>;
 };
 
-export type ProjectedRunEvent = {
-  id: string;
-  sequence: number;
-  run_id: string;
-  event_type: string;
-  projection_version: number;
-  thread_id: string | null;
-  turn_id: string | null;
-  item_id: string | null;
-  payload: {
-    schemaVersion: number;
-    threadId: string;
-    turnId?: string | null;
-    itemId?: string | null;
-    lifecycle: string;
-    itemType?: string | null;
-    data: Record<string, unknown>;
-  };
-  created_at: string;
-};
-
 export type TrayRecentThreadEntry = {
   workspaceId: string;
   workspaceLabel: string;
