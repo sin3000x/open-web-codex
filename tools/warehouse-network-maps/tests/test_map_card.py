@@ -318,6 +318,35 @@ class MapCardTests(unittest.IsolatedAsyncioTestCase):
             finally:
                 server._map_card_spec_store = original_store
 
+    async def test_present_card_reuses_exact_spec_with_fresh_embed(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            original_store = server._map_card_spec_store
+            store = MapCardSpecStore(Path(directory))
+            server._map_card_spec_store = store
+            try:
+                created = await server.create_network_map_card(
+                    "12小时覆盖",
+                    GeoJsonResourceRef.model_validate(coverage_data_ref()),
+                )
+                assert created.structuredContent is not None
+                spec_ref = created.structuredContent["map_spec_ref"]
+                replayed = await server.present_map_card(
+                    server.ResourceRef.model_validate(spec_ref)
+                )
+                assert replayed.structuredContent is not None
+                self.assertEqual(replayed.structuredContent["map_spec_ref"], spec_ref)
+                self.assertEqual(
+                    replayed.structuredContent["artifact"]["renderer"]["payload"],
+                    created.structuredContent["artifact"]["renderer"]["payload"],
+                )
+                self.assertNotEqual(
+                    replayed.structuredContent["embed"]["code"],
+                    created.structuredContent["embed"]["code"],
+                )
+                self.assertEqual(len(list(store.root.glob("*.json"))), 1)
+            finally:
+                server._map_card_spec_store = original_store
+
     async def test_preserves_standard_mapbox_layers(self) -> None:
         layer = {
             "id": "routes",

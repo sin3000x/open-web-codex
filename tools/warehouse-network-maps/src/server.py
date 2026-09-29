@@ -1102,6 +1102,43 @@ async def create_network_map_card(
 
 
 @mcp.tool(structured_output=True, annotations=LOCAL_PRESENTATION_TOOL)
+async def present_map_card(
+    map_spec_ref: ResourceRef,
+) -> Annotated[CallToolResult, ToolResult]:
+    """Present an exact existing map spec as a fresh Artifact and embed code.
+
+    Use only a previously returned map_spec_ref whose source result and service
+    target have been verified for the current request. This does not recompute
+    data or change the immutable map spec.
+    """
+    if (
+        map_spec_ref.server != MCP_SERVER_NAME
+        or map_spec_ref.resource_schema != "map_card_spec.v1"
+        or not map_spec_ref.uri.startswith("maps-data://map-card-spec/")
+    ):
+        raise ValueError("map_card_spec_ref_invalid")
+    resource_id = map_spec_ref.uri.removeprefix("maps-data://map-card-spec/")
+    try:
+        spec = MapCardSpec.model_validate(json.loads(_map_card_spec_store.read(resource_id)))
+    except (OSError, ValueError, json.JSONDecodeError) as error:
+        raise ValueError("map_card_spec_unavailable") from error
+    return await create_map_card(
+        title=spec.title,
+        sources=spec.sources,
+        layers=spec.layers,
+        intent=spec.intent,
+        fallback_text=spec.fallback_text,
+        summary=spec.summary,
+        center=spec.center,
+        zoom=spec.zoom,
+        bearing=spec.bearing,
+        pitch=spec.pitch,
+        extensions=spec.extensions,
+        parent_spec_ref=spec.parent_spec_ref,
+    )
+
+
+@mcp.tool(structured_output=True, annotations=LOCAL_PRESENTATION_TOOL)
 async def revise_map_card(
     map_spec_ref: ResourceRef,
     patch: MapCardPatch,

@@ -72,6 +72,15 @@ mime_type = "application/vnd.open-web-codex.map-card+json"
 display_name = "Custom warehouse map"
 
 [[deliveries]]
+id = "network-map-card-representation"
+server = "map_utils"
+tool = "present_map_card"
+kind = "inline_geojson_map_card"
+schema = "map.v3"
+mime_type = "application/vnd.open-web-codex.map-card+json"
+display_name = "Existing warehouse map"
+
+[[deliveries]]
 id = "network-map-card-revision"
 server = "map_utils"
 tool = "revise_map_card"

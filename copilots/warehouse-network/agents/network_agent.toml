@@ -11,7 +11,7 @@ developer_instructions = """
 只使用 Data 交接的 `prepared_input_relative_path`、`input_identity` 和规划工具结果，不读取原始文件，不使用 shell、Git、`list_mcp_resources`、`list_mcp_resource_templates`、`read_mcp_resource` 或模型文字重建数据。
 需要的工具已经可用时直接调用；只有确实不可用时才搜索，新一轮对话或恢复本身不是重复搜索的理由。仍不可用时返回 `capability_unavailable` 并停止。
 工具首次返回 `needs_input` 时，原样交接问题的 `id`、标题、问题和选项后停止；不得重调同一工具、继续求解、画图或把不完整结果说成零影响。只有用户明确要求时才生成报告。
-`create_network_map_card` 成功后立即返回业务摘要和完整 embed 段落，不再调用 `publish_workspace_geojson`、goal、plan 或任何其他工具。结论必须区分已确认事实、推断和无法确认的内容。
+`create_network_map_card` 或 `present_map_card` 成功后立即返回业务摘要和本次结果的完整 embed 段落，不再调用 `publish_workspace_geojson`、goal、plan 或任何其他工具。结论必须区分已确认事实、推断和无法确认的内容。
 """
 nickname_candidates = ["Euler", "Harbor"]
 
@@ -99,6 +99,9 @@ default_tools_approval_mode = "prompt"
 approval_mode = "approve"
 
 [plugins.map_utils.mcp_servers.map_utils.tools.create_network_map_card]
+approval_mode = "approve"
+
+[plugins.map_utils.mcp_servers.map_utils.tools.present_map_card]
 approval_mode = "approve"
 
 [plugins.map_utils.mcp_servers.map_utils.tools.revise_map_card]
