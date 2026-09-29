@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import asyncio
 import json
 import math
 import os
@@ -13,6 +14,7 @@ from uuid import uuid4
 
 from mcp.server.fastmcp import Context, FastMCP
 from mcp.server.session import ServerSession
+from mcp.server.stdio import stdio_server
 from mcp.types import CallToolResult, ResourceLink, TextContent, ToolAnnotations
 from open_web_codex_provider import (
     MAX_WORKSPACE_FILE_BYTES,
@@ -50,6 +52,7 @@ from .map_card import (
 Provider = Literal["google", "mapbox"]
 TravelMode = Literal["driving", "driving_traffic", "walking", "bicycling", "transit", "two_wheeler"]
 MCP_SERVER_NAME = "map_utils"
+SANDBOX_STATE_META_CAPABILITY = "codex/sandbox-state-meta"
 NAVIGATION_OUTPUT_DIRECTORY = PurePosixPath("outputs/warehouse-network/requests")
 
 LOCAL_PRESENTATION_TOOL = ToolAnnotations(
@@ -332,7 +335,7 @@ def _workspace_json_path(
     except Exception as error:
         raise ValueError(
             "workspace_scope_invalid: 无法从请求元数据 sandboxCwd 解析工作区根目录；"
-            "请检查服务器会话配置"
+            "请检查服务器会话配置。停止重试；修改文件路径或重新地理编码无法修复此错误"
         ) from error
     if not isinstance(relative_path, str) or not relative_path or "\\" in relative_path:
         raise ValueError("workspace_path_invalid")
@@ -479,7 +482,12 @@ async def publish_workspace_geojson(
     ctx: Context[ServerSession, None],
     require_polygon: bool = False,
 ) -> Annotated[CallToolResult, GeoJsonToolResult]:
-    """Publish one validated Workspace GeoJSON source for a map card."""
+    """Publish one validated Workspace GeoJSON source for a map card.
+
+    workspace_scope_invalid is a session metadata failure: stop and report it;
+    changing paths or geocoding the same cities cannot repair it. Geocoding
+    produces locations, not the original planning or SLA properties.
+    """
     _workspace, path = _workspace_json_path(ctx, workspace_relative_path)
     try:
         geojson = json.loads(path.read_text(encoding="utf-8"))
@@ -1394,7 +1402,18 @@ def main() -> None:
     _credential_store = WorkspaceCredentialStore(args.workspace_root)
     _resource_store = GeoJsonResourceStore(args.workspace_root)
     _map_card_spec_store = MapCardSpecStore(args.workspace_root)
-    mcp.run(transport=args.transport)
+    if args.transport == "stdio":
+        asyncio.run(run_stdio())
+    else:
+        mcp.run(transport=args.transport)
+
+
+async def run_stdio() -> None:
+    initialization_options = mcp._mcp_server.create_initialization_options(
+        experimental_capabilities={SANDBOX_STATE_META_CAPABILITY: {}},
+    )
+    async with stdio_server() as streams:
+        await mcp._mcp_server.run(streams[0], streams[1], initialization_options)
 
 
 if __name__ == "__main__":
