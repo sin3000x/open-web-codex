@@ -330,7 +330,10 @@ def _workspace_json_path(
     try:
         workspace = trusted_workspace_root(ctx.request_context.meta)
     except Exception as error:
-        raise ValueError("workspace_scope_invalid") from error
+        raise ValueError(
+            "workspace_scope_invalid: 无法从请求元数据 sandboxCwd 解析工作区根目录；"
+            "请检查服务器会话配置"
+        ) from error
     if not isinstance(relative_path, str) or not relative_path or "\\" in relative_path:
         raise ValueError("workspace_path_invalid")
     relative = PurePosixPath(relative_path)
@@ -346,7 +349,7 @@ def _workspace_json_path(
         try:
             mode = path.lstat().st_mode
         except FileNotFoundError as error:
-            raise ValueError("workspace_source_not_found") from error
+            raise ValueError(f"workspace_source_not_found: {relative_path} 不存在") from error
         if stat.S_ISLNK(mode):
             raise ValueError("workspace_source_symlink_rejected")
     if not stat.S_ISREG(path.lstat().st_mode) or path.suffix.lower() not in {".json", ".geojson"}:
@@ -354,7 +357,9 @@ def _workspace_json_path(
     try:
         path.resolve(strict=True).relative_to(workspace.resolve(strict=True))
     except ValueError as error:
-        raise ValueError("workspace_source_escape_rejected") from error
+        raise ValueError(
+            f"workspace_source_escape_rejected: {relative_path} 超出授权工作区根目录"
+        ) from error
     return workspace, path
 
 

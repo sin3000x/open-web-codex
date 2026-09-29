@@ -249,7 +249,11 @@ def prepare_network_distribution_map(
         ),
     ] = None,
 ) -> CallToolResult:
-    """Publish raw GeoJSON facts for a separately authored map presentation."""
+    """Publish raw GeoJSON facts for a separately authored map presentation.
+
+    如需展示时效达标/未达标（SLA attainment），请改用
+    prepare_network_coverage_map（需 assignment_result_ref 和 service_target_hours 参数）。
+    """
     prepared, input_identity = _load_ready_network(prepared_input_relative_path, ctx)
     normalized = NormalizedInputBatch(
         demand_cities=prepared.demand_cities,
@@ -339,7 +343,11 @@ def prepare_network_coverage_map(
     service_target_hours: Annotated[float, Field(gt=0)],
     ctx: Context,
 ) -> CallToolResult:
-    """Publish all straight-line coverage facts for one exact solved result."""
+    """Publish all straight-line coverage facts for one exact solved result.
+
+    如只需展示仓库和需求点位置（不含 SLA 达标信息），请改用
+    prepare_network_distribution_map。
+    """
     prepared, input_identity = _load_ready_network(prepared_input_relative_path, ctx)
     assignment, active_ids, result_label, scenario, result_identity, available_targets = (
         _load_assignment_coverage_result(assignment_result_ref)
