@@ -276,6 +276,7 @@ def discover_workspace_sources(ctx: Context) -> dict[str, Any]:
         "schema": "workspace_source_catalog.v1",
         "workspace_scope": "authorized_workspace",
         "sources": sources,
+        "note": "GeoJSON (.geojson) 文件不在此列表中，但可通过 map_utils 的 publish_workspace_geojson 直接发布，二者独立。",
         "truncated": False,
         **workspace_source_metadata(root),
     }
