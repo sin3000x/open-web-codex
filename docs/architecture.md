@@ -30,6 +30,12 @@ Runtime 事件转换成浏览器 DTO 和持久化投影。
 
 ## 2. 当前权威所有者
 
+Turn 中断由 Adapter 校验 official `thread/read` 的 Thread ID 与实际 cwd 是否位于已授权
+Workspace，再发送 official `turn/interrupt`。该控制路径不获取普通 Thread 准备互斥锁，
+不 resume Thread、不应用计划重启；Profile Host 在生命周期读锁内校验两次请求的同一
+Runtime instance，进程已替换时显式返回 `StaleRuntimeRequest`。中断结果仍由 Runtime
+确认；没有新增浏览器协议、能力声明或持久化状态。
+
 | 事实 | 当前 owner | 当前实现状态 |
 | --- | --- | --- |
 | Thread、Turn、Item、上下文、Agent 调度 | Codex Runtime | Runtime 是权威 owner；已物化 Thread 的实际 Provider/model 属于 official Thread settings，不由 Profile 默认值或 Task 字段覆盖。当前 Adapter/Server/Browser 仍叠加本地 history mode、approval overlay 和 live/history merge，其中 Browser 会按相同用户文本去重，尚未收敛为 official Item/client identity 的纯投影 |
