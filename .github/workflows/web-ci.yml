@@ -70,13 +70,23 @@ jobs:
           PGPASSWORD: postgres
         run: |
           createdb -h 127.0.0.1 -U postgres owc_runner
-          createdb -h 127.0.0.1 -U postgres owc_security
           TEST_DATABASE_URL=postgresql://postgres:postgres@127.0.0.1/owc_runner \
             ./scripts/test-web-rust.sh \
               -p open-web-codex-run-orchestrator --test postgres -- --ignored
-          TEST_DATABASE_URL=postgresql://postgres:postgres@127.0.0.1/owc_security \
-            ./scripts/test-web-rust.sh \
-              -p open-web-codex-server security_integration -- --ignored
+          # Every bootstrap scenario requires an empty database, even when run serially.
+          ./scripts/test-web-rust.sh -p open-web-codex-server \
+            --bin open-web-codex-server security_integration:: -- --ignored --list \
+            > "$RUNNER_TEMP/security-tests.txt"
+          mapfile -t security_tests < <(sed -n 's/^\(security_integration::.*\): test$/\1/p' "$RUNNER_TEMP/security-tests.txt")
+          test "${#security_tests[@]}" -gt 0
+          for index in "${!security_tests[@]}"; do
+            database="owc_security_${index}"
+            createdb -h 127.0.0.1 -U postgres "$database"
+            TEST_DATABASE_URL="postgresql://postgres:postgres@127.0.0.1/$database" \
+              ./scripts/test-web-rust.sh -p open-web-codex-server \
+                --bin open-web-codex-server "${security_tests[$index]}" -- --ignored --exact
+            dropdb -h 127.0.0.1 -U postgres "$database"
+          done
 
   repository-tools:
     runs-on: ubuntu-latest
