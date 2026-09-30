@@ -334,7 +334,7 @@ impl RunOrchestrator {
         let mut transaction = self.db.begin().await?;
         let row = sqlx::query(
             "SELECT run.status, run.requested_by, run.workspace_id, run.codex_thread_id, \
-                    workspace.state, profile.runtime_key \
+                    workspace.state, workspace.root_path, profile.runtime_key \
              FROM runs run \
              JOIN tasks task ON task.id = run.task_id \
                AND task.organization_id = run.organization_id \
@@ -374,6 +374,41 @@ impl RunOrchestrator {
             return Err(RunOrchestratorError::Conflict(format!(
                 "Run cannot recover from status '{status}'"
             )));
+        }
+
+        let workspace = open_web_codex_adapter::AuthorizedWorkspace {
+            id: row.get::<Uuid, _>("workspace_id").to_string(),
+            root: row.get::<String, _>("root_path").into(),
+        };
+        let thread_id = row.get::<Option<String>, _>("codex_thread_id").unwrap();
+        if let Err(error) = self.adapter.read_thread(&workspace, &thread_id).await {
+            tracing::warn!(
+                run_id = %request.run_id, %thread_id, %error,
+                "Run recovery could not verify Runtime Thread"
+            );
+            let status = if error.is_thread_resume_rejected() {
+                "failed"
+            } else {
+                "recovery_pending"
+            };
+            sqlx::query(
+                "UPDATE runs SET status = $2, failure_code = 'thread_recovery_failed', \
+                                 active_turn_id = NULL, lease_owner = NULL, lease_token = NULL, \
+                                 lease_expires_at = NULL, updated_at = now() \
+                 WHERE id = $1 AND status = 'recovery_pending'",
+            )
+            .bind(request.run_id)
+            .bind(status)
+            .execute(&mut *transaction)
+            .await?;
+            transaction.commit().await?;
+            if status == "failed" {
+                return Err(RunOrchestratorError::Conflict(
+                    "Runtime rejected Thread recovery; this Run failed and a new Run is required"
+                        .to_string(),
+                ));
+            }
+            return Err(RunOrchestratorError::Adapter(error));
         }
 
         let token = Uuid::now_v7().to_string();

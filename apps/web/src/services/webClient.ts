@@ -466,7 +466,8 @@ export class CodexMonitorWebClient {
     const indexed = await this.indexWorkspaceThreads(workspace);
     const available = indexed
       .map((entry) => entry.run)
-      .filter((run) => Boolean(run.workspace_id) && !["failed", "cancelled"].includes(run.status));
+      .filter((run) => Boolean(run.workspace_id)
+        && !["failed", "cancelled", "recovery_pending"].includes(run.status));
     const selectedRunId = this.selectedRunByWorkspace.get(workspaceId);
     const run = (selectedRunId ? available.find((candidate) => candidate.id === selectedRunId) : null)
       ?? available.find((candidate) => candidate.active_turn_id || candidate.status === "running")

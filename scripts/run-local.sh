@@ -3,6 +3,8 @@
 set -euo pipefail
 umask 077
 
+export RUST_LOG="${RUST_LOG:-warn}"
+
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 repo_root="$(cd "$script_dir/.." && pwd)"
 web_root="$repo_root/apps/web"

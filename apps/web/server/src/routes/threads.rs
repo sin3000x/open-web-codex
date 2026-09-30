@@ -996,6 +996,14 @@ fn not_found() -> ApiError {
 
 fn runtime_error(error: open_web_codex_adapter::AdapterError) -> ApiError {
     tracing::warn!(%error, "Codex Runtime Thread operation failed");
+    if error.is_thread_resume_rejected() {
+        return (
+            StatusCode::CONFLICT,
+            Json(PlatformError::conflict(
+                "Runtime rejected recovery of this Thread; start a new Run or inspect server logs",
+            )),
+        );
+    }
     (
         StatusCode::BAD_GATEWAY,
         Json(PlatformError::internal("Codex Thread operation failed")),

@@ -30,6 +30,39 @@ pub enum AdapterError {
     Internal(String),
 }
 
+impl AdapterError {
+    /// The Runtime explicitly rejected binding this Thread, rather than losing transport.
+    pub fn is_thread_resume_rejected(&self) -> bool {
+        matches!(
+            self,
+            Self::ProfileHost(open_web_codex_profile_host::ProfileHostError::Rpc { method, .. })
+                if method == "thread/resume"
+        )
+    }
+}
+
+#[cfg(test)]
+mod recovery_error_tests {
+    use super::AdapterError;
+    use open_web_codex_profile_host::ProfileHostError;
+
+    #[test]
+    fn explicit_resume_rejection_is_distinct_from_transport_failure() {
+        let rejected = AdapterError::ProfileHost(ProfileHostError::Rpc {
+            method: "thread/resume".into(),
+            message: "Runtime refused the request".into(),
+        });
+        assert!(rejected.is_thread_resume_rejected());
+        assert!(!AdapterError::ProfileHost(ProfileHostError::TransportClosed)
+            .is_thread_resume_rejected());
+        assert!(!AdapterError::ProfileHost(ProfileHostError::Rpc {
+            method: "thread/read".into(),
+            message: "Runtime refused the request".into(),
+        })
+        .is_thread_resume_rejected());
+    }
+}
+
 /// Health status returned by the adapter.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct HealthStatus {

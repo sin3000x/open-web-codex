@@ -47,6 +47,12 @@ detailed build and startup output stays in
 `.local/open-web-codex/logs/run-local.log`. Open `http://127.0.0.1:4800/web`
 after it succeeds.
 
+Runtime logs default to WARN, including errors. Set `RUST_LOG` explicitly to
+override the filter, for example `RUST_LOG=info ./scripts/deploy.sh`.
+Run recovery verifies the existing Runtime Thread before acquiring a new lease.
+An explicit Runtime rejection of `thread/resume` fails the Run; transport errors
+leave it pending recovery. Recovery never silently replaces a Thread.
+
 When no database configuration exists, an interactive deploy asks whether to
 use an existing PostgreSQL database or create the database and an application
 user. The database name is always `open_web_codex`; passwords are read without
