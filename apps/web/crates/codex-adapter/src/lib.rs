@@ -53,8 +53,10 @@ mod recovery_error_tests {
             message: "Runtime refused the request".into(),
         });
         assert!(rejected.is_thread_resume_rejected());
-        assert!(!AdapterError::ProfileHost(ProfileHostError::TransportClosed)
-            .is_thread_resume_rejected());
+        assert!(
+            !AdapterError::ProfileHost(ProfileHostError::TransportClosed)
+                .is_thread_resume_rejected()
+        );
         assert!(!AdapterError::ProfileHost(ProfileHostError::Rpc {
             method: "thread/read".into(),
             message: "Runtime refused the request".into(),

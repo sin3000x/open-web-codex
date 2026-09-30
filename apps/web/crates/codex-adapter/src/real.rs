@@ -2235,7 +2235,9 @@ mod tests {
         })
         .await
         .expect("read reached Runtime and holds adapter mutex");
-        host.schedule_restart(config).await.expect("schedule restart");
+        host.schedule_restart(config)
+            .await
+            .expect("schedule restart");
         let instance = host.runtime_instance_id().await;
         timeout(
             Duration::from_secs(2),
@@ -2249,7 +2251,10 @@ mod tests {
             host.runtime_instance_id().await,
             "stop must not restart Runtime"
         );
-        reader.await.expect("reader task").expect("read released by interrupt");
+        reader
+            .await
+            .expect("reader task")
+            .expect("read released by interrupt");
 
         for thread in ["other-workspace", "missing-thread"] {
             adapter
