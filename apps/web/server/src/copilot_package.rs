@@ -1868,9 +1868,12 @@ mod tests {
             assert!(skill.contains("地图只展示规划工具已经确认的结果"));
             assert!(!skill.contains("`create_map_card`"));
             assert!(skill.contains("不自行拼接 GeoJSON 或图层"));
-            assert!(skill.contains("`create_network_map_card` 成功后立即返回"));
             assert!(skill.contains("`publish_workspace_geojson`"));
         }
+        let multi_terminal = "`create_network_map_card` 或 `present_map_card` 成功后立即返回";
+        let single_terminal = "`create_network_map_card` 成功后立即返回";
+        assert!(MAP_DELIVERY_SKILL.contains(multi_terminal));
+        assert!(SINGLE_AGENT_MAP_DELIVERY_SKILL.contains(single_terminal));
         assert!(DATA_SKILL.contains("候选仓信息不得因基线只计算现有仓而从准备结果中删除"));
         assert!(SUPERVISOR_SKILL.contains("`prepared_input_relative_path`"));
         assert!(SUPERVISOR_SKILL.contains("`input_identity`"));

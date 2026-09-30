@@ -13,6 +13,10 @@
 
 ## 1. 结论
 
+停止控制路径新增 pending read 并发、计划重启不影响中断、跨 Workspace/缺失 Thread
+拒绝和 stale Runtime request 回归测试。当前修复环境缺少 Cargo，测试尚未运行；真实
+Provider 思考期间点击停止的产品 E2E 也尚未验证，不能据此宣称中断 hardening 已通过。
+
 当前 checkout 已从 clean DB/Profile、真实 Web Task 入口、真实 Codex Runtime 和真实 Provider
 完成多 Agent 仓网 Copilot 的阶段一正常业务闭环。这个结论不代表 Web Studio、Marketplace、
 多用户产品或完整 hardening 矩阵已经完成。独立单 Agent 包已有静态组合、共享 Tool、package-keyed

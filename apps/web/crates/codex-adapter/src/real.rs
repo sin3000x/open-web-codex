@@ -763,9 +763,37 @@ impl RealCodexAdapter {
                 "Thread id and Turn id are required".to_string(),
             ));
         }
-        let (_workspace_root, _runtime) = self.ensure_thread_bound(workspace, thread_id).await?;
+        // Cancellation must not queue behind the adapter's preparation mutex:
+        // history/resource requests hold it across RPCs, and preparation may
+        // try to restart the very process whose active Turn we need to stop.
+        // Validate current Runtime metadata instead of resuming the Thread.
+        let workspace_root = self.authorized_root(workspace)?;
+        let runtime_instance_id = self.host.runtime_instance_id().await;
+        let metadata = self
+            .host
+            .request_for_runtime(
+                runtime_instance_id,
+                "thread/read",
+                json!({ "threadId": thread_id, "includeTurns": false }),
+            )
+            .await?;
+        let cwd = metadata
+            .pointer("/thread/cwd")
+            .and_then(Value::as_str)
+            .ok_or_else(|| AdapterError::Rpc("Thread metadata omitted cwd".to_string()))?;
+        let cwd = Path::new(cwd).canonicalize().map_err(|error| {
+            AdapterError::Internal(format!("failed to resolve Thread cwd: {error}"))
+        })?;
+        if metadata.pointer("/thread/id").and_then(Value::as_str) != Some(thread_id)
+            || !cwd.starts_with(&workspace_root)
+        {
+            return Err(AdapterError::Rpc(
+                "Thread is not bound to the authorized workspace".to_string(),
+            ));
+        }
         self.host
-            .request(
+            .request_for_runtime(
+                runtime_instance_id,
                 "turn/interrupt",
                 json!({ "threadId": thread_id, "turnId": turn_id }),
             )
@@ -2158,6 +2186,84 @@ mod tests {
     use serde_json::{json, Value};
     use std::collections::HashMap;
     use std::path::Path;
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn interrupt_bypasses_pending_reads_and_scheduled_restart_without_resuming() {
+        use crate::{AuthorizedWorkspace, CodexAdapter};
+        use open_web_codex_profile_host::{ProfileHost, ProfileHostConfig};
+        use std::time::Duration;
+        use tokio::time::timeout;
+
+        let temp = tempfile::tempdir().expect("temporary profile");
+        let root = temp.path().canonicalize().expect("workspace root");
+        let mut config = ProfileHostConfig::new("interrupt-test", root.join("home"), &root)
+            .with_codex_bin("python3")
+            .with_environment("TEST_WORKSPACE", root.as_os_str());
+        config.codex_args.push(
+            Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("tests/fixtures/interrupt_server.py")
+                .into_os_string(),
+        );
+        let host = ProfileHost::spawn(config.clone()).await.expect("test host");
+        let adapter = std::sync::Arc::new(
+            RealCodexAdapter::from_host(host.clone(), "workspace", root.clone()).expect("adapter"),
+        );
+        let workspace = AuthorizedWorkspace {
+            id: "workspace".into(),
+            root,
+        };
+        // Bind the blocked read to this process, just as a preceding start does.
+        drop(adapter.prepare_runtime().await.expect("prepare"));
+        adapter
+            .thread_workspaces
+            .write()
+            .await
+            .insert("busy-thread".into(), workspace.clone());
+        let mut events = host.subscribe();
+        let reader = {
+            let adapter = adapter.clone();
+            let workspace = workspace.clone();
+            tokio::spawn(async move { adapter.read_thread(&workspace, "busy-thread").await })
+        };
+        timeout(Duration::from_secs(2), async {
+            loop {
+                if events.recv().await.expect("event").message["method"] == "test/readBlocked" {
+                    break;
+                }
+            }
+        })
+        .await
+        .expect("read reached Runtime and holds adapter mutex");
+        host.schedule_restart(config)
+            .await
+            .expect("schedule restart");
+        let instance = host.runtime_instance_id().await;
+        timeout(
+            Duration::from_secs(2),
+            adapter.interrupt_turn(&workspace, "thread-1", "turn-1"),
+        )
+        .await
+        .expect("interrupt must not wait for read")
+        .expect("interrupt acknowledged");
+        assert_eq!(
+            instance,
+            host.runtime_instance_id().await,
+            "stop must not restart Runtime"
+        );
+        reader
+            .await
+            .expect("reader task")
+            .expect("read released by interrupt");
+
+        for thread in ["other-workspace", "missing-thread"] {
+            adapter
+                .interrupt_turn(&workspace, thread, "turn-1")
+                .await
+                .expect_err("unauthorized or missing Thread cannot be interrupted");
+        }
+        host.shutdown().await.expect("shutdown");
+    }
 
     #[test]
     fn thread_start_params_omit_skill_config_by_default() {

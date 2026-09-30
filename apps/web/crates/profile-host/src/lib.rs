@@ -594,6 +594,29 @@ impl ProfileHost {
 
     pub async fn request(&self, method: &str, params: Value) -> Result<Value, ProfileHostError> {
         let _lifecycle = self.inner.lifecycle.read().await;
+        self.request_in_lifecycle(method, params).await
+    }
+
+    /// Dispatch against the process that supplied the caller's Runtime facts.
+    /// Never resume a Thread or apply a scheduled restart on this control path.
+    pub async fn request_for_runtime(
+        &self,
+        runtime_instance_id: Uuid,
+        method: &str,
+        params: Value,
+    ) -> Result<Value, ProfileHostError> {
+        let _lifecycle = self.inner.lifecycle.read().await;
+        if *self.inner.runtime_instance_id.read().await != runtime_instance_id {
+            return Err(ProfileHostError::StaleRuntimeRequest);
+        }
+        self.request_in_lifecycle(method, params).await
+    }
+
+    async fn request_in_lifecycle(
+        &self,
+        method: &str,
+        params: Value,
+    ) -> Result<Value, ProfileHostError> {
         let lifecycle_effect = runtime_request_lifecycle_effect(method, &params);
         let result = self.request_unlocked(method, params).await?;
         record_successful_runtime_request(&self.inner, lifecycle_effect, &result).await;
@@ -1791,6 +1814,17 @@ mod tests {
         };
         let runtime_instance_id = host.runtime_instance_id().await;
         let stale = Uuid::nil();
+
+        let error = host
+            .request_for_runtime(
+                stale,
+                "turn/interrupt",
+                json!({ "threadId": "thread-1", "turnId": "turn-1" }),
+            )
+            .await
+            .expect_err("stale control request must not reach the new process");
+        assert!(matches!(error, ProfileHostError::StaleRuntimeRequest));
+        assert!(inner.pending.lock().await.is_empty());
 
         let error = host
             .respond(stale, json!(7), Ok(json!({ "decision": "accept" })))
