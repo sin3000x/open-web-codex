@@ -2250,6 +2250,24 @@ fn project_event_data(method: &str, params: &Map<String, Value>) -> Value {
                 continue;
             } else if method == "turn/completed" && key == "turn" {
                 data.insert(key.to_string(), project_public_runtime_turn(value));
+            } else if method == "platform/approvalRequested" && key == "requestParams" {
+                let mut projected = sanitize_value(value, key);
+                // This is a bounded platform discriminator, not a credential.
+                // Preserve it only on the platform-owned URL approval contract;
+                // arbitrary Runtime/tool credential fields remain redacted.
+                if params.get("requestMethod").and_then(Value::as_str)
+                    == Some("mcpServer/elicitation/request")
+                    && value.get("mode").and_then(Value::as_str) == Some("url")
+                    && value.get("credentialKind").and_then(Value::as_str) == Some("maps")
+                {
+                    if let Some(request) = projected.as_object_mut() {
+                        request.insert(
+                            "credentialKind".to_string(),
+                            Value::String("maps".to_string()),
+                        );
+                    }
+                }
+                data.insert(key.to_string(), projected);
             } else {
                 data.insert(key.to_string(), sanitize_value(value, key));
             }
@@ -4412,6 +4430,59 @@ mod tests {
         assert_eq!(event.item_id.as_deref(), Some("item-1"));
         assert_eq!(event.payload["data"]["approvalId"], "018f-id");
         assert!(!event.payload.to_string().contains("requestId"));
+    }
+
+    #[test]
+    fn preserves_only_the_platform_maps_credential_discriminator() {
+        for (method, mode, kind, expected) in [
+            ("mcpServer/elicitation/request", "url", "maps", "maps"),
+            (
+                "mcpServer/elicitation/request",
+                "url",
+                "secret-value",
+                "[redacted]",
+            ),
+            (
+                "mcpServer/elicitation/request",
+                "form",
+                "maps",
+                "[redacted]",
+            ),
+            (
+                "item/commandExecution/requestApproval",
+                "url",
+                "maps",
+                "[redacted]",
+            ),
+        ] {
+            let mut frame = b"data: ".to_vec();
+            frame.extend(
+                serde_json::to_vec(&json!({
+                    "method": "app-server-event",
+                    "params": {"message": {
+                        "method": "platform/approvalRequested",
+                        "params": {
+                            "approvalId": "approval-1", "threadId": "thread-1",
+                            "requestMethod": method,
+                            "requestParams": {"mode": mode, "credentialKind": kind,
+                                "apiKey": "must-not-leak", "credential": "must-not-leak"}
+                        }
+                    }}
+                }))
+                .unwrap(),
+            );
+            frame.extend_from_slice(b"\n\n");
+            let event = project_frame(&frame).unwrap().unwrap();
+            assert_eq!(
+                event.payload["data"]["requestParams"]["credentialKind"],
+                expected
+            );
+            assert!(!event.payload.to_string().contains("must-not-leak"));
+            assert_eq!(
+                sanitize_value(&json!({"credentialKind": kind}), "result")["credentialKind"],
+                "[redacted]"
+            );
+        }
     }
 
     #[test]
