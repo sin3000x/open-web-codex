@@ -18,6 +18,32 @@ Gateway、原始 JSON-RPC 路由或桌面应用。
 
 ## 前置条件
 
+### 运维导出当前地图 Key
+
+只需复制单文件 `scripts/export-maps-key.py` 到生产主机，使用 Python 3.10+ 运行，
+不需要仓库或 Rust/Cargo。数据库模式按当前 Secret Store 的 AES-256-GCM/AAD 合同只读
+`maps.active_credential`，不迁移数据库或重启服务。标准输出只有明文 Key，
+provider 与错误写到标准错误，不要把输出提交到源码或日志。
+
+默认读取 `OPEN_WEB_CODEX_DATA_DIR`（未设置时为当前目录）中的
+`database-url` 和 `master-key`；`DATABASE_URL`、`OPEN_WEB_CODEX_MASTER_KEY` 优先。
+生产 Secret Manager 注入的主密钥必须与服务端一致，Key version 使用
+`OPEN_WEB_CODEX_MASTER_KEY_VERSION`（默认 `v1`）。也可显式指定文件：
+
+```bash
+python3 export-maps-key.py --data-dir /srv/open-web-codex/data
+python3 export-maps-key.py --database-url-file /run/secrets/database-url --master-key-file /run/secrets/master-key
+```
+
+数据库模式需要 `psycopg[binary]==3.3.6` 与 `cryptography==46.0.3`；当前 Python 缺少依赖时，
+脚本联网安装到临时 venv，子进程结束后清理，不改系统 Python。离线主机可预装依赖并使用
+`--no-install`。如果明确要读取 MCP 已保存的当前 v2 凭据文件，可使用
+`python3 export-maps-key.py --credential-file /path/to/maps-tool-memory.json`，此模式只用标准库。
+
+没有当前配置、数据库不可达或密钥不匹配时明确失败，不搜索其他 Profile 或历史凭据。
+
+### 运行依赖
+
 - Node.js 20+、npm、稳定 Rust、Git。
 - PostgreSQL Server 已运行；Release 部署器可以创建或连接固定名称的
   `open_web_codex` 数据库，开发脚本要求该数据库已存在。
