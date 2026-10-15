@@ -87,6 +87,19 @@ preparation and from provider credential elicitation. The MCP client must advert
 support; if the browser cannot render the request, the Tool fails safely instead of exposing a key
 to the model.
 
+## Workspace scope on the managed stdio transport
+
+The managed stdio entry point advertises `codex/sandbox-state-meta` during MCP
+initialization. Codex supplies the authorized current Workspace as
+`_meta["codex/sandbox-state-meta"].sandboxCwd` on each tool call. Workspace-file
+operations use that URI, never the provider state directory or process cwd.
+Missing metadata fails with `workspace_scope_unavailable`; an invalid or
+unresolvable Workspace URI fails with `workspace_scope_invalid`. Retrying a
+file path cannot repair either error. After updating the prepared Tool package,
+restart the MCP connection so capability negotiation runs again. The standalone
+HTTP transport does not negotiate this extension and is not the managed
+Workspace-file execution path.
+
 ## Tests
 
 Tests use fake HTTP responses and never call a paid provider:

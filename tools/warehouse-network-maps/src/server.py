@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import asyncio
 import json
 import math
 import os
@@ -13,6 +14,7 @@ from uuid import uuid4
 
 from mcp.server.fastmcp import Context, FastMCP
 from mcp.server.session import ServerSession
+from mcp.server.stdio import stdio_server
 from mcp.types import CallToolResult, ResourceLink, TextContent, ToolAnnotations
 from open_web_codex_provider import (
     MAX_WORKSPACE_FILE_BYTES,
@@ -332,10 +334,7 @@ def _workspace_json_path(
     ctx: Context[ServerSession, None], relative_path: str
 ) -> tuple[Path, Path]:
     """Resolve one model-visible Workspace JSON path without symlink traversal."""
-    try:
-        workspace = trusted_workspace_root(ctx.request_context.meta)
-    except Exception as error:
-        raise ValueError("workspace_scope_invalid") from error
+    workspace = trusted_workspace_root(ctx.request_context.meta)
     if not isinstance(relative_path, str) or not relative_path or "\\" in relative_path:
         raise ValueError("workspace_path_invalid")
     relative = PurePosixPath(relative_path)
@@ -1364,7 +1363,19 @@ def main() -> None:
     _credential_source = args.credential_source
     _resource_store = GeoJsonResourceStore(args.workspace_root)
     _map_card_spec_store = MapCardSpecStore(args.workspace_root)
-    mcp.run(transport=args.transport)
+    if args.transport == "stdio":
+        asyncio.run(run_stdio())
+    else:
+        mcp.run(transport=args.transport)
+
+
+async def run_stdio() -> None:
+    # Codex sends the trusted per-call Workspace only after this negotiation.
+    initialization_options = mcp._mcp_server.create_initialization_options(
+        experimental_capabilities={"codex/sandbox-state-meta": {}},
+    )
+    async with stdio_server() as streams:
+        await mcp._mcp_server.run(streams[0], streams[1], initialization_options)
 
 
 if __name__ == "__main__":
