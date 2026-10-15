@@ -49,6 +49,17 @@ Runtime 事件转换成浏览器 DTO 和持久化投影。
 | Data Intake | 无当前 owner | 生产 route、validation crate、SourceAsset/Dataset/Task binding 表与产品入口已删除；阶段一不建设替代状态机 |
 | 仓网规划能力 | 供应链 Python 包的 domain owners | 当前阶段统一拥有 demand/facility/candidate/location/lane/route/cost records，Data mapping/normalization/geography、route/cost fact 与 matrix build/validate/partial reuse，actual/optimized baseline、open/close/relocation scenario、assignment/service/cost evaluation、p-median、before/after comparison、分配覆盖 GeoJSON、地图卡片数据和确定性 Markdown 简报。来源预览显式区分样本数与完整总数；完整准备结果返回精确候选仓总数和有界目录。成本 Tool 可在 exact prepared input 内对完整报价按层派生 `warehouse_quote_mean_calculation.v1`，并逐字段校验用户脚本证据后绑定 bounded provenance；单 Agent 只有在任务 Skill 授权或用户明确要求时才可用脚本对同一 prepared input 做确定性聚合，脚本不拥有标准化或求解。需求、候选、现网仓、实际分配、路线或报价事实变动必须完整归一化；生成输入、导航请求、计算证据和最终文件分别只能进入 `outputs/warehouse-network/{prepared,requests,calculations,deliverables}/`。不完整路线返回 typed `needs_input` 且不发布可继续消费的 ready 引用；只有 Root 通过 Runtime 原生 `request_user_input` 收集业务选择。Network 覆盖线从精确分配和坐标派生，并按用户所选服务目标发布 `attained/missed/unassigned` 状态，不含城市/仓库名称分支；Maps 只消费该状态生成样式，不重算 SLA。该领域层不引入 Platform workflow、缓存或第二份业务状态。`solve_p_median` 的 `minimum_feasible` 在一个总时间预算内执行最多两个 CP-SAT stage：先最小化新增仓数，再在该仓数下最小化成本，返回 `selected_number_to_open`、最小仓数证明状态和最终 coverage，避免 Agent 循环调用多个求解 Tool。报告输入以 discriminated typed contract 区分单一 baseline 评估和 generic before/after comparison；comparison v2 接受同一 prepared identity 下任意 baseline、scenario 或 facility-location 结果，不为交付伪造方案结果。结构化计算结果与业务简报分离，不拥有通用 Resource/Workspace infrastructure。Stage E 已删除 Case/NetworkSnapshot/source_ref/ArtifactRef 与多层 hashes 旧偏离。未来若第二个供应链 Copilot 证明存在稳定公共领域合同，再评估内部提取 |
 
+地图 Key 的 Web 管理入口位于 Settings 的“地图服务”，复用现有 typed configuration API 与
+加密 Secret Store。受管 Maps Tool 的 `runtime.toml` 显式声明 `--credential-source platform`，
+每次需要凭据时通过官方 MCP URL elicitation 取得平台当前 provider/key，不读写本地记忆 Key；
+保存后的下一次操作即可使用新配置。独立 CLI 的 local credential source 仍由 provider 拥有，
+不会被 Web 作为失败恢复或另一份配置读取。对话消息不承担 Secret 输入或保存。
+
+Thread 的所有 cold-resume 入口（包括历史读取、Turn、名称、压缩、Review、fork 与中断）
+均从已授权 Task 传递同一 `copilot_package_id`，由 Adapter 解析 server-owned Root execution
+config 后调用官方 `thread/resume`。历史读取不能先用无包配置恢复并缓存 Thread；
+进程重启后的 Workspace binding/history-mode cache 只是可丢弃投影，不替代 Task 的包选择。
+
 地图卡片读取 provider-owned GeoJSON 时，Platform 从授权 Task 取得固定
 `copilot_package_id`，并在第一次 cold resume producing child 时携带同一
 Root execution config；这样 `close_agent` 后仍能恢复 child Role 的 MCP inventory，

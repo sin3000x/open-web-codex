@@ -19,32 +19,33 @@ A later configuration replaces the previous provider and key. Provider request
 limits are handled inside the server. Batch geocoding is capped at 500 inputs
 and distance matrices at 2,500 billable origin/destination elements per call.
 
-## Credential configuration and local memory
+## Credential configuration
 
-The Web platform stores one active provider/key pair as an encrypted global configuration. A later
-save replaces the previous provider and key. Google credentials remain server-only; an active
-Mapbox public browser token is returned only because Mapbox GL needs it to render cards.
+In the Web app, open **Settings → 地图服务 → 配置 / 更换地图 Token**. The same secure dialog is
+available on a pending maps credential request. Enter the key in that password field, never as a
+chat message. The platform validates permission and stores one active provider/key pair in its
+encrypted global configuration. Saving replaces that pair; retry the conversation after saving.
+Google credentials stay server-only. A Mapbox public browser token is returned because Mapbox GL
+needs it for map cards. Saving configuration does not prove the external provider accepts the key.
 
-The MCP server deliberately does not read provider keys from environment variables. It can read a
-locally delivered credential from this ignored owner-only file under its private provider tool
-state root:
+The checked-in `runtime.toml` explicitly launches this server with `--credential-source platform`.
+In this mode every credentialed operation asks for a fresh MCP URL delivery from the platform;
+it never reads or writes provider-local credential memory, even when a submitted form requests
+remembering. This makes both key rotation and provider changes effective on the next operation,
+without a process restart or a second credential source. Delivery failure, rejection or cancellation
+fails the operation explicitly; it never falls back to a local key.
 
-```text
-<tool-state-root>/.codex/maps-tool-memory.json
-```
+The delivery uses a single-use `127.0.0.1` URL with a random 256-bit path token. The browser does
+not navigate there: the platform's secure dialog saves the key, and the Server submits it directly
+to the local MCP process before accepting the Runtime elicitation. When already configured, the
+platform delivers its saved key without exposing it to the model.
 
-If no provider/key is configured, the tool sends an MCP URL elicitation request.
-The fallback form selects Mapbox or Google and accepts one key. It is served on a single-use
-`127.0.0.1` URL with a random 256-bit path token. The browser does not navigate to that page:
-the platform presents its own in-app dialog, validates and encrypts the configuration, then posts
-the selected provider/key from the Server directly to the local MCP process. Only after successful
-delivery does the platform accept the Runtime elicitation.
-
-The MCP writes the delivered active credential with file mode `0600` and directory mode `0700`.
-This file is local MCP credential memory, not Codex semantic memory and not the future per-user
-storage boundary. The platform's current global encrypted configuration remains the reusable
-browser-facing source; future multi-user work will move it to user/Profile scope. Do not put API
-keys in `MEMORY.md`, instructions, prompts, model-visible tool arguments, results, or logs.
+For independently launched `maps-mcp` outside the Web platform, the CLI's `--credential-source local`
+mode (the CLI default) owns its explicit local configuration. It reads a remembered key from
+`<tool-state-root>/.codex/maps-tool-memory.json` and lets the URL form remember a replacement with
+file mode `0600` and directory mode `0700`. This standalone mode is not consulted by Web-managed
+operations. Neither mode reads provider keys from environment variables. Keys must never enter
+`MEMORY.md`, instructions, prompts, model-visible arguments, results or logs.
 
 ## Install
 

@@ -65,7 +65,8 @@ Atom 1 先建立一个不依赖 Web、Catalog 或安装状态的开发者源码�
    Settings Agents 误写成 Copilot 创作入口。
 10. 存在可用包时，新建 Thread 列出全部 configured package 并要求用户显式选择；Task 固定
     `copilot_package_id`，Run/Thread/Turn 复用它。平台不提供单/多 Agent 模式开关，不按 Prompt
-    或默认包自动加载仓网能力。
+    或默认包自动加载仓网能力。历史读取、Turn 控制、名称、压缩、Review 和 fork 的 cold-resume
+    同样从已授权 Task 传递该 ID；不得先恢复无包 Thread 再把它缓存为已绑定。
 
 当前验证 reference 是：
 
@@ -87,6 +88,10 @@ Atom 1 先建立一个不依赖 Web、Catalog 或安装状态的开发者源码�
 Runtime ready 刻意保持 instance-scoped observation，不建设持久 readiness truth。当前 SDK 124 项
 单测、fresh single/multi real app-server `check`、Provider Cookbook 与开发者文档 smoke 已通过；
 Web Studio、外部 push/import、Release 和 Marketplace 仍不在本切片。
+
+地图配置复用现有 Settings、typed API 与加密 Secret Store：无论首次配置或替换均可从
+“地图服务”打开专用弹窗。受管 Maps Tool 显式使用 platform credential source，每次凭据操作
+从 Server 取得当前配置，不能沿用 provider-local 旧 Key；独立 CLI local source 不作为 fallback。
 
 ### 已验证的运行体验与低延迟领域操作基线
 

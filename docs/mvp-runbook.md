@@ -18,6 +18,17 @@ Gateway、原始 JSON-RPC 路由或桌面应用。
 
 ## 前置条件
 
+### 在网页中配置或更换地图 Token
+
+点击左下角齿轮 **Settings → 地图服务 → 配置 / 更换地图 Token**，选择 Mapbox 或 Google，
+在专用密码框中填写 Key 并保存。当前只有具备配置权限的组织 owner/admin 可以修改。
+不需要先产生地图卡片或等待审批，也不要把 Key 作为普通聊天消息发送。
+保存后回到原对话重试；保存成功仅表示配置已写入，不表示外部服务鉴权通过。
+
+Web Tool 的 manifest 显式选择 `--credential-source platform`；每次凭据操作通过已有 MCP
+URL elicitation 从平台取得当前配置，不读写 provider-local memory，因此修改后下一次操作
+立即使用新 provider/key。实际 Key 由 Server 直接送达 MCP，不进入模型上下文。
+
 ### 运维导出当前地图 Key
 
 只需复制单文件 `scripts/export-maps-key.py` 到生产主机，使用 Python 3.10+ 运行，
@@ -37,8 +48,9 @@ python3 export-maps-key.py --database-url-file /run/secrets/database-url --maste
 
 数据库模式需要 `psycopg[binary]==3.3.6` 与 `cryptography==46.0.3`；当前 Python 缺少依赖时，
 脚本联网安装到临时 venv，子进程结束后清理，不改系统 Python。离线主机可预装依赖并使用
-`--no-install`。如果明确要读取 MCP 已保存的当前 v2 凭据文件，可使用
+`--no-install`。独立运行且显式使用 local credential source 的 MCP 可导出其 v2 凭据文件：
 `python3 export-maps-key.py --credential-file /path/to/maps-tool-memory.json`，此模式只用标准库。
+它不是 Web 平台当前 Key 的来源；Web Key 必须从上面的 Secret Store 模式导出。
 
 没有当前配置、数据库不可达或密钥不匹配时明确失败，不搜索其他 Profile 或历史凭据。
 

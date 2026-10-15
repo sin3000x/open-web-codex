@@ -83,6 +83,11 @@ Platform 是身份、授权、Task/Run、Workspace 路径边界、审批、Artif
 它可以调用 Runtime，但不能伪造 Thread 历史、模型上下文、Agent 状态或 Tool
 执行结果。
 
+地图凭据配置只能通过已授权的 typed configuration API 提交到加密 Secret Store。
+受管 Maps MCP 通过显式 platform credential source 与一次性 loopback URL 接收 Server 送达，
+不得从本地记忆恢复另一份 Key，不得将 Key 放入模型可见 Tool 参数、事件或聊天记录。
+独立 CLI 的 local source 与 Web 管理模式由 Tool manifest/CLI 显式选择，不能在投递失败时切换。
+
 ### Codex Runtime
 
 Codex 拥有模型可见上下文和执行语义，但不是企业授权系统。Runtime 提出的 Tool

@@ -238,6 +238,39 @@ Platform map projection 故障；没有伪造重试或业务结果。确定性 m
 在投影任何 FunctionCall Item 前先校验整组 Tool 名和参数，因此不再显示为
 `stream disconnected`，也不会留下已接受一半的 `tool_search`/业务 Tool 组。
 
+#### 地图 Token 配置与更换
+
+Settings 的“地图服务”直接打开同一安全配置弹窗；配置已存在时仍可更换，不依赖一条
+pending approval 或先生成地图卡片。复用现有 permission DTO 和加密 configuration API，
+失败保存保留弹窗且不报告成功，无权限或读取失败时不开放配置操作。
+受管 Tool manifest 显式选择 platform credential source；每次凭据操作都走一次性 MCP
+URL 投递，不读写 provider-local Key。Mapbox→Google 与 Key 替换、remember 字段不产生
+本地写入、拒绝后不回退旧 Key 均通过 source-level 测试；独立 CLI local source 仍保留其
+现有记忆合同。Maps Python 全部 40 项测试通过，SDK 单 Agent manifest validate 通过。
+外部地图服务能否接受配置仍须用真实 Key 的 Tool 结果验证，保存配置不代表鉴权成功。
+Web lint、typecheck、production build 与 1,359 项测试通过；完整测试以两个 worker 复核通过。
+部署后的 Settings 入口与专用密码框已在真实浏览器中验证，准备产物显式携带 platform source，
+其安装后的 CLI 接受同一参数。2026-10-15 用户在专用配置表单保存新 Mapbox Token 后，
+原有“在地图上展示印尼主要城市”任务实际执行两次 Tool 调用并交付 15 个城市的地图卡片；
+真实浏览器已确认底图、城市标注与交互控件正常显示，卡片状态为 Ready。
+该结果验证当前配置的真实调用与渲染链路，不代表任意 Token、Google provider 或完整仓网分析均已验收。
+
+#### Task 选包的 cold-resume 边界
+
+Adapter 的 `cold_resume_restores_selected_package_before_history_and_turns` 使用真实
+app-server、隔离 Profile 和确定性 MCP fixture：不携带 Task 包配置时复现 server 缺失，
+携带同一包 ID 后，并发历史/Turn 读取及下一次 cold Turn 均恢复相同 Thread，且通过官方
+MCP Tool 调用取得真实 fixture 结果；未知包和 Workspace binding 变更明确拒绝。
+历史读取与所有可触发 cold-resume 的控制入口使用 Task 持久化的包 ID，不从历史 Tool
+schema 推断 Runtime inventory。该回归不把 fixture 结果计作外部地图服务可用的证据。
+
+本地 Web 原任务在冷服务重启后已恢复真实 `map_utils/batch_geocode` 调用，
+不再返回 `unsupported call`；更换凭据后的外部 Mapbox 调用与地图渲染证据见上一节。
+平台 Rust 默认测试、三项隔离 PostgreSQL 边界测试及
+`check:no-desktop` 通过。另行扩展的 `copilot_package_clean_profile_runtime_gate` 未通过：
+其当前 Skill description 预期与源码不一致，临时对齐描述后又停在旧 collaboration Tool
+surface 断言；该扩展 fixture 未纳入本修复，不计为完整多 Agent 通过证据。
+
 #### D5c：Chat history-loaded Tool 投影与真实完整门
 
 Chat bridge 对 canonical history 中的 completed/client ToolSearch call-output 对建立 exact
