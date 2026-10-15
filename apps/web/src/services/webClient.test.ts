@@ -80,6 +80,7 @@ function resourceFetch(
       return json({
         thread: {
           id: "thread-1",
+          modelProvider: task.model_provider,
           name: task.title,
           preview: task.title,
           createdAt: 1,
@@ -112,6 +113,21 @@ function runtimeStatus(value: typeof run) {
 describe("WebApp direct Server client", () => {
   afterEach(() => {
     vi.unstubAllGlobals();
+  });
+
+  it("reads the Runtime Provider instead of a stale Task model selection", async () => {
+    const baseFetch = resourceFetch();
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+      const response = await baseFetch(input);
+      if (new URL(String(input)).pathname !== `/api/runs/${run.id}/thread`) return response;
+      const body = await response.json();
+      body.thread.modelProvider = "original-provider";
+      return json(body);
+    }));
+    const client = new CodexMonitorWebClient({ baseUrl: "http://server.test" });
+    await expect(client.readThread(workspace.id, "thread-1")).resolves.toMatchObject({
+      thread: { modelProvider: "original-provider", model: null },
+    });
   });
 
   it("projects real Workspace ids without exposing a server-local root", async () => {

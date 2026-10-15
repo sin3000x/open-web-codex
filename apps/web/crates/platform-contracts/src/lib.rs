@@ -330,6 +330,7 @@ pub struct ThreadHistoryTurn {
 #[serde(rename_all = "camelCase")]
 pub struct ThreadHistory {
     pub id: String,
+    pub model_provider: String,
     pub name: Option<String>,
     pub preview: String,
     pub created_at: i64,

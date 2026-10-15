@@ -171,10 +171,44 @@ pub async fn update_model_selection(
     State(state): State<AppState>,
     Path(task_id): Path<Uuid>,
     Extension(providers): Extension<Arc<dyn AuthorizedProviderOperations>>,
+    Extension(adapter): Extension<Arc<dyn CodexAdapter>>,
+    Extension(profile): Extension<RuntimeProfileBinding>,
     Json(request): Json<UpdateTaskModelSelectionRequest>,
 ) -> ApiResult<ModelSelection> {
     let selection = normalize_model_selection(Some(request.provider_id), Some(request.model_id))?
         .expect("request contains both model selection fields");
+    require_runtime_profile(&state.db, &auth, &profile.runtime_key).await?;
+    // A Task's stored pair is not authority for an already materialized Thread.
+    // Reject before persisting a pair that turn/start cannot apply.
+    let run_id: Option<Uuid> = sqlx::query_scalar(
+        "SELECT id FROM runs WHERE task_id = $1 AND organization_id = $2 \
+         AND codex_thread_id IS NOT NULL \
+         AND status IN ('running', 'recovery_pending', 'completed') \
+         ORDER BY CASE WHEN status IN ('running', 'recovery_pending') THEN 0 ELSE 1 END, \
+                  created_at DESC LIMIT 1",
+    )
+    .bind(task_id)
+    .bind(auth.organization_id)
+    .fetch_optional(&state.db)
+    .await
+    .map_err(database_error)?;
+    if let Some(run_id) = run_id {
+        let context = super::threads::authorized_thread(&state, &auth, run_id).await?;
+        let thread = adapter
+            .read_thread(
+                &context.workspace,
+                context.copilot_package_id.as_deref(),
+                &context.thread_id,
+            )
+            .await
+            .map_err(turn_start_error)?;
+        open_web_codex_adapter::require_thread_provider(
+            &thread,
+            &context.thread_id,
+            &selection.provider_id,
+        )
+        .map_err(turn_start_error)?;
+    }
     let catalog = providers
         .list(ProviderActor {
             user_id: auth.user_id,
@@ -508,12 +542,7 @@ pub async fn send_message(
                 error = %error,
                 "Codex Runtime rejected turn start"
             );
-            (
-                StatusCode::BAD_GATEWAY,
-                Json(PlatformError::internal(
-                    "Codex Runtime failed to start the Turn",
-                )),
-            )
+            turn_start_error(error)
         })?;
 
     let turn_id = result
@@ -602,6 +631,26 @@ pub async fn send_message(
         turn_id,
         thread_name,
     }))
+}
+
+fn turn_start_error(
+    error: open_web_codex_adapter::AdapterError,
+) -> (StatusCode, Json<PlatformError>) {
+    if matches!(
+        error,
+        open_web_codex_adapter::AdapterError::ThreadProviderMismatch
+    ) {
+        return (
+            StatusCode::CONFLICT,
+            Json(PlatformError::conflict(error.to_string())),
+        );
+    }
+    (
+        StatusCode::BAD_GATEWAY,
+        Json(PlatformError::internal(
+            "Codex Runtime failed to start the Turn",
+        )),
+    )
 }
 
 async fn selected_map_card_turn_text(
@@ -881,7 +930,22 @@ fn database_error(_: sqlx::Error) -> (StatusCode, Json<PlatformError>) {
 
 #[cfg(test)]
 mod tests {
-    use super::{normalize_model_selection, suggested_thread_name};
+    use super::{normalize_model_selection, suggested_thread_name, turn_start_error};
+
+    #[test]
+    fn provider_mismatch_is_actionable_without_exposing_runtime_errors() {
+        use open_web_codex_adapter::AdapterError;
+        let (status, body) = turn_start_error(AdapterError::ThreadProviderMismatch);
+        assert_eq!(status, axum::http::StatusCode::CONFLICT);
+        assert!(serde_json::to_string(&body.0)
+            .unwrap()
+            .contains("Start a new conversation"));
+        let (status, body) = turn_start_error(AdapterError::Rpc("credential-canary".into()));
+        assert_eq!(status, axum::http::StatusCode::BAD_GATEWAY);
+        assert!(!serde_json::to_string(&body.0)
+            .unwrap()
+            .contains("credential-canary"));
+    }
 
     #[test]
     fn model_selection_requires_a_provider_model_pair() {

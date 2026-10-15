@@ -639,6 +639,19 @@ impl RealCodexAdapter {
             .ensure_thread_bound(workspace, options.copilot_package_id.as_deref(), thread_id)
             .await?;
 
+        // Provider is a Thread setting, not a turn/start parameter. Validate it
+        // under the same Runtime guard as the send, including after cold resume.
+        if let Some(provider) = options.model_provider.as_deref() {
+            let thread = self
+                .host
+                .request(
+                    "thread/read",
+                    json!({ "threadId": thread_id, "includeTurns": false }),
+                )
+                .await?;
+            crate::require_thread_provider(&thread, thread_id, provider)?;
+        }
+
         let mut input = Vec::new();
         if !text.trim().is_empty() {
             input.push(json!({ "type": "text", "text": text.trim() }));
@@ -689,13 +702,6 @@ impl RealCodexAdapter {
             .filter(|value| !value.trim().is_empty())
         {
             object.insert("model".to_string(), json!(model));
-        }
-        if let Some(model_provider) = options
-            .model_provider
-            .as_ref()
-            .filter(|value| !value.trim().is_empty())
-        {
-            object.insert("modelProvider".to_string(), json!(model_provider));
         }
         if let Some(effort) = options
             .effort
@@ -2091,6 +2097,7 @@ fn identity_failure_category(error: &AdapterError) -> &'static str {
         AdapterError::Internal(_) => "internal",
         AdapterError::NotImplemented(_) => "unsupported",
         AdapterError::CapabilityUnavailable(_) => "capability",
+        AdapterError::ThreadProviderMismatch => "thread_provider_mismatch",
     }
 }
 

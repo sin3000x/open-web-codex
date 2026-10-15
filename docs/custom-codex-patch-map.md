@@ -72,6 +72,12 @@ The script separates the raw tree difference into:
 
 ## Current inventory classification
 
+Current Web contract limitation (2026-10-15): the checked-in `TurnStartParams` and
+`ThreadSettingsUpdateParams` do not expose a Provider override. The retained-seam
+switching/rebinding descriptions below are not evidence of live Web Thread
+switching support. Web requires a new conversation for a different Provider and
+validates the Runtime Thread before sending. This correction adds no Core seam.
+
 The integrated delivery freeze remains
 `3b45c29062ff0e76e71c91b6753290400e7fa8da`. The timestamped inventory records
 the comparison used for this classification; live counts must be regenerated

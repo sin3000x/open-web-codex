@@ -384,7 +384,7 @@ export function buildWebThreadHistory(
     entries.push({
       id: createId(),
       level: "error",
-      text: "System error. The runtime did not provide any additional error details.",
+      text: "The conversation encountered a system error.",
     });
   }
 

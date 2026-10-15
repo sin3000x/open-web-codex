@@ -495,8 +495,9 @@ export class CodexMonitorWebClient {
       createdAt: thread.createdAt || task.created_at,
       updatedAt: thread.updatedAt || run.updated_at,
       activeTurnId: activeTurnIdForThread(run, status),
-      modelProvider: task.model_provider,
-      model: task.model,
+      modelProvider: thread.modelProvider,
+      // A stale Task pair must not attach another Provider's model to this Thread.
+      model: thread.modelProvider === task.model_provider ? task.model : null,
       status,
       turns: thread.turns,
     };

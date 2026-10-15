@@ -27,6 +27,7 @@ describe("isWebAppServerRecoveryEvent", () => {
 describe("parseWebAppServerError", () => {
   it("turns response stream disconnects into a reconnect status", () => {
     expect(parseWebAppServerError({
+      willRetry: true,
       error: {
         additionalDetails: "stream disconnected before completion: failed to send websocket request: Connection closed normally",
         codexErrorInfo: { responseStreamDisconnected: { httpStatusCode: null } },
@@ -41,6 +42,22 @@ describe("parseWebAppServerError", () => {
       recoverable: false,
       text: "Authentication failed",
     });
+  });
+
+  it.each([400, 401, 422, 503])("does not hide terminal HTTP %s as reconnecting", (status) => {
+    expect(parseWebAppServerError({
+      willRetry: false,
+      error: {
+        message: `Provider request failed (HTTP ${status}).`,
+        recoverable: true,
+        codexErrorInfo: { responseStreamDisconnected: { httpStatusCode: status } },
+      },
+    })).toEqual({ recoverable: false, text: `Provider request failed (HTTP ${status}).` });
+  });
+
+  it("keeps turn/completed errors terminal even when their text mentions a disconnect", () => {
+    expect(parseWebAppServerError({ error: { message: "stream disconnected before completion" } }))
+      .toEqual({ recoverable: false, text: "stream disconnected before completion" });
   });
 });
 

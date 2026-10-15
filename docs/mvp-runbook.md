@@ -18,6 +18,18 @@ Gateway、原始 JSON-RPC 路由或桌面应用。
 
 ## 前置条件
 
+### 更换对话的 Provider 与模型错误排查
+
+已有对话使用 Runtime 保存的 Provider。切换到其他 Provider 时先新建对话，再选择
+Provider 和模型；同 Provider 内可直接更换模型。修改默认 Provider 不会迁移已有对话。
+跨 Provider 的旧 Task 选择会在发送前被明确拒绝，不会继续把新模型名发往旧地址。
+
+终态错误显示脱敏分类和可用的 HTTP 状态码；只有 `willRetry=true` 才显示重连。
+`Model metadata ... not found` 是另一个问题：Runtime 没有找到 exact model ID 的元数据，
+不代表 API Key 无效。应核对该 Provider 的模型目录与配置是否已加载；仅有模型 ID 或
+一次 `hi` 成功不能证明上下文限制、ToolSearch 等能力。不要为了消除 warning 修改模型名、
+猜测能力或屏蔽 warning。
+
 ### 在网页中配置或更换地图 Token
 
 点击左下角齿轮 **Settings → 地图服务 → 配置 / 更换地图 Token**，选择 Mapbox 或 Google，

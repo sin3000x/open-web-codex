@@ -588,6 +588,12 @@ export default function WebApp() {
     setCatalogLoading(true);
     setCatalogError(null);
     try {
+      if (activeThreadId && !activeThreadId.startsWith("pending-thread:")) {
+        const { thread } = await client.readThread(workspaceId, activeThreadId);
+        if (thread.modelProvider !== providerId) {
+          throw new Error("Start a new conversation to use a different Provider. You can still change models within this Provider.");
+        }
+      }
       await client.writeModelProvider({ action: "select", id: providerId });
       switched = true;
       const modelResponse = await client.listModels(workspaceId);
@@ -722,6 +728,7 @@ export default function WebApp() {
   const commandOutputs = useRef<Map<string, string>>(new Map());
   const commandStartedAt = useRef<Map<string, number>>(new Map());
   const interruptRequestTurnId = useRef<string | null>(null);
+  const terminalErrorThreads = useRef(new Set<string>());
   const queueDispatching = useRef(false);
   const threadHydrationSequence = useRef(0);
   const recentAppServerEvents = useRef<Map<string, number>>(new Map());
@@ -1099,6 +1106,7 @@ export default function WebApp() {
         }
 
         case "turn/started": {
+          if (eventThreadId) terminalErrorThreads.current.delete(eventThreadId);
           const turn = params.turn && typeof params.turn === "object"
             ? params.turn as Record<string, unknown>
             : null;
@@ -1165,6 +1173,8 @@ export default function WebApp() {
               });
           });
           if (eventTurn?.error && typeof eventTurn.error === "object") {
+            if (eventThreadId) terminalErrorThreads.current.add(eventThreadId);
+            setMessages((previous) => previous.filter((entry) => entry.id !== `system-error:${eventThreadId}`));
             return {
               level: "error" as const,
               text: parseWebAppServerError({ error: eventTurn.error }).text,
@@ -1179,6 +1189,8 @@ export default function WebApp() {
         case "error": {
           const parsed = parseWebAppServerError(params);
           if (!parsed.recoverable) {
+            if (eventThreadId) terminalErrorThreads.current.add(eventThreadId);
+            setMessages((previous) => previous.filter((entry) => entry.id !== `system-error:${eventThreadId}`));
             setThinking(false);
             setTurnStartedAt(null);
             setActiveTurnId(null);
@@ -1730,9 +1742,11 @@ export default function WebApp() {
             setTurnStartedAt(null);
             setActiveTurnId(null);
             setStopping(false);
+            if (eventThreadId && terminalErrorThreads.current.has(eventThreadId)) return null;
             return {
+              id: `system-error:${eventThreadId}`,
               level: "error" as const,
-              text: "System error. The runtime did not provide any additional error details.",
+              text: "The conversation encountered a system error.",
             };
           }
           return null;

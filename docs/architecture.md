@@ -30,6 +30,16 @@ Runtime 事件转换成浏览器 DTO 和持久化投影。
 
 ## 2. 当前权威所有者
 
+已物化 Thread 的 Provider 取自授权后的 Runtime `thread/read`，Browser Thread DTO
+直接投影该值。当前 `TurnStartParams` 不支持 `modelProvider`：Web 在更换已有对话的
+Provider 前读取实际 Thread，Server 在更新 Task 选择前复验，Adapter 在发送（包括冷恢复）
+前再次校验。跨 Provider 返回明确的 409/new-conversation 结果，不写入无法生效的 Task
+选择或发送错误组合；同 Provider 内仍可通过 `turn/start.model` 换模型。
+这不修改 Runtime 协议，也不将 Profile 默认选择当作已有 Thread 的权威状态。
+
+Browser 只在 Runtime 事件明确 `willRetry=true` 时显示重连状态；终态错误保留安全分类
+与 HTTP 状态码，不公开上游响应正文。随后到达的 `systemError` 不覆盖具体错误。
+
 | 事实 | 当前 owner | 当前实现状态 |
 | --- | --- | --- |
 | Thread、Turn、Item、上下文、Agent 调度 | Codex Runtime | Runtime 是权威 owner；已物化 Thread 的实际 Provider/model 属于 official Thread settings，不由 Profile 默认值或 Task 字段覆盖。当前 Adapter/Server/Browser 仍叠加本地 history mode、approval overlay 和 live/history merge，其中 Browser 会按相同用户文本去重，尚未收敛为 official Item/client identity 的纯投影 |

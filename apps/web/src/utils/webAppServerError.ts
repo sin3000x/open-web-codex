@@ -28,12 +28,11 @@ export function parseWebAppServerError(params: Record<string, unknown>): WebAppS
     : params;
   const message = typeof error.message === "string" ? error.message : "";
   const details = typeof error.additionalDetails === "string" ? error.additionalDetails : "";
-  const codexInfo = error.codexErrorInfo && typeof error.codexErrorInfo === "object"
-    ? error.codexErrorInfo as Record<string, unknown>
-    : null;
-  const reconnect = reconnectStatus(message, details);
-  if (reconnect || codexInfo?.responseStreamDisconnected) {
-    return reconnect ?? { recoverable: true, text: "Connection interrupted. Reconnecting…" };
+  // A retryable error is not proof that Runtime will retry this Turn. In
+  // particular, terminal HTTP errors may also use responseStreamDisconnected.
+  if (params.willRetry === true) {
+    return reconnectStatus(message, details)
+      ?? { recoverable: true, text: message || "Connection interrupted. Reconnecting…" };
   }
 
   return {

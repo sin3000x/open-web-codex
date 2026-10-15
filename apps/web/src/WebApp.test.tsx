@@ -859,6 +859,62 @@ describe("WebApp workspace-first messaging", () => {
     expect(screen.queryByLabelText("New Agent activity")).toBeNull();
   });
 
+  it.each([true, false])("preserves terminal HTTP errors when systemError arrives first=%s", async (statusFirst) => {
+    render(<WebApp />);
+    const composer = await screen.findByPlaceholderText("Ask Codex to do something...");
+    await waitFor(() => expect((composer as HTMLTextAreaElement).disabled).toBe(false));
+    fireEvent.change(composer, { target: { value: "hi" } });
+    fireEvent.click(screen.getByRole("button", { name: "Send" }));
+    await waitFor(() => expect(client.sendUserMessage).toHaveBeenCalled());
+    const emit = (method: string, params: Record<string, unknown>) => act(() => appServerEventHandler?.({
+      workspace_id: "workspace-1",
+      message: { method, params: { threadId: "thread-new", ...params } },
+    }));
+    emit("turn/started", { turn: { id: "turn-1" } });
+    const status = () => emit("thread/status/changed", { status: { type: "systemError" } });
+    const error = () => emit("error", {
+      turnId: "turn-1", willRetry: false,
+      error: {
+        message: "The request was rejected. (HTTP 400)",
+        code: "bad_request", recoverable: false,
+        codexErrorInfo: { responseStreamDisconnected: { httpStatusCode: 400 } },
+      },
+    });
+    if (statusFirst) { status(); error(); } else { error(); status(); }
+    expect(await screen.findByText("The request was rejected. (HTTP 400)")).toBeTruthy();
+    expect(screen.queryByText("The conversation encountered a system error.")).toBeNull();
+    expect(screen.queryByText(/Reconnecting/)).toBeNull();
+    expect(screen.queryByRole("button", { name: "Stop" })).toBeNull();
+  });
+
+  it("rejects changing an existing Thread Provider before modifying defaults or Task selection", async () => {
+    client.listModelProviders.mockResolvedValue({
+      currentProviderId: "deepseek", currentModelId: "deepseek-v4-flash",
+      data: [
+        { id: "deepseek", name: "DeepSeek", kind: "custom", supportsFunctionTools: true,
+          models: [{ modelId: "deepseek-v4-flash", showInPicker: true }] },
+        { id: "official", name: "Official", kind: "custom", supportsFunctionTools: true,
+          models: [{ modelId: "deepseek-flash", showInPicker: true }] },
+      ],
+    });
+    client.readThread.mockResolvedValue({ thread: { id: "thread-new", modelProvider: "deepseek" } });
+    render(<WebApp />);
+    const composer = await screen.findByPlaceholderText("Ask Codex to do something...");
+    await waitFor(() => expect((composer as HTMLTextAreaElement).disabled).toBe(false));
+    fireEvent.change(composer, { target: { value: "hi" } });
+    fireEvent.click(screen.getByRole("button", { name: "Send" }));
+    await waitFor(() => expect(client.sendUserMessage).toHaveBeenCalled());
+    act(() => appServerEventHandler?.({ workspace_id: "workspace-1", message: {
+      method: "turn/completed", params: { threadId: "thread-new", turn: { id: "turn-1", status: "completed" } },
+    } }));
+    fireEvent.click(await screen.findByRole("button", { name: "DeepSeek" }));
+    fireEvent.click(await screen.findByRole("button", { name: /Official.*1 models/i }));
+    expect(await screen.findByText(/Start a new conversation to use a different Provider/)).toBeTruthy();
+    expect(client.writeModelProvider).not.toHaveBeenCalled();
+    expect(client.selectProviderModel).not.toHaveBeenCalled();
+    expect(client.updateThreadModelSelection).not.toHaveBeenCalled();
+  });
+
   it("renders consecutive redacted command approvals without refreshing", async () => {
     render(<WebApp />);
     const composer = await screen.findByPlaceholderText("Ask Codex to do something...");

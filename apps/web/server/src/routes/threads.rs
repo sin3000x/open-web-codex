@@ -362,15 +362,15 @@ pub async fn set_name(
     Ok(Json(json!({ "status": "renamed", "name": name })))
 }
 
-struct ThreadContext {
+pub(super) struct ThreadContext {
     task_id: Uuid,
     workspace_id: Uuid,
-    thread_id: String,
-    copilot_package_id: Option<String>,
-    workspace: AuthorizedWorkspace,
+    pub(super) thread_id: String,
+    pub(super) copilot_package_id: Option<String>,
+    pub(super) workspace: AuthorizedWorkspace,
 }
 
-async fn authorized_thread(
+pub(super) async fn authorized_thread(
     state: &AppState,
     auth: &AuthenticatedUser,
     run_id: Uuid,
@@ -498,6 +498,12 @@ async fn project_thread(
     }
     Ok(ThreadHistory {
         id: id.to_string(),
+        model_provider: object
+            .get("modelProvider")
+            .and_then(Value::as_str)
+            .filter(|provider| !provider.trim().is_empty())
+            .ok_or_else(|| bad_gateway("Runtime Thread omitted its Provider"))?
+            .to_string(),
         name: object
             .get("name")
             .and_then(serde_json::Value::as_str)

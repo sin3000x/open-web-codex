@@ -548,7 +548,7 @@ describe("buildWebThreadHistory", () => {
       { level: "user", text: "1" },
       {
         level: "error",
-        text: "System error. The runtime did not provide any additional error details.",
+        text: "The conversation encountered a system error.",
       },
     ]);
   });

@@ -13,6 +13,12 @@
 
 ## 1. 结论
 
+2026-10-15 Provider 选择与终态错误修复的局部证据：真实 Adapter 配合 JSONL test double
+验证 loaded/cold-resume Thread 均在跨 Provider 时拒绝发送，同 Provider 换模型可发送，
+且不向 `turn/start` 写入不存在的 `modelProvider` 字段；Server 和 Browser 测试覆盖安全
+HTTP 错误投影、`willRetry` 终态判定及 error/status 两种到达顺序。这不是生产 DeepSeek
+或 PostgreSQL 集成验收，也不证明模型目录完整；缺失元数据的 warning 仍如实保留。
+
 当前 checkout 已从 clean DB/Profile、真实 Web Task 入口、真实 Codex Runtime 和真实 Provider
 完成多 Agent 仓网 Copilot 的阶段一正常业务闭环。这个结论不代表 Web Studio、Marketplace、
 多用户产品或完整 hardening 矩阵已经完成。独立单 Agent 包已有静态组合、共享 Tool、package-keyed

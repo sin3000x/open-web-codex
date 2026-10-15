@@ -351,6 +351,7 @@ impl CodexAdapter for FakeCodexAdapter {
         Ok(json!({
             "thread": {
                 "id": thread.id,
+                "modelProvider": "openai",
                 "name": format!("Fake Thread ({})", thread.id),
                 "preview": "",
                 "createdAt": Utc::now().timestamp(),

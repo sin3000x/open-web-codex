@@ -23,11 +23,40 @@ pub enum AdapterError {
     #[error("Required Runtime capabilities unavailable: {0}")]
     CapabilityUnavailable(String),
 
+    #[error("This Thread uses a different Provider. Start a new conversation to use the selected Provider.")]
+    ThreadProviderMismatch,
+
     #[error("Profile Host error: {0}")]
     ProfileHost(#[from] open_web_codex_profile_host::ProfileHostError),
 
     #[error("Internal error: {0}")]
     Internal(String),
+}
+
+/// Check the authoritative Runtime Thread before applying a model override.
+/// `turn/start` has no Provider override; sending one is silently ignored.
+pub fn require_thread_provider(
+    response: &Value,
+    thread_id: &str,
+    provider_id: &str,
+) -> Result<(), AdapterError> {
+    let thread = response
+        .get("thread")
+        .ok_or_else(|| AdapterError::Rpc("thread/read omitted thread".to_string()))?;
+    if thread.get("id").and_then(Value::as_str) != Some(thread_id) {
+        return Err(AdapterError::Rpc(
+            "thread/read returned the wrong Thread".to_string(),
+        ));
+    }
+    let actual = thread
+        .get("modelProvider")
+        .and_then(Value::as_str)
+        .filter(|value| !value.trim().is_empty())
+        .ok_or_else(|| AdapterError::Rpc("thread/read omitted modelProvider".to_string()))?;
+    if actual != provider_id {
+        return Err(AdapterError::ThreadProviderMismatch);
+    }
+    Ok(())
 }
 
 /// Health status returned by the adapter.

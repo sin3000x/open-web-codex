@@ -441,6 +441,7 @@ export type ThreadHistoryTurn = {
 
 export type ThreadHistoryResponse = {
   thread: {
+    modelProvider: string;
     id: string;
     name?: string | null;
     preview: string;

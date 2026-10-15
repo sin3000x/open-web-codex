@@ -2753,6 +2753,10 @@ pub(crate) fn project_public_runtime_error(value: &Value) -> Value {
     let info = object.and_then(|object| object.get("codexErrorInfo"));
     let kind = classify_public_runtime_error(info);
     let (code, message, recoverable) = kind.descriptor();
+    let message = match info.and_then(codex_error_info_status) {
+        Some(status @ 400..=599) => format!("{message} (HTTP {status})"),
+        _ => message.to_string(),
+    };
     let mut projected = Map::new();
     projected.insert("code".to_string(), Value::String(code.to_string()));
     projected.insert("message".to_string(), Value::String(message.to_string()));
@@ -2854,7 +2858,7 @@ impl PublicRuntimeErrorKind {
             Self::ContextWindow => ("context_window", "The context window was exceeded.", false),
             Self::UsageLimit => ("usage_limit", "The usage limit was reached.", false),
             Self::Overloaded => ("overloaded", "The provider is currently overloaded.", true),
-            Self::BadRequest => ("bad_request", "The Runtime rejected the request.", false),
+            Self::BadRequest => ("bad_request", "The request was rejected. Check the selected Provider, model and request settings.", false),
             Self::Policy => ("policy", "The request was blocked by policy.", false),
             Self::Sandbox => ("sandbox", "Workspace execution failed.", false),
             Self::Internal => (
@@ -2895,6 +2899,7 @@ fn classify_codex_error_info(key: &str, status: Option<u16>) -> Option<PublicRun
         "threadRollbackFailed" => PublicRuntimeErrorKind::Internal,
         "activeTurnNotSteerable" => PublicRuntimeErrorKind::Interrupted,
         "responseStreamDisconnected" => match classify_http_status(status) {
+            Some(PublicRuntimeErrorKind::BadRequest) => PublicRuntimeErrorKind::BadRequest,
             Some(PublicRuntimeErrorKind::Auth) => PublicRuntimeErrorKind::Auth,
             Some(PublicRuntimeErrorKind::RateLimit) => PublicRuntimeErrorKind::RateLimit,
             Some(PublicRuntimeErrorKind::Timeout) => PublicRuntimeErrorKind::Timeout,
@@ -2915,6 +2920,7 @@ fn classify_codex_error_info(key: &str, status: Option<u16>) -> Option<PublicRun
 
 fn classify_http_status(status: Option<u16>) -> Option<PublicRuntimeErrorKind> {
     Some(match status? {
+        400 | 404 | 422 => PublicRuntimeErrorKind::BadRequest,
         401 | 403 => PublicRuntimeErrorKind::Auth,
         408 | 504 => PublicRuntimeErrorKind::Timeout,
         429 => PublicRuntimeErrorKind::RateLimit,
@@ -4269,6 +4275,26 @@ mod tests {
             assert!(!projected.to_string().contains("credential-fragment"));
             assert!(!projected.to_string().contains("provider response body"));
             assert!(projected.get("additionalDetails").is_none());
+        }
+    }
+
+    #[test]
+    fn rejected_provider_requests_keep_status_without_leaking_the_response_body() {
+        for status in [400, 404, 422] {
+            let projected = project_public_runtime_error(&json!({
+                "message": "Invalid model name; credential-canary",
+                "additionalDetails": "https://private-provider/credential-canary",
+                "codexErrorInfo": {"responseStreamDisconnected": {"httpStatusCode": status}}
+            }));
+            assert_eq!(projected["code"], "bad_request");
+            assert_eq!(projected["recoverable"], false);
+            assert!(projected["message"]
+                .as_str()
+                .unwrap()
+                .contains(&format!("HTTP {status}")));
+            assert!(!projected.to_string().contains("credential-canary"));
+            assert!(!projected.to_string().contains("private-provider"));
+            assert_eq!(project_public_runtime_error(&projected), projected);
         }
     }
 
