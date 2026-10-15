@@ -20,8 +20,10 @@ Gateway、原始 JSON-RPC 路由或桌面应用。
 
 ### 更换对话的 Provider 与模型错误排查
 
-已有对话使用 Runtime 保存的 Provider。切换到其他 Provider 时先新建对话，再选择
-Provider 和模型；同 Provider 内可直接更换模型。修改默认 Provider 不会迁移已有对话。
+点击新建（如有 Copilot 则先选包）后先进入空白草稿，此时可选择 Provider 和模型，
+输入内容在切换时保留；首条消息发送时才创建并绑定 Runtime Thread。
+已有对话使用 Runtime 保存的 Provider；同 Provider 内可直接更换模型。
+修改默认 Provider 不会迁移已有对话。
 跨 Provider 的旧 Task 选择会在发送前被明确拒绝，不会继续把新模型名发往旧地址。
 
 终态错误显示脱敏分类和可用的 HTTP 状态码；只有 `willRetry=true` 才显示重连。

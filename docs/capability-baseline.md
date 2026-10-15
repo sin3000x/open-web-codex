@@ -13,6 +13,9 @@
 
 ## 1. 结论
 
+新建对话在首条消息发送时才创建 Task/Run/Thread。Browser 回归覆盖从旧 Thread 新建、
+切换 Provider 时保留输入与 Copilot、按最终配置创建并发送，以及创建失败后重试。
+
 2026-10-15 Provider 选择与终态错误修复的局部证据：真实 Adapter 配合 JSONL test double
 验证 loaded/cold-resume Thread 均在跨 Provider 时拒绝发送，同 Provider 换模型可发送，
 且不向 `turn/start` 写入不存在的 `modelProvider` 字段；Server 和 Browser 测试覆盖安全

@@ -30,6 +30,10 @@ Runtime 事件转换成浏览器 DTO 和持久化投影。
 
 ## 2. 当前权威所有者
 
+点击新建只打开 Browser 草稿，不创建 Task/Run/Runtime Thread；首条消息发送前可更换
+Provider 和模型。Browser 保留所选 Copilot 与创建操作 ID，首次发送才通过现有创建合同
+绑定配置；提交期间阻止重复创建及配置切换，创建失败保留输入供重试。
+
 已物化 Thread 的 Provider 取自授权后的 Runtime `thread/read`，Browser Thread DTO
 直接投影该值。当前 `TurnStartParams` 不支持 `modelProvider`：Web 在更换已有对话的
 Provider 前读取实际 Thread，Server 在更新 Task 选择前复验，Adapter 在发送（包括冷恢复）

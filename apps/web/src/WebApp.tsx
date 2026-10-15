@@ -486,6 +486,13 @@ export default function WebApp() {
   const [providerCatalogOpenRequest, setProviderCatalogOpenRequest] = useState(0);
   const [catalogLoading, setCatalogLoading] = useState(false);
   const [catalogError, setCatalogError] = useState<string | null>(null);
+  // A new composer is not a Runtime Thread until its first message is sent.
+  const newConversationDraft = useRef<{
+    workspaceId: string;
+    copilot: CopilotTaskSelection | null;
+    operationId: string;
+  } | null>(null);
+  const startingFirstMessage = useRef(false);
   const [copilots, setCopilots] = useState<CopilotOption[]>([]);
   const [copilotStatus, setCopilotStatus] = useState<CopilotProfileStatus | null>(null);
   const [copilotStatusLoading, setCopilotStatusLoading] = useState(false);
@@ -581,6 +588,7 @@ export default function WebApp() {
   }, [client]);
 
   const selectProviderAndDefaultModel = useCallback(async (providerId: string) => {
+    if (startingFirstMessage.current) return;
     const workspaceId = activeWorkspaceId;
     if (!workspaceId) return;
     const previousProviderId = currentProviderId;
@@ -632,6 +640,7 @@ export default function WebApp() {
   }, [activeThreadId, activeWorkspaceId, client, currentProviderId, persistThreadModelSelection, refreshModelCatalog]);
 
   const selectThreadModel = useCallback(async (modelId: string) => {
+    if (startingFirstMessage.current) return;
     const workspaceId = activeWorkspaceId;
     const providerId = currentProviderId;
     if (!workspaceId || !providerId) return;
@@ -2270,6 +2279,33 @@ export default function WebApp() {
   }, [activeWorkspaceId, appendLog, client, refreshWorkspaces, workspaces]);
 
 
+ const prepareNewConversation = useCallback((workspaceId: string, copilot?: CopilotTaskSelection | null) => {
+   if (startingFirstMessage.current) return;
+   newConversationDraft.current = {
+     workspaceId, copilot: copilot ?? null, operationId: `pending-thread:${newLogId()}`,
+   };
+   threadHydrationSequence.current += 1;
+   activeThreadIdRef.current = null;
+   activeThreadModelSelectionRef.current = null;
+   writeSessionSelection(activeThreadSessionKey(workspaceId), null);
+   setActiveWorkspaceId(workspaceId);
+   setActiveThreadId(null);
+   setThreadLoading(false);
+   setMessages([]);
+   setDraft("");
+   setMapCardAttachment(null);
+   setQueuedFollowUps([]);
+   setTokenUsage(null);
+   setGoal(null);
+   setThinking(false);
+   setTurnStartedAt(null);
+   setThreadStatus("idle");
+   setActiveTurnId(null);
+   setStopping(false);
+   interruptRequestTurnId.current = null;
+   setCatalogError(null);
+ }, []);
+
  const startThread = useCallback(async (
    workspaceId?: string,
    retryTemporaryId?: string,
@@ -2320,7 +2356,7 @@ export default function WebApp() {
        };
        return {
          ...previous,
-         [wid]: retryTemporaryId
+         [wid]: existing.some((thread) => thread.id === temporaryId)
            ? existing.map((thread) => thread.id === temporaryId ? pending : thread)
            : [pending, ...existing],
        };
@@ -2503,12 +2539,24 @@ export default function WebApp() {
 
   const sendMessage = useCallback(async () => {
     const text = draft.trim();
-    if (!activeWorkspaceId || !text) return;
+    if (!activeWorkspaceId || !text || catalogLoading || startingFirstMessage.current) return;
     if (!activeThreadId) {
-      const threadId = await startThread(activeWorkspaceId);
-      if (!threadId) return;
-      setDraft("");
-      await sendText(text, activeWorkspaceId, threadId, null);
+      const pending = newConversationDraft.current?.workspaceId === activeWorkspaceId
+        ? newConversationDraft.current
+        : { workspaceId: activeWorkspaceId, copilot: null, operationId: `pending-thread:${newLogId()}` };
+      newConversationDraft.current = pending;
+      startingFirstMessage.current = true;
+      setBusy(true);
+      try {
+        const threadId = await startThread(activeWorkspaceId, pending.operationId, pending.copilot);
+        if (!threadId) return;
+        newConversationDraft.current = null;
+        setDraft("");
+        await sendText(text, activeWorkspaceId, threadId, null);
+      } finally {
+        startingFirstMessage.current = false;
+        setBusy(false);
+      }
       return;
     }
     const selectedMapCardRef = mapCardAttachment?.ref ?? null;
@@ -2530,7 +2578,7 @@ export default function WebApp() {
     setDraft("");
     setMapCardAttachment(null);
     await sendText(text, activeWorkspaceId, activeThreadId, selectedMapCardRef);
-  }, [activeThreadId, activeWorkspaceId, draft, mapCardAttachment, sendText, startThread, thinking, threadStatus]);
+  }, [activeThreadId, activeWorkspaceId, catalogLoading, draft, mapCardAttachment, sendText, startThread, thinking, threadStatus]);
 
   const stopTurn = useCallback(() => {
     if (!activeWorkspaceId || !activeThreadId || stopping) return;
@@ -2709,6 +2757,7 @@ export default function WebApp() {
   /* ─── Thread management ─── */
 
   const selectThread = useCallback(async (id: string) => {
+    newConversationDraft.current = null;
     const hydrationSequence = threadHydrationSequence.current + 1;
     threadHydrationSequence.current = hydrationSequence;
     activeThreadIdRef.current = id;
@@ -2969,6 +3018,8 @@ export default function WebApp() {
     void startThread(
       activeWorkspaceId,
       activeThread.id,
+      newConversationDraft.current?.workspaceId === activeWorkspaceId
+        ? newConversationDraft.current.copilot : undefined,
     );
   };
 
@@ -3042,7 +3093,7 @@ export default function WebApp() {
           onSelectThread={selectThread}
           copilots={copilots}
           onNewThread={(workspaceId, copilot) => {
-            void startThread(workspaceId, undefined, copilot);
+            prepareNewConversation(workspaceId, copilot);
           }}
           onArchiveThread={archiveThread}
           onRemoveWorkspace={removeWorkspace}
@@ -3187,6 +3238,7 @@ export default function WebApp() {
         busy={busy}
         sendDisabled={
           !activeWorkspaceId
+          || catalogLoading
           || !currentProviderId
           || !providerModels.some((model) => model.id === selectedProviderModelId)
           || threadLoading

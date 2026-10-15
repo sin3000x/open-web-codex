@@ -21,6 +21,7 @@ let appServerEventHandler: ((event: AppServerEvent) => void) | null = null;
 
 const client = {
   health: vi.fn(),
+  copilotProfileStatus: vi.fn(),
   listWorkspaces: vi.fn(),
   subscribeAppServerEvents: vi.fn(),
   listThreads: vi.fn(),
@@ -66,6 +67,7 @@ describe("WebApp workspace-first messaging", () => {
     window.localStorage.clear();
     window.sessionStorage.clear();
     client.health.mockResolvedValue({ version: "test" });
+    client.copilotProfileStatus.mockResolvedValue({ packages: [], installations: [] });
     client.listWorkspaces.mockResolvedValue([{
       id: "workspace-1",
       name: "Demo",
@@ -887,6 +889,52 @@ describe("WebApp workspace-first messaging", () => {
     expect(screen.queryByRole("button", { name: "Stop" })).toBeNull();
   });
 
+  it("lets a new composer change Provider and preserves its Copilot until first send", async () => {
+    client.listThreads.mockResolvedValue({ data: [{
+      id: "old-thread", name: "Old conversation", status: "idle",
+      modelProvider: "deepseek", model: "deepseek-v4-flash", updatedAt: 1,
+    }] });
+    client.copilotProfileStatus.mockResolvedValue({
+      packages: [{ packageId: "warehouse", displayName: "Warehouse", available: true }],
+      installations: [{ packageId: "warehouse", active: true, restartRequired: false }],
+    });
+    const providers = [
+      { id: "deepseek", name: "DeepSeek", kind: "custom", supportsFunctionTools: true,
+        models: [{ modelId: "deepseek-v4-flash", showInPicker: true }] },
+      { id: "official", name: "Official", kind: "custom", supportsFunctionTools: true,
+        models: [{ modelId: "deepseek-flash", showInPicker: true }] },
+    ];
+    client.listModelProviders.mockResolvedValue({ currentProviderId: "deepseek",
+      currentModelId: "deepseek-v4-flash", data: providers });
+    render(<WebApp />);
+    fireEvent.click(await screen.findByText("Old conversation"));
+    await waitFor(() => expect(client.listThreadTurns).toHaveBeenCalled());
+    fireEvent.click(screen.getByRole("button", { name: "New task in Demo" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Create Thread" }));
+    expect(client.startThread).not.toHaveBeenCalled();
+    const composer = screen.getByPlaceholderText("Ask Codex to do something...");
+    await waitFor(() => expect((composer as HTMLTextAreaElement).disabled).toBe(false));
+    fireEvent.change(composer, { target: { value: "Use the selected Provider" } });
+    client.listModels.mockResolvedValue({ data: [{ id: "deepseek-flash", model: "deepseek-flash", isDefault: true }] });
+    client.listModelProviders.mockResolvedValue({ currentProviderId: "official", currentModelId: "deepseek-flash", data: providers });
+    fireEvent.click(screen.getByRole("button", { name: "DeepSeek" }));
+    fireEvent.click(await screen.findByRole("button", { name: /Official.*1 models/i }));
+    await waitFor(() => expect(client.selectProviderModel).toHaveBeenCalledWith("workspace-1", "official", "deepseek-flash"));
+    await waitFor(() => expect(screen.getByRole("button", { name: "Send" }).hasAttribute("disabled")).toBe(false));
+    expect(client.startThread).not.toHaveBeenCalled();
+    expect(client.readThread).not.toHaveBeenCalled();
+    expect(client.updateThreadModelSelection).not.toHaveBeenCalled();
+    expect((composer as HTMLTextAreaElement).value).toBe("Use the selected Provider");
+    fireEvent.click(screen.getByRole("button", { name: "Send" }));
+    await waitFor(() => expect(client.startThread).toHaveBeenCalledWith("workspace-1", expect.objectContaining({
+      providerId: "official", modelId: "deepseek-flash", copilot: { packageId: "warehouse" },
+    })));
+    await waitFor(() => expect(client.sendUserMessage).toHaveBeenCalledWith(
+      "workspace-1", "thread-new", "Use the selected Provider", "deepseek-flash", "official", null,
+    ));
+    expect(client.startThread).toHaveBeenCalledTimes(1);
+  });
+
   it("rejects changing an existing Thread Provider before modifying defaults or Task selection", async () => {
     client.listModelProviders.mockResolvedValue({
       currentProviderId: "deepseek", currentModelId: "deepseek-v4-flash",
@@ -1162,6 +1210,11 @@ describe("WebApp workspace-first messaging", () => {
       await screen.findByRole("button", { name: "New task in Demo" }),
     );
 
+    const composer = screen.getByPlaceholderText("Ask Codex to do something...");
+    await waitFor(() => expect((composer as HTMLTextAreaElement).disabled).toBe(false));
+    fireEvent.change(composer, { target: { value: "hi" } });
+    fireEvent.click(screen.getByRole("button", { name: "Send" }));
+
     await waitFor(() => expect(client.startThread).toHaveBeenCalledTimes(1));
     expect(screen.queryByText("正在创建 Thread…")).toBeNull();
 
@@ -1213,6 +1266,11 @@ describe("WebApp workspace-first messaging", () => {
       await screen.findByRole("button", { name: "New task in Demo" }),
     );
 
+    const composer = screen.getByPlaceholderText("Ask Codex to do something...");
+    await waitFor(() => expect((composer as HTMLTextAreaElement).disabled).toBe(false));
+    fireEvent.change(composer, { target: { value: "hi" } });
+    fireEvent.click(screen.getByRole("button", { name: "Send" }));
+
     await waitFor(() => expect(screen.getAllByText("Server generated title")).toHaveLength(2));
     expect(screen.queryByText("正在创建 Thread…")).toBeNull();
   });
@@ -1258,15 +1316,20 @@ describe("WebApp workspace-first messaging", () => {
       await screen.findByRole("button", { name: "New task in Demo" }),
     );
 
+    const composer = screen.getByPlaceholderText("Ask Codex to do something...");
+    await waitFor(() => expect((composer as HTMLTextAreaElement).disabled).toBe(false));
+    fireEvent.change(composer, { target: { value: "hi" } });
+    fireEvent.click(screen.getByRole("button", { name: "Send" }));
+
     await screen.findByText("Thread startup failed");
     expect(screen.queryByText("正在创建 Thread…")).toBeNull();
 
-    fireEvent.click(screen.getByRole("button", { name: "New task in Demo" }));
+    fireEvent.click(screen.getByRole("button", { name: "Send" }));
     await waitFor(() => expect(client.startThread).toHaveBeenCalledTimes(2));
     await waitFor(() => expect(screen.queryByText("正在创建 Thread…")).toBeNull());
-    expect(
-      (screen.getByPlaceholderText("Ask Codex to do something...") as HTMLTextAreaElement).disabled,
-    ).toBe(false);
+    await waitFor(() => expect(client.sendUserMessage).toHaveBeenCalledTimes(1));
+    expect(client.startThread.mock.calls[0][1].operationId)
+      .toBe(client.startThread.mock.calls[1][1].operationId);
   });
 
   it("keeps history hidden behind a loader until Thread hydration is complete", async () => {
