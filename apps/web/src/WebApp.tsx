@@ -1164,6 +1164,15 @@ export default function WebApp() {
                   : finalized;
               });
           });
+          if (eventTurn?.error && typeof eventTurn.error === "object") {
+            return {
+              level: "error" as const,
+              text: parseWebAppServerError({ error: eventTurn.error }).text,
+            };
+          }
+          if (eventTurn?.status === "failed") {
+            return { level: "error" as const, text: "The runtime turn failed." };
+          }
           return null;
         }
 
@@ -1840,8 +1849,10 @@ export default function WebApp() {
         }
 
         case "item/commandExecution/requestApproval": {
-          const cmd = commandText(params.command);
-          if (!cmd) return null;
+          // Public approval events intentionally omit raw command text. The
+          // durable approval identity, not that optional display field, owns
+          // whether the user can answer the request.
+          const cmd = commandText(params.command) || "Approve the requested command execution";
           const requestId = message.id;
           const approvalId = typeof params.itemId === "string" ? params.itemId : undefined;
           const approvalMode = typeof params.mode === "string" ? params.mode : undefined;

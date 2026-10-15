@@ -394,6 +394,7 @@ export default function MessageList({ items, thinking = false, turnStartedAt, on
     // official duration on the same boundary even when the Turn emits several
     // intermediate Agent messages.
     const executionSegment: MessageEntry[] = [];
+    const errors: MessageEntry[] = [];
     const artifactDeliveries: React.ReactNode[] = [];
     const finalArtifactDeliveries: ArtifactSummary[] = [];
     let visibleReply: MessageEntry | null = null;
@@ -437,6 +438,11 @@ export default function MessageList({ items, thinking = false, turnStartedAt, on
     };
 
     for (const [turnItemIndex, item] of turnItems.entries()) {
+      // Failures require attention even when the execution timeline is folded.
+      if (item.level === "error") {
+        errors.push(item);
+        continue;
+      }
       finalArtifactDeliveries.push(...(finalArtifactsByProducerItem.get(item.id) ?? []));
       const typedArtifacts = typedArtifactDeliveries(item);
       const hiddenInlineArtifactRefs: string[] = [];
@@ -478,6 +484,7 @@ export default function MessageList({ items, thinking = false, turnStartedAt, on
     }
     rendered.push(...artifactDeliveries);
     if (visibleReply) rendered.push(renderEntry(visibleReply));
+    rendered.push(...errors.map(renderEntry));
     if (finalArtifactDeliveries.length > 0) {
       rendered.push(
         <FinalArtifactLinks

@@ -859,6 +859,51 @@ describe("WebApp workspace-first messaging", () => {
     expect(screen.queryByLabelText("New Agent activity")).toBeNull();
   });
 
+  it("renders consecutive redacted command approvals without refreshing", async () => {
+    render(<WebApp />);
+    const composer = await screen.findByPlaceholderText("Ask Codex to do something...");
+    await waitFor(() => expect((composer as HTMLTextAreaElement).disabled).toBe(false));
+    fireEvent.change(composer, { target: { value: "Show Jakarta" } });
+    fireEvent.click(screen.getByRole("button", { name: "Send" }));
+    await waitFor(() => expect(client.sendUserMessage).toHaveBeenCalled());
+    for (const id of ["approval-ls", "approval-bash"]) {
+      act(() => appServerEventHandler?.({
+        workspace_id: "workspace-1",
+        message: {
+          method: "item/commandExecution/requestApproval",
+          id,
+          // Production events omit raw command text and cwd.
+          params: { threadId: "thread-new", turnId: "turn-1", itemId: id },
+        },
+      }));
+      fireEvent.click(await screen.findByRole("button", { name: "Accept" }));
+      await waitFor(() => expect(client.respondToServerRequest).toHaveBeenCalledWith(
+        "workspace-1", id, { decision: "accept" },
+      ));
+      act(() => appServerEventHandler?.({
+        workspace_id: "workspace-1",
+        message: {
+          method: "serverRequest/resolved",
+          params: { threadId: "thread-new", requestId: id },
+        },
+      }));
+    }
+    act(() => appServerEventHandler?.({
+      workspace_id: "workspace-1",
+      message: {
+        method: "turn/completed",
+        params: {
+          threadId: "thread-new",
+          turn: { id: "turn-1", status: "failed", error: {
+            message: "The upstream provider returned an error.",
+          } },
+        },
+      },
+    }));
+    expect(await screen.findByText("The upstream provider returned an error.")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Stop" })).toBeNull();
+  });
+
   it("surfaces a child Agent approval in the root task and Agent activity", async () => {
     const rootAgent = {
       run_id: "run-enterprise",
@@ -916,7 +961,6 @@ describe("WebApp workspace-first messaging", () => {
             threadId: "thread-data",
             turnId: "turn-data",
             serverName: "supply_chain_data",
-            command: "Allow supply_chain_data to list planning sources?",
           },
         },
       });
