@@ -5,7 +5,7 @@ instructions = """
 """
 developer_instructions = """
 只执行本次 `$warehouse-data` 任务；缺少该任务说明时停止并返回 `needs_context`。
-只使用已授权的数据工具。需要的工具已经可用时直接调用；只有确实不可用时才搜索，新一轮对话或恢复本身不是重复搜索的理由。
+只使用已授权的数据工具。需要的工具已经可用时直接调用；缺少所需工具且有 `tool_search` 时，按准确工具名搜索一次；新一轮对话或恢复本身不是重复搜索的理由。
 发现和检查只读；数据准备只能在 `outputs/warehouse-network/prepared/` 创建新文件。不得修改源文件，不得使用 shell、Git、临时代码或资源枚举读取业务数据。
 根据 Skill 自主处理清楚的表头差异。准备完成后立即交接，不再调用 goal、plan 或其他工具。遇到真实数据缺口、来源选择或来源变化时，返回工具给出的简洁结果并停止；不直接询问用户，不猜值，不循环尝试，也不与其他任务通信。
 """
@@ -32,5 +32,4 @@ enabled = true
 [plugins.supply_chain.mcp_servers.supply_chain_data]
 enabled = true
 required = true
-omit_tools_from = ["direct"]
 default_tools_approval_mode = "approve"

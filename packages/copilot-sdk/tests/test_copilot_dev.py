@@ -99,6 +99,50 @@ class CopilotDevProfileTests(unittest.TestCase):
         )
         return root
 
+    def test_warehouse_profiles_preserve_native_direct_tool_availability(self) -> None:
+        import tomllib
+
+        repository = Path(__file__).resolve().parents[3]
+        expected = {
+            "warehouse-network": {
+                "data_agent": {"supply_chain_data"},
+                "network_agent": {"supply_chain", "map_utils"},
+            },
+            "warehouse-network-single-agent": {
+                "warehouse_single_agent": {"supply_chain_data", "supply_chain", "map_utils"},
+            },
+        }
+        for package, agents in expected.items():
+            with self.subTest(package=package):
+                composition = load_dev_composition(
+                    repository / "copilots" / package,
+                    tool_registry_root=repository / "tools",
+                )
+                prepared = prepare_dev_profile(composition)
+                try:
+                    for agent, expected_servers in agents.items():
+                        role = tomllib.loads(
+                            (prepared.profile_root / "agents" / f"{agent}.toml").read_text()
+                        )
+                        policies = {
+                            name: policy
+                            for plugin in role["plugins"].values()
+                            for name, policy in plugin["mcp_servers"].items()
+                        }
+                        self.assertEqual(set(policies), expected_servers)
+                        for name, policy in policies.items():
+                            # Without model search capability, omitting direct leaves
+                            # these tools code-mode-only and invisible in function mode.
+                            self.assertNotIn("direct", policy.get("omit_tools_from", []))
+                            self.assertEqual(
+                                policy["default_tools_approval_mode"],
+                                "approve" if name == "supply_chain_data" else "prompt",
+                            )
+                            self.assertNotIn("enabled_tools", policy)
+                            self.assertNotIn("disabled_tools", policy)
+                finally:
+                    prepared.cleanup()
+
     def test_materializes_author_role_policy_without_tools_or_config(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             temporary_root = Path(directory)

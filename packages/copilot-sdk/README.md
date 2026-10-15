@@ -61,3 +61,14 @@ Copilot SDK 负责源码包的 `init`、静态合同验证、Tool 环境准备�
 成功信号：`./scripts/copilot.sh check ...` 四阶段全部 passed。失败按
 [阶段排错](../../docs/developers/copilot/testing-and-troubleshooting.md#按阶段排错)，不要添加兼容、
 重试或假 ready。
+
+### MCP tool exposure policy
+
+Role MCP policies may omit `omit_tools_from`. This leaves direct versus deferred
+exposure to Codex's typed model/provider capabilities; function-tool models do
+not need ToolSearch merely to access authorized business tools. An explicit
+`omit_tools_from = ["direct"]` requires a usable discovery/code-mode surface and
+is appropriate only when the deployment supplies it. The SDK preserves that
+explicit policy; it does not infer capabilities from model names. Warehouse
+reference roles omit the restriction. Approval policy and server scope are
+independent and remain unchanged.

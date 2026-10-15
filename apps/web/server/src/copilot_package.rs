@@ -1716,6 +1716,15 @@ mod tests {
 
         assert_eq!(role["features"]["shell_tool"].as_bool(), Some(true));
         assert_eq!(role["features"]["multi_agent"].as_bool(), Some(false));
+        for (plugin, server) in [
+            ("supply_chain", "supply_chain_data"),
+            ("supply_chain", "supply_chain"),
+            ("map_utils", "map_utils"),
+        ] {
+            assert!(role["plugins"][plugin]["mcp_servers"][server]
+                .get("omit_tools_from")
+                .is_none());
+        }
         let instructions = role["developer_instructions"]
             .as_str()
             .expect("single-Agent developer instructions");
@@ -2296,15 +2305,9 @@ runtime = "tools/maps/runtime.toml"
             data["mcp_servers"]["supply_chain_data"]["default_tools_approval_mode"].as_str(),
             Some("approve")
         );
-        assert_eq!(
-            data["mcp_servers"]["supply_chain_data"]["omit_tools_from"]
-                .as_array()
-                .expect("deferred data-tool exposure")
-                .iter()
-                .filter_map(|item| item.as_str())
-                .collect::<Vec<_>>(),
-            vec!["direct"]
-        );
+        assert!(data["mcp_servers"]["supply_chain_data"]
+            .get("omit_tools_from")
+            .is_none());
         assert!(data["mcp_servers"]["supply_chain_data"]
             .get("enabled_tools")
             .is_none());
@@ -2333,15 +2336,9 @@ runtime = "tools/maps/runtime.toml"
             network["mcp_servers"]["supply_chain"]["required"].as_bool(),
             Some(true)
         );
-        assert_eq!(
-            network["mcp_servers"]["supply_chain"]["omit_tools_from"]
-                .as_array()
-                .expect("deferred supply-chain exposure")
-                .iter()
-                .filter_map(|item| item.as_str())
-                .collect::<Vec<_>>(),
-            vec!["direct"]
-        );
+        assert!(network["mcp_servers"]["supply_chain"]
+            .get("omit_tools_from")
+            .is_none());
         assert_eq!(
             network["mcp_servers"]["supply_chain"]["args"]
                 .as_array()
@@ -2426,15 +2423,9 @@ runtime = "tools/maps/runtime.toml"
             Some(false),
             "map presentation must not block route, cost, analysis, or optimization Tools",
         );
-        assert_eq!(
-            network["mcp_servers"]["map_utils"]["omit_tools_from"]
-                .as_array()
-                .expect("deferred map-tool exposure")
-                .iter()
-                .filter_map(|item| item.as_str())
-                .collect::<Vec<_>>(),
-            vec!["direct"]
-        );
+        assert!(network["mcp_servers"]["map_utils"]
+            .get("omit_tools_from")
+            .is_none());
         assert!(network["mcp_servers"]["map_utils"]
             .get("enabled_tools")
             .is_none());

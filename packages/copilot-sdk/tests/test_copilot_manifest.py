@@ -402,6 +402,11 @@ display_name = "Map"
             "agents/planner.toml.plugins.routes.mcp_servers.routing_api.required",
         )
 
+    def test_accepts_runtime_selected_exposure_without_an_omission_policy(self) -> None:
+        role = self.root / "agents" / "planner.toml"
+        role.write_text(role.read_text().replace('omit_tools_from = ["direct"]\n', ""))
+        validate_copilot_package(self.root)
+
     def test_rejects_invalid_deferred_role_mcp_policy_surface(self) -> None:
         role = self.root / "agents" / "planner.toml"
         role.write_text(

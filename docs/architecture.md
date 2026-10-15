@@ -49,6 +49,11 @@ Runtime 事件转换成浏览器 DTO 和持久化投影。
 | Data Intake | 无当前 owner | 生产 route、validation crate、SourceAsset/Dataset/Task binding 表与产品入口已删除；阶段一不建设替代状态机 |
 | 仓网规划能力 | 供应链 Python 包的 domain owners | 当前阶段统一拥有 demand/facility/candidate/location/lane/route/cost records，Data mapping/normalization/geography、route/cost fact 与 matrix build/validate/partial reuse，actual/optimized baseline、open/close/relocation scenario、assignment/service/cost evaluation、p-median、before/after comparison、分配覆盖 GeoJSON、地图卡片数据和确定性 Markdown 简报。来源预览显式区分样本数与完整总数；完整准备结果返回精确候选仓总数和有界目录。成本 Tool 可在 exact prepared input 内对完整报价按层派生 `warehouse_quote_mean_calculation.v1`，并逐字段校验用户脚本证据后绑定 bounded provenance；单 Agent 只有在任务 Skill 授权或用户明确要求时才可用脚本对同一 prepared input 做确定性聚合，脚本不拥有标准化或求解。需求、候选、现网仓、实际分配、路线或报价事实变动必须完整归一化；生成输入、导航请求、计算证据和最终文件分别只能进入 `outputs/warehouse-network/{prepared,requests,calculations,deliverables}/`。不完整路线返回 typed `needs_input` 且不发布可继续消费的 ready 引用；只有 Root 通过 Runtime 原生 `request_user_input` 收集业务选择。Network 覆盖线从精确分配和坐标派生，并按用户所选服务目标发布 `attained/missed/unassigned` 状态，不含城市/仓库名称分支；Maps 只消费该状态生成样式，不重算 SLA。该领域层不引入 Platform workflow、缓存或第二份业务状态。`solve_p_median` 的 `minimum_feasible` 在一个总时间预算内执行最多两个 CP-SAT stage：先最小化新增仓数，再在该仓数下最小化成本，返回 `selected_number_to_open`、最小仓数证明状态和最终 coverage，避免 Agent 循环调用多个求解 Tool。报告输入以 discriminated typed contract 区分单一 baseline 评估和 generic before/after comparison；comparison v2 接受同一 prepared identity 下任意 baseline、scenario 或 facility-location 结果，不为交付伪造方案结果。结构化计算结果与业务简报分离，不拥有通用 Resource/Workspace infrastructure。Stage E 已删除 Case/NetworkSnapshot/source_ref/ArtifactRef 与多层 hashes 旧偏离。未来若第二个供应链 Copilot 证明存在稳定公共领域合同，再评估内部提取 |
 
+仓网 Role 保留 Runtime 原生工具暴露选择：不设置 `omit_tools_from = ["direct"]`。
+模型明确支持 ToolSearch 时仍由 Runtime 延迟发现；未声明该能力时允许 Runtime 直接提供
+已授权的 MCP 函数 schema，避免业务工具仅剩不可用的发现路径。Provider function-tools
+能力门、Role server scope、审批和工具规格大小限制保持有效；缺少能力不得用 shell 探查绕过。
+
 地图 Key 的 Web 管理入口位于 Settings 的“地图服务”，复用现有 typed configuration API 与
 加密 Secret Store。受管 Maps Tool 的 `runtime.toml` 显式声明 `--credential-source platform`，
 每次需要凭据时通过官方 MCP URL elicitation 取得平台当前 provider/key，不读写本地记忆 Key；

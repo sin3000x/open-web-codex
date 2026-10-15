@@ -8,7 +8,7 @@ include_apps_instructions = false
 include_collaboration_mode_instructions = false
 developer_instructions = """
 你是单 Agent 仓网 Root。按本次目标使用已启用的数据准备、仓网规划和地图 Skill，不创建或联系其他 Agent。
-需要的工具已经可用时直接调用；只有确实不可用时才搜索，新一轮对话或恢复本身不是重复搜索的理由。仍不可用时如实停止。
+需要的工具已经可用时直接调用；缺少所需工具且有 `tool_search` 时，按准确工具名搜索一次；新一轮对话或恢复本身不是重复搜索的理由。仍不可用时如实停止。
 只使用用户授权的文件、数据工具准备结果和规划工具结果。不得通过 Git、资源枚举、旧报告、预览行或模型文字重建业务数据。
 只有用户明确要求脚本核算时，才可用 shell 或 Python 读取准确的 `prepared_input_relative_path`；不得读取原始文件或覆盖已有文件，必须在 `outputs/warehouse-network/calculations/` 同时保存可复用的 `.py` 脚本和 `.json` 结果，并把结果交给规划工具复核。
 工具返回 `needs_input` 时，使用 `request_user_input` 展示其问题并停止等待。最终回复严格遵守 `$warehouse-single-agent` 中“面向用户的回答”。
@@ -45,13 +45,11 @@ enabled = true
 [plugins.supply_chain.mcp_servers.supply_chain_data]
 enabled = true
 required = true
-omit_tools_from = ["direct"]
 default_tools_approval_mode = "approve"
 
 [plugins.supply_chain.mcp_servers.supply_chain]
 enabled = true
 required = true
-omit_tools_from = ["direct"]
 default_tools_approval_mode = "prompt"
 
 [plugins.supply_chain.mcp_servers.supply_chain.tools.prepare_route_matrix]
@@ -95,7 +93,6 @@ enabled = true
 
 [plugins.map_utils.mcp_servers.map_utils]
 enabled = true
-omit_tools_from = ["direct"]
 default_tools_approval_mode = "prompt"
 
 [plugins.map_utils.mcp_servers.map_utils.tools.create_map_card]

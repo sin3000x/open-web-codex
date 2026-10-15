@@ -1042,11 +1042,11 @@ def _role_tool_policies(
                         "must be a boolean",
                     )
             omitted = server.get("omit_tools_from")
-            if omitted != ["direct"]:
+            if "omit_tools_from" in server and omitted != ["direct"]:
                 _fail(
                     "invalid_type",
                     f"{server_location}.omit_tools_from",
-                    "must be exactly [\"direct\"] so Runtime exposes Tools through deferred discovery",
+                    "when supplied, must be exactly [\"direct\"]; omit the field to let Runtime choose direct or deferred exposure",
                 )
             server_policies[server_id] = None
         policies[plugin_id] = server_policies
