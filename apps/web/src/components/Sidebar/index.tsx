@@ -11,6 +11,7 @@ import CopilotManager from "./CopilotManager";
 import Workspaces, { type CopilotOption } from "./Workspaces";
 import McpStatus from "./McpStatus";
 import RateLimitCard from "./RateLimitCard";
+import MapsSettings from "./MapsSettings";
 
 type ThreadInfo = {
   id: string;
@@ -176,7 +177,7 @@ export default function Sidebar({
             <div className="web-settings-modal-header">
               <div>
                 <h2 id="web-settings-title">Settings</h2>
-                <p>Configure the Web gateway connection.</p>
+                <p>Configure the connection, maps, and Copilots.</p>
               </div>
               <button type="button" className="web-settings-close" aria-label="Close settings" onClick={() => setShowSettings(false)}>
                 <X size={17} />
@@ -215,6 +216,7 @@ export default function Sidebar({
                 <div className="web-version-info">Gateway v{gatewayVersion}</div>
               )}
             </div>
+            <MapsSettings />
             <CopilotManager
               status={copilotStatus}
               loading={copilotStatusLoading}

@@ -16,7 +16,7 @@ lock = "package-lock.json"
 [[servers]]
 id = "map_utils"
 entry = { kind = "python-module", dependency = "python", module = "maps_mcp.server" }
-args = []
+args = ["--credential-source", "platform"]
 startup_timeout_sec = 60
 tool_timeout_sec = 90
 

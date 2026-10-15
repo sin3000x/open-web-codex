@@ -244,6 +244,7 @@ mcp = FastMCP(
     json_response=True,
 )
 _credential_store = WorkspaceCredentialStore(Path.cwd())
+_credential_source: Literal["local", "platform"] = "local"
 _resource_store = GeoJsonResourceStore(Path.cwd())
 _map_card_spec_store = MapCardSpecStore(Path.cwd())
 
@@ -291,15 +292,19 @@ def read_map_card_spec(resource_id: str) -> str:
 
 
 async def _client(ctx: Context[ServerSession, None]):
-    credential = _credential_store.get_credential()
+    # Platform Secret Store owns Web credentials. Resolve a fresh, one-time
+    # delivery for each operation so a configured key/provider replacement is
+    # effective without restarting MCP or reviving provider-local memory.
+    credential = _credential_store.get_credential() if _credential_source == "local" else None
     if credential is None:
         prompt = LoopbackCredentialPrompt()
         prompt.start()
         try:
             result = await ctx.elicit_url(
                 message=(
-                    "A maps provider and API key are required. Configure Mapbox or Google "
-                    "in this app; the selected provider will be saved globally and reused."
+                    "Use the app's saved Mapbox or Google Maps configuration for this operation."
+                    if _credential_source == "platform"
+                    else "Configure Mapbox or Google Maps; remember it locally if desired."
                 ),
                 url=prompt.url,
                 elicitation_id=prompt.elicitation_id,
@@ -309,7 +314,7 @@ async def _client(ctx: Context[ServerSession, None]):
                 raise RuntimeError("Maps provider configuration was declined or cancelled")
             submission = await prompt.wait()
             credential = submission
-            if submission.remember:
+            if submission.remember and _credential_source == "local":
                 _credential_store.set_credential(submission.provider, submission.api_key)
                 await ctx.info(
                     f"Stored {submission.provider} as the active maps provider "
@@ -1342,14 +1347,21 @@ def main() -> None:
         help="Workspace whose .codex directory stores credentials and GeoJSON Resources",
     )
     parser.add_argument(
+        "--credential-source",
+        choices=("local", "platform"),
+        default="local",
+        help="Credential owner: standalone local memory or platform URL delivery per operation",
+    )
+    parser.add_argument(
         "--transport",
         choices=("stdio", "streamable-http"),
         default="stdio",
     )
     args = parser.parse_args()
 
-    global _credential_store, _resource_store, _map_card_spec_store
+    global _credential_store, _credential_source, _resource_store, _map_card_spec_store
     _credential_store = WorkspaceCredentialStore(args.workspace_root)
+    _credential_source = args.credential_source
     _resource_store = GeoJsonResourceStore(args.workspace_root)
     _map_card_spec_store = MapCardSpecStore(args.workspace_root)
     mcp.run(transport=args.transport)

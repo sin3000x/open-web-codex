@@ -71,6 +71,13 @@ export default function MapsConfigurationModal({
       role="dialog"
       aria-modal="true"
       aria-labelledby="web-maps-config-title"
+      onKeyDown={(event) => {
+        if (event.key === "Escape" && !saving) {
+          event.preventDefault();
+          event.stopPropagation();
+          onClose();
+        }
+      }}
     >
       <div className="web-map-config-backdrop" onClick={onClose} />
       <form className="web-map-config-panel" onSubmit={save}>

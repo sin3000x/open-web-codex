@@ -41,6 +41,12 @@ describe("Sidebar settings", () => {
     fireEvent.click(screen.getByRole("button", { name: "Open settings" }));
     expect(screen.getByRole("dialog", { name: "Settings" })).toBeTruthy();
 
+    fireEvent.click(screen.getByRole("button", { name: "配置 / 更换地图 Token" }));
+    expect(screen.getByRole("dialog", { name: "配置地图服务 Key" })).toBeTruthy();
+    fireEvent.keyDown(screen.getByLabelText("Mapbox public token"), { key: "Escape" });
+    expect(screen.queryByRole("dialog", { name: "配置地图服务 Key" })).toBeNull();
+    expect(screen.getByRole("dialog", { name: "Settings" })).toBeTruthy();
+
     fireEvent.keyDown(window, { key: "Escape" });
     expect(screen.queryByRole("dialog", { name: "Settings" })).toBeNull();
   });

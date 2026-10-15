@@ -5969,3 +5969,23 @@ body:has(.web-app-shell[data-theme="light"]) :is(
 ) {
   background: #f7fafc;
 }
+
+.web-maps-settings {
+  display: grid;
+  gap: 10px;
+  padding: 20px;
+  border-top: 1px solid var(--web-border);
+}
+
+.web-maps-settings h3 {
+  margin: 0;
+  color: var(--web-text);
+  font-size: 14px;
+}
+
+.web-maps-settings p {
+  margin: 0;
+  color: var(--web-muted);
+  font-size: 12px;
+  line-height: 1.5;
+}
