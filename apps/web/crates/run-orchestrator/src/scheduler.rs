@@ -245,8 +245,9 @@ impl RunOrchestrator {
         let row = sqlx::query(
             "SELECT run.id, run.task_id, run.status, run.codex_thread_id, run.active_turn_id, \
                     run.workspace_id, run.attempt, run.created_at, run.updated_at, \
-                    run.requested_by, workspace.root_path \
+                    run.requested_by, task.copilot_package_id, workspace.root_path \
              FROM runs run \
+             JOIN tasks task ON task.id = run.task_id AND task.organization_id = run.organization_id \
              LEFT JOIN workspaces workspace ON workspace.id = run.workspace_id \
              WHERE run.id = $1 AND run.organization_id = $2 FOR UPDATE OF run",
         )
@@ -290,7 +291,13 @@ impl RunOrchestrator {
             };
             if let Err(error) = self
                 .adapter
-                .interrupt_turn(&workspace, &thread_id, &turn_id)
+                .interrupt_turn(
+                    &workspace,
+                    row.get::<Option<String>, _>("copilot_package_id")
+                        .as_deref(),
+                    &thread_id,
+                    &turn_id,
+                )
                 .await
             {
                 sqlx::query(

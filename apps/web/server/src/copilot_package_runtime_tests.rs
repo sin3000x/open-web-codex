@@ -1994,6 +1994,7 @@ models = [{{ model_id = "mock-model", context_window = 25600 }}]
     adapter
         .steer_turn(
             &workspace,
+            None,
             &root.thread_id,
             &root_turn_id,
             FORM_ROOT_STEER,

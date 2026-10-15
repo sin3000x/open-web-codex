@@ -220,13 +220,18 @@ pub trait CodexAdapter: Send + Sync {
         &self,
         source_workspace: &AuthorizedWorkspace,
         target_workspace: &AuthorizedWorkspace,
+        copilot_package_id: Option<&str>,
         thread_id: &str,
     ) -> Result<StartedThread, AdapterError>;
 
-    /// Read the authoritative persisted Thread from Codex.
+    /// Read the authoritative persisted Thread from Codex. Every operation
+    /// that can cold-resume a Thread receives the immutable package selection
+    /// from its authorized Task, including read-only history operations.
+    /// Package configuration is resolved internally, never from browser paths.
     async fn read_thread(
         &self,
         workspace: &AuthorizedWorkspace,
+        copilot_package_id: Option<&str>,
         thread_id: &str,
     ) -> Result<Value, AdapterError>;
 
@@ -234,6 +239,7 @@ pub trait CodexAdapter: Send + Sync {
     async fn list_thread_turns(
         &self,
         workspace: &AuthorizedWorkspace,
+        copilot_package_id: Option<&str>,
         thread_id: &str,
     ) -> Result<Vec<Value>, AdapterError>;
 
@@ -263,6 +269,7 @@ pub trait CodexAdapter: Send + Sync {
     async fn interrupt_turn(
         &self,
         workspace: &AuthorizedWorkspace,
+        copilot_package_id: Option<&str>,
         thread_id: &str,
         turn_id: &str,
     ) -> Result<(), AdapterError>;
@@ -271,6 +278,7 @@ pub trait CodexAdapter: Send + Sync {
     async fn steer_turn(
         &self,
         workspace: &AuthorizedWorkspace,
+        copilot_package_id: Option<&str>,
         thread_id: &str,
         turn_id: &str,
         text: &str,
@@ -309,12 +317,14 @@ pub trait CodexAdapter: Send + Sync {
     async fn archive_thread(
         &self,
         workspace: &AuthorizedWorkspace,
+        copilot_package_id: Option<&str>,
         thread_id: &str,
     ) -> Result<(), AdapterError>;
 
     async fn set_thread_name(
         &self,
         workspace: &AuthorizedWorkspace,
+        copilot_package_id: Option<&str>,
         thread_id: &str,
         name: &str,
     ) -> Result<(), AdapterError>;
@@ -331,12 +341,14 @@ pub trait CodexAdapter: Send + Sync {
     async fn compact_thread(
         &self,
         workspace: &AuthorizedWorkspace,
+        copilot_package_id: Option<&str>,
         thread_id: &str,
     ) -> Result<Value, AdapterError>;
 
     async fn start_review(
         &self,
         workspace: &AuthorizedWorkspace,
+        copilot_package_id: Option<&str>,
         thread_id: &str,
         target: ReviewTarget,
     ) -> Result<Value, AdapterError>;

@@ -325,6 +325,7 @@ impl CodexAdapter for FakeCodexAdapter {
         &self,
         _source_workspace: &AuthorizedWorkspace,
         target_workspace: &AuthorizedWorkspace,
+        _copilot_package_id: Option<&str>,
         thread_id: &str,
     ) -> Result<StartedThread, AdapterError> {
         if thread_id.trim().is_empty() {
@@ -338,6 +339,7 @@ impl CodexAdapter for FakeCodexAdapter {
     async fn read_thread(
         &self,
         workspace: &AuthorizedWorkspace,
+        _copilot_package_id: Option<&str>,
         thread_id: &str,
     ) -> Result<Value, AdapterError> {
         let state = self.state.lock().await;
@@ -363,9 +365,11 @@ impl CodexAdapter for FakeCodexAdapter {
     async fn list_thread_turns(
         &self,
         workspace: &AuthorizedWorkspace,
+        _copilot_package_id: Option<&str>,
         thread_id: &str,
     ) -> Result<Vec<Value>, AdapterError> {
-        self.read_thread(workspace, thread_id).await?;
+        self.read_thread(workspace, _copilot_package_id, thread_id)
+            .await?;
         Ok(Vec::new())
     }
 
@@ -377,7 +381,8 @@ impl CodexAdapter for FakeCodexAdapter {
         server: &str,
         uri: &str,
     ) -> Result<Value, AdapterError> {
-        self.read_thread(workspace, thread_id).await?;
+        self.read_thread(workspace, _copilot_package_id, thread_id)
+            .await?;
         if server.trim().is_empty() || uri.trim().is_empty() {
             return Err(AdapterError::Internal(
                 "MCP Resource server and URI are required".to_string(),
@@ -409,6 +414,7 @@ impl CodexAdapter for FakeCodexAdapter {
     async fn steer_turn(
         &self,
         workspace: &AuthorizedWorkspace,
+        _copilot_package_id: Option<&str>,
         thread_id: &str,
         turn_id: &str,
         text: &str,
@@ -429,6 +435,7 @@ impl CodexAdapter for FakeCodexAdapter {
     async fn interrupt_turn(
         &self,
         workspace: &AuthorizedWorkspace,
+        _copilot_package_id: Option<&str>,
         thread_id: &str,
         turn_id: &str,
     ) -> Result<(), AdapterError> {
@@ -575,6 +582,7 @@ impl CodexAdapter for FakeCodexAdapter {
     async fn archive_thread(
         &self,
         workspace: &AuthorizedWorkspace,
+        _copilot_package_id: Option<&str>,
         thread_id: &str,
     ) -> Result<(), AdapterError> {
         let mut state = self.state.lock().await;
@@ -590,6 +598,7 @@ impl CodexAdapter for FakeCodexAdapter {
     async fn set_thread_name(
         &self,
         workspace: &AuthorizedWorkspace,
+        _copilot_package_id: Option<&str>,
         thread_id: &str,
         _name: &str,
     ) -> Result<(), AdapterError> {
@@ -623,6 +632,7 @@ impl CodexAdapter for FakeCodexAdapter {
     async fn compact_thread(
         &self,
         workspace: &AuthorizedWorkspace,
+        _copilot_package_id: Option<&str>,
         thread_id: &str,
     ) -> Result<Value, AdapterError> {
         if workspace.id.is_empty() || thread_id.is_empty() {
@@ -636,6 +646,7 @@ impl CodexAdapter for FakeCodexAdapter {
     async fn start_review(
         &self,
         workspace: &AuthorizedWorkspace,
+        _copilot_package_id: Option<&str>,
         thread_id: &str,
         _target: ReviewTarget,
     ) -> Result<Value, AdapterError> {

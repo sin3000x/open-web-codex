@@ -574,6 +574,7 @@ async fn run_probe(
         Duration::from_secs(10),
         adapter.steer_turn(
             workspace,
+            None,
             &root.thread_id,
             root_turn_id,
             &format!("workspace-probe-root-steer-{country}"),

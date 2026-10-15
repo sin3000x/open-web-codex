@@ -159,7 +159,12 @@ pub async fn interrupt_run(
         ));
     }
     adapter
-        .interrupt_turn(&context.workspace, &context.thread_id, &request.turn_id)
+        .interrupt_turn(
+            &context.workspace,
+            context.copilot_package_id.as_deref(),
+            &context.thread_id,
+            &request.turn_id,
+        )
         .await
         .map_err(adapter_control_error)?;
     sqlx::query(
@@ -201,6 +206,7 @@ pub async fn steer_run(
     let result = adapter
         .steer_turn(
             &context.workspace,
+            context.copilot_package_id.as_deref(),
             &context.thread_id,
             &request.turn_id,
             &request.text,
@@ -229,7 +235,11 @@ pub async fn compact_run_thread(
         ));
     }
     adapter
-        .compact_thread(&context.workspace, &context.thread_id)
+        .compact_thread(
+            &context.workspace,
+            context.copilot_package_id.as_deref(),
+            &context.thread_id,
+        )
         .await
         .map_err(adapter_control_error)?;
     Ok(Json(serde_json::json!({ "status": "compacting" })))
@@ -265,7 +275,12 @@ pub async fn start_review(
     }
     let target = review_target(request.target)?;
     let result = adapter
-        .start_review(&context.workspace, &context.thread_id, target)
+        .start_review(
+            &context.workspace,
+            context.copilot_package_id.as_deref(),
+            &context.thread_id,
+            target,
+        )
         .await
         .map_err(adapter_control_error)?;
     if let Some(turn_id) = result
@@ -288,12 +303,14 @@ pub async fn start_review(
 
 struct AuthorizedTurnContext {
     workspace: AuthorizedWorkspace,
+    copilot_package_id: Option<String>,
     thread_id: String,
     turn_id: String,
 }
 
 struct AuthorizedThreadContext {
     workspace: AuthorizedWorkspace,
+    copilot_package_id: Option<String>,
     thread_id: String,
     turn_id: Option<String>,
 }
@@ -306,6 +323,7 @@ async fn authorized_turn_context(
     let context = authorized_thread_context(state, auth, run_id).await?;
     Ok(AuthorizedTurnContext {
         workspace: context.workspace,
+        copilot_package_id: context.copilot_package_id,
         thread_id: context.thread_id,
         turn_id: context.turn_id.ok_or_else(|| {
             (
@@ -323,7 +341,7 @@ async fn authorized_thread_context(
 ) -> Result<AuthorizedThreadContext, (StatusCode, Json<PlatformError>)> {
     let row = sqlx::query(
         "SELECT run.codex_thread_id, run.active_turn_id, run.workspace_id, \
-                run.requested_by, workspace.root_path \
+                run.requested_by, task.copilot_package_id, workspace.root_path \
          FROM runs run \
          JOIN tasks task ON task.id = run.task_id \
            AND task.organization_id = run.organization_id \
@@ -363,6 +381,7 @@ async fn authorized_thread_context(
     let thread_id: Option<String> = row.get("codex_thread_id");
     let turn_id: Option<String> = row.get("active_turn_id");
     Ok(AuthorizedThreadContext {
+        copilot_package_id: row.get("copilot_package_id"),
         workspace: AuthorizedWorkspace {
             id: workspace_id.to_string(),
             root: root_path.into(),

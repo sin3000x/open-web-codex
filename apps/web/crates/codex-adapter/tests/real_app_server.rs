@@ -181,7 +181,7 @@ models = [{{ model_id = "mock-model", context_window = 25600 }}]
         24_320
     );
     let persisted_turns = adapter
-        .list_thread_turns(&workspace, &started.thread_id)
+        .list_thread_turns(&workspace, None, &started.thread_id)
         .await
         .expect("read paginated Thread history");
     assert_eq!(persisted_turns.len(), 1);
@@ -267,7 +267,7 @@ async fn archive_explicitly_abandons_an_unmaterialized_thread() {
         .await
         .expect("schedule Profile refresh");
     adapter
-        .archive_thread(&workspace, &started.thread_id)
+        .archive_thread(&workspace, None, &started.thread_id)
         .await
         .expect("explicit archive abandons the unmaterialized Thread");
     assert!(host
@@ -276,4 +276,199 @@ async fn archive_explicitly_abandons_an_unmaterialized_thread() {
         .expect("Runtime restart is allowed after explicit abandon"));
 
     host.shutdown().await.expect("shutdown Profile Host");
+}
+
+/// Cold history reads must restore the Task's selected package before they
+/// mark the Thread bound. Otherwise Chat history can advertise MCP functions
+/// while the authoritative Runtime has no corresponding server/handler.
+#[tokio::test]
+#[ignore = "requires a real Codex CLI binary and python3"]
+async fn cold_resume_restores_selected_package_before_history_and_turns() {
+    use open_web_codex_adapter::real::{RootExecutionConfig, ThreadSkillConfig};
+
+    let codex_bin = PathBuf::from(std::env::var_os("CODEX_BIN").expect("CODEX_BIN is set"));
+    let temp = tempfile::tempdir().expect("temporary recovery fixture");
+    let runner_root = temp.path().canonicalize().unwrap();
+    let home = runner_root.join("profile");
+    let workspace_root = runner_root.join("workspace");
+    std::fs::create_dir_all(&home).unwrap();
+    std::fs::create_dir_all(&workspace_root).unwrap();
+    let mcp_script = runner_root.join("recovery_mcp.py");
+    std::fs::write(
+        &mcp_script,
+        r#"
+import json, sys
+for line in sys.stdin:
+    message = json.loads(line)
+    if 'id' not in message:
+        continue
+    method = message['method']
+    if method == 'initialize':
+        result = {'protocolVersion': message['params']['protocolVersion'],
+                  'serverInfo': {'name': 'recovery-probe', 'version': '1'},
+                  'capabilities': {'tools': {}}}
+    elif method == 'tools/list':
+        result = {'tools': [{'name': 'probe', 'description': 'Return recovery evidence',
+                            'inputSchema': {'type': 'object', 'properties': {}}}]}
+    elif method == 'tools/call':
+        result = {'content': [{'type': 'text', 'text': 'recovered-package-tool-executed'}],
+                  'isError': False}
+    else:
+        result = {}
+    print(json.dumps({'jsonrpc': '2.0', 'id': message['id'], 'result': result}), flush=True)
+"#,
+    )
+    .unwrap();
+    let (model_uri, model_server) = start_mock_responses_server().await;
+    std::fs::write(
+        home.join("config.toml"),
+        format!(
+            r#"
+model = "mock-model"
+model_provider = "mock_provider"
+sandbox_mode = "read-only"
+[model_providers.mock_provider]
+name = "Recovery fixture"
+base_url = "{model_uri}/v1"
+wire_api = "responses"
+request_max_retries = 0
+stream_max_retries = 0
+"#
+        ),
+    )
+    .unwrap();
+    let root_skill = home.join("skills/recovery-root/SKILL.md");
+    std::fs::create_dir_all(root_skill.parent().unwrap()).unwrap();
+    std::fs::write(&root_skill, "---\nname: recovery-root\ndescription: Recovery test root\n---\nUse the recovery probe for this test.\n").unwrap();
+    let config = host_config(&codex_bin, &home, &runner_root);
+    let host = ProfileHost::spawn(config.clone())
+        .await
+        .expect("spawn recovery Runtime");
+    let adapter = RealCodexAdapter::from_host_with_root_executions(
+        host.clone(),
+        "runner",
+        runner_root.clone(),
+        vec![RootExecutionConfig {
+            id: "recovery-package".to_string(),
+            skill_config: vec![ThreadSkillConfig {
+                name: "recovery-root".into(),
+                enabled: true,
+                main_prompt: Some(root_skill),
+            }],
+            runtime_config: json!({
+                "mcp_servers.recovery_probe": {
+                    "command": "python3", "args": [mcp_script],
+                    "required": true, "startup_timeout_sec": 10,
+                },
+            }),
+        }],
+        None,
+    )
+    .unwrap();
+    let workspace = AuthorizedWorkspace {
+        id: "recovery-workspace".into(),
+        root: workspace_root,
+    };
+    let package = Some("recovery-package");
+    let started = adapter.start_thread(&workspace, package).await.unwrap();
+    let options = TurnOptions {
+        copilot_package_id: package.map(str::to_string),
+        ..Default::default()
+    };
+    let mut events = host.subscribe();
+    let turn = adapter
+        .send_user_message(
+            &workspace,
+            &started.thread_id,
+            "Persist recovery fixture",
+            &options,
+        )
+        .await
+        .unwrap();
+    wait_for_turn_context_window(
+        &mut events,
+        &started.thread_id,
+        turn["turnId"].as_str().unwrap(),
+    )
+    .await;
+
+    // Reproduce the original cold-resume failure: omitting the Task's
+    // package starts a plain Runtime session even though history still
+    // contains the package's tool definitions/results.
+    host.schedule_restart(config.clone()).await.unwrap();
+    adapter
+        .read_thread(&workspace, None, &started.thread_id)
+        .await
+        .unwrap();
+    let missing = host
+        .request_long_running(
+            "mcpServer/tool/call",
+            json!({
+                "threadId": started.thread_id, "server": "recovery_probe",
+                "tool": "probe", "arguments": {},
+            }),
+        )
+        .await
+        .expect_err("a plain resume must not invent a package MCP server");
+    assert!(missing.to_string().contains("recovery_probe"));
+
+    for entry in ["history", "turn"] {
+        let previous_instance = host.runtime_instance_id().await;
+        host.schedule_restart(config.clone()).await.unwrap();
+        if entry == "history" {
+            let (read, turns) = tokio::join!(
+                adapter.read_thread(&workspace, package, &started.thread_id),
+                adapter.list_thread_turns(&workspace, package, &started.thread_id),
+            );
+            assert_eq!(read.unwrap()["thread"]["id"], started.thread_id);
+            assert_eq!(turns.unwrap().len(), 1);
+        } else {
+            let turn = adapter
+                .send_user_message(
+                    &workspace,
+                    &started.thread_id,
+                    "Continue recovered package",
+                    &options,
+                )
+                .await
+                .unwrap();
+            wait_for_turn_context_window(
+                &mut events,
+                &started.thread_id,
+                turn["turnId"].as_str().unwrap(),
+            )
+            .await;
+        }
+        assert_ne!(previous_instance, host.runtime_instance_id().await);
+        // Use the official diagnostic Tool call, without re-resuming or
+        // injecting config here: only the entry point under test may restore it.
+        let result = host
+            .request_long_running(
+                "mcpServer/tool/call",
+                json!({
+                    "threadId": started.thread_id, "server": "recovery_probe",
+                    "tool": "probe", "arguments": {},
+                }),
+            )
+            .await
+            .expect("cold entry restored the actual MCP handler");
+        assert!(result
+            .to_string()
+            .contains("recovered-package-tool-executed"));
+        assert!(!result.to_string().contains("\"isError\":true"));
+    }
+    assert!(adapter
+        .read_thread(&workspace, Some("missing-package"), &started.thread_id)
+        .await
+        .is_err());
+    let other = AuthorizedWorkspace {
+        id: "another-workspace".into(),
+        root: workspace.root.clone(),
+    };
+    assert!(adapter
+        .read_thread(&other, package, &started.thread_id)
+        .await
+        .is_err());
+    host.shutdown().await.unwrap();
+    model_server.abort();
 }

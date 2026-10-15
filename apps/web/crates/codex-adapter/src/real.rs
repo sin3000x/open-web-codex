@@ -412,10 +412,16 @@ impl RealCodexAdapter {
     async fn ensure_thread_bound(
         &self,
         workspace: &AuthorizedWorkspace,
+        copilot_package_id: Option<&str>,
         thread_id: &str,
     ) -> Result<(String, OwnedMutexGuard<Option<uuid::Uuid>>), AdapterError> {
-        self.ensure_thread_bound_with_execution(workspace, thread_id, None)
-            .await
+        let execution = self.root_execution(copilot_package_id)?;
+        self.ensure_thread_bound_with_execution(
+            workspace,
+            thread_id,
+            execution.map(|execution| &execution.config),
+        )
+        .await
     }
 
     async fn ensure_thread_bound_with_execution(
@@ -629,7 +635,9 @@ impl RealCodexAdapter {
                 "Thread id and message text or image input are required".to_string(),
             ));
         }
-        let (workspace_root, _runtime) = self.ensure_thread_bound(workspace, thread_id).await?;
+        let (workspace_root, _runtime) = self
+            .ensure_thread_bound(workspace, options.copilot_package_id.as_deref(), thread_id)
+            .await?;
 
         let mut input = Vec::new();
         if !text.trim().is_empty() {
@@ -716,6 +724,7 @@ impl RealCodexAdapter {
     async fn steer_turn_in_workspace(
         &self,
         workspace: &AuthorizedWorkspace,
+        copilot_package_id: Option<&str>,
         thread_id: &str,
         turn_id: &str,
         text: &str,
@@ -726,7 +735,9 @@ impl RealCodexAdapter {
                 "Thread id, Turn id and message text are required".to_string(),
             ));
         }
-        let (_workspace_root, _runtime) = self.ensure_thread_bound(workspace, thread_id).await?;
+        let (_workspace_root, _runtime) = self
+            .ensure_thread_bound(workspace, copilot_package_id, thread_id)
+            .await?;
         let mut input = vec![json!({ "type": "text", "text": text.trim() })];
         for image in images {
             if !(image.starts_with("data:")
@@ -755,6 +766,7 @@ impl RealCodexAdapter {
     async fn interrupt_turn_in_workspace(
         &self,
         workspace: &AuthorizedWorkspace,
+        copilot_package_id: Option<&str>,
         thread_id: &str,
         turn_id: &str,
     ) -> Result<(), AdapterError> {
@@ -763,7 +775,9 @@ impl RealCodexAdapter {
                 "Thread id and Turn id are required".to_string(),
             ));
         }
-        let (_workspace_root, _runtime) = self.ensure_thread_bound(workspace, thread_id).await?;
+        let (_workspace_root, _runtime) = self
+            .ensure_thread_bound(workspace, copilot_package_id, thread_id)
+            .await?;
         self.host
             .request(
                 "turn/interrupt",
@@ -871,10 +885,11 @@ impl CodexAdapter for RealCodexAdapter {
         &self,
         source_workspace: &AuthorizedWorkspace,
         target_workspace: &AuthorizedWorkspace,
+        copilot_package_id: Option<&str>,
         thread_id: &str,
     ) -> Result<StartedThread, AdapterError> {
         let (_source_root, _runtime) = self
-            .ensure_thread_bound(source_workspace, thread_id)
+            .ensure_thread_bound(source_workspace, copilot_package_id, thread_id)
             .await?;
         let target_root = self.authorized_root(target_workspace)?;
         let result = self
@@ -906,9 +921,12 @@ impl CodexAdapter for RealCodexAdapter {
     async fn read_thread(
         &self,
         workspace: &AuthorizedWorkspace,
+        copilot_package_id: Option<&str>,
         thread_id: &str,
     ) -> Result<Value, AdapterError> {
-        let (_workspace_root, _runtime) = self.ensure_thread_bound(workspace, thread_id).await?;
+        let (_workspace_root, _runtime) = self
+            .ensure_thread_bound(workspace, copilot_package_id, thread_id)
+            .await?;
         self.host
             .request(
                 "thread/read",
@@ -924,9 +942,12 @@ impl CodexAdapter for RealCodexAdapter {
     async fn list_thread_turns(
         &self,
         workspace: &AuthorizedWorkspace,
+        copilot_package_id: Option<&str>,
         thread_id: &str,
     ) -> Result<Vec<Value>, AdapterError> {
-        let (_workspace_root, _runtime) = self.ensure_thread_bound(workspace, thread_id).await?;
+        let (_workspace_root, _runtime) = self
+            .ensure_thread_bound(workspace, copilot_package_id, thread_id)
+            .await?;
         if self
             .thread_history_modes
             .read()
@@ -1043,22 +1064,31 @@ impl CodexAdapter for RealCodexAdapter {
     async fn steer_turn(
         &self,
         workspace: &AuthorizedWorkspace,
+        copilot_package_id: Option<&str>,
         thread_id: &str,
         turn_id: &str,
         text: &str,
         images: &[String],
     ) -> Result<Value, AdapterError> {
-        self.steer_turn_in_workspace(workspace, thread_id, turn_id, text, images)
-            .await
+        self.steer_turn_in_workspace(
+            workspace,
+            copilot_package_id,
+            thread_id,
+            turn_id,
+            text,
+            images,
+        )
+        .await
     }
 
     async fn interrupt_turn(
         &self,
         workspace: &AuthorizedWorkspace,
+        copilot_package_id: Option<&str>,
         thread_id: &str,
         turn_id: &str,
     ) -> Result<(), AdapterError> {
-        self.interrupt_turn_in_workspace(workspace, thread_id, turn_id)
+        self.interrupt_turn_in_workspace(workspace, copilot_package_id, thread_id, turn_id)
             .await
     }
 
@@ -1309,6 +1339,7 @@ impl CodexAdapter for RealCodexAdapter {
     async fn archive_thread(
         &self,
         workspace: &AuthorizedWorkspace,
+        copilot_package_id: Option<&str>,
         thread_id: &str,
     ) -> Result<(), AdapterError> {
         if self
@@ -1317,7 +1348,9 @@ impl CodexAdapter for RealCodexAdapter {
         {
             return Ok(());
         }
-        let (_workspace_root, _runtime) = self.ensure_thread_bound(workspace, thread_id).await?;
+        let (_workspace_root, _runtime) = self
+            .ensure_thread_bound(workspace, copilot_package_id, thread_id)
+            .await?;
         self.host
             .request("thread/archive", json!({ "threadId": thread_id }))
             .await?;
@@ -1330,10 +1363,13 @@ impl CodexAdapter for RealCodexAdapter {
     async fn set_thread_name(
         &self,
         workspace: &AuthorizedWorkspace,
+        copilot_package_id: Option<&str>,
         thread_id: &str,
         name: &str,
     ) -> Result<(), AdapterError> {
-        let (_workspace_root, _runtime) = self.ensure_thread_bound(workspace, thread_id).await?;
+        let (_workspace_root, _runtime) = self
+            .ensure_thread_bound(workspace, copilot_package_id, thread_id)
+            .await?;
         self.host
             .request(
                 "thread/name/set",
@@ -1436,9 +1472,12 @@ impl CodexAdapter for RealCodexAdapter {
     async fn compact_thread(
         &self,
         workspace: &AuthorizedWorkspace,
+        copilot_package_id: Option<&str>,
         thread_id: &str,
     ) -> Result<Value, AdapterError> {
-        let (_workspace_root, _runtime) = self.ensure_thread_bound(workspace, thread_id).await?;
+        let (_workspace_root, _runtime) = self
+            .ensure_thread_bound(workspace, copilot_package_id, thread_id)
+            .await?;
         self.host
             .request("thread/compact/start", json!({ "threadId": thread_id }))
             .await
@@ -1448,10 +1487,13 @@ impl CodexAdapter for RealCodexAdapter {
     async fn start_review(
         &self,
         workspace: &AuthorizedWorkspace,
+        copilot_package_id: Option<&str>,
         thread_id: &str,
         target: ReviewTarget,
     ) -> Result<Value, AdapterError> {
-        let (_workspace_root, _runtime) = self.ensure_thread_bound(workspace, thread_id).await?;
+        let (_workspace_root, _runtime) = self
+            .ensure_thread_bound(workspace, copilot_package_id, thread_id)
+            .await?;
         let target = match target {
             ReviewTarget::UncommittedChanges => json!({ "type": "uncommittedChanges" }),
             ReviewTarget::BaseBranch { branch } => {

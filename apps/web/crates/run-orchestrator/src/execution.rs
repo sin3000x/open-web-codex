@@ -62,7 +62,12 @@ impl RunOrchestrator {
         let started = match (source_workspace, lease.fork_thread_id.as_deref()) {
             (Some(source_workspace), Some(source_thread_id)) => {
                 self.adapter
-                    .fork_thread(&source_workspace, &workspace, source_thread_id)
+                    .fork_thread(
+                        &source_workspace,
+                        &workspace,
+                        lease.copilot_package_id.as_deref(),
+                        source_thread_id,
+                    )
                     .await?
             }
             (None, None) => {
