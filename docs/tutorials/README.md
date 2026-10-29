@@ -18,6 +18,8 @@
 4. [评估新增 Balikpapan 仓](indonesia-network-03-two-level-cost.md)
 5. [找出达到 90% 时效目标的最少新增仓](indonesia-network-04-optimization-map.md)
 
+给别人演示或自己想完整体验一遍，照着[体验问题链](indonesia-network-demo-script.md)依次提问即可。
+
 如果想先了解它会怎样帮你工作，读 [仓网 Copilot 是什么](supply-chain-agent-tutorial.md)。遇到审批、等待或失败，再看 [审批与故障恢复](approvals-and-recovery.md)。
 
 ## 开始前只要准备三件事
