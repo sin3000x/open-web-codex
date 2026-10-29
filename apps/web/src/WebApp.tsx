@@ -18,7 +18,7 @@ import {
 } from "../browser/client";
 import Layout from "./components/Layout";
 import Sidebar from "./components/Sidebar";
-import type { CopilotOption } from "./components/Sidebar/Workspaces";
+import type { CopilotOption, StartTaskRequest } from "./components/Sidebar/Workspaces";
 import Conversation from "./components/Conversation";
 import FileManager from "./components/FileManager";
 import RightSidebar, { type RightSidebarTab } from "./components/RightSidebar";
@@ -106,6 +106,7 @@ type ThreadInfo = {
   optimistic?: boolean;
   creationStatus?: "creating" | "failed";
   creationError?: string;
+  copilot?: CopilotTaskSelection | null;
 };
 
 type ThreadTranscriptCacheEntry = {
@@ -490,6 +491,9 @@ export default function WebApp() {
   const [copilotStatus, setCopilotStatus] = useState<CopilotProfileStatus | null>(null);
   const [copilotStatusLoading, setCopilotStatusLoading] = useState(false);
   const [copilotStatusError, setCopilotStatusError] = useState<string | null>(null);
+  const [startTaskRequest, setStartTaskRequest] = useState<StartTaskRequest | null>(null);
+  // The composer's first message waits here until the Copilot choice starts its task.
+  const pendingFirstMessageRef = useRef<{ workspaceId: string; text: string } | null>(null);
   const activeThreadModelSelectionRef = useRef<{
     threadId: string;
     providerId: string;
@@ -2303,6 +2307,7 @@ export default function WebApp() {
          status: "creating",
          optimistic: true,
          creationStatus: "creating",
+         copilot: copilot ?? null,
        };
        return {
          ...previous,
@@ -2491,10 +2496,11 @@ export default function WebApp() {
     const text = draft.trim();
     if (!activeWorkspaceId || !text) return;
     if (!activeThreadId) {
-      const threadId = await startThread(activeWorkspaceId);
-      if (!threadId) return;
-      setDraft("");
-      await sendText(text, activeWorkspaceId, threadId, null);
+      pendingFirstMessageRef.current = { workspaceId: activeWorkspaceId, text };
+      setStartTaskRequest((previous) => ({
+        id: (previous?.id ?? 0) + 1,
+        workspaceId: activeWorkspaceId,
+      }));
       return;
     }
     const selectedMapCardRef = mapCardAttachment?.ref ?? null;
@@ -2955,7 +2961,17 @@ export default function WebApp() {
     void startThread(
       activeWorkspaceId,
       activeThread.id,
+      activeThread.copilot ?? null,
     );
+  };
+
+  const startTask = async (workspaceId: string, copilot: CopilotTaskSelection | null) => {
+    const pending = pendingFirstMessageRef.current;
+    pendingFirstMessageRef.current = null;
+    const threadId = await startThread(workspaceId, undefined, copilot);
+    if (!threadId || pending?.workspaceId !== workspaceId) return;
+    setDraft("");
+    await sendText(pending.text, workspaceId, threadId, null);
   };
 
   return (
@@ -3028,7 +3044,11 @@ export default function WebApp() {
           onSelectThread={selectThread}
           copilots={copilots}
           onNewThread={(workspaceId, copilot) => {
-            void startThread(workspaceId, undefined, copilot);
+            void startTask(workspaceId, copilot);
+          }}
+          startTaskRequest={startTaskRequest}
+          onStartTaskCancelled={() => {
+            pendingFirstMessageRef.current = null;
           }}
           onArchiveThread={archiveThread}
           onRemoveWorkspace={removeWorkspace}

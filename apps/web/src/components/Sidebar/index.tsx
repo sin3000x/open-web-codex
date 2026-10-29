@@ -8,7 +8,7 @@ import type { WorkspaceInfo } from "../../types";
 import type { CopilotProfileStatus } from "../../../browser/types";
 import Brand from "./Brand";
 import CopilotManager from "./CopilotManager";
-import Workspaces, { type CopilotOption } from "./Workspaces";
+import Workspaces, { type CopilotOption, type StartTaskRequest } from "./Workspaces";
 import McpStatus from "./McpStatus";
 import RateLimitCard from "./RateLimitCard";
 import MapsSettings from "./MapsSettings";
@@ -41,6 +41,8 @@ type Props = {
     workspaceId: string,
     copilot: { packageId: string } | null,
   ) => void;
+  startTaskRequest?: StartTaskRequest | null;
+  onStartTaskCancelled?: () => void;
   onArchiveThread: (workspaceId: string, threadId: string) => void;
   onRemoveWorkspace: (workspaceId: string) => void;
   baseUrl: string;
@@ -76,6 +78,8 @@ export default function Sidebar({
   onSelectThread,
   copilots,
   onNewThread,
+  startTaskRequest = null,
+  onStartTaskCancelled,
   onArchiveThread,
   onRemoveWorkspace,
   baseUrl,
@@ -132,6 +136,8 @@ export default function Sidebar({
             copilotStatus?.packages.some((candidate) => candidate.available),
           )}
           onCopilotUnavailable={() => setShowSettings(true)}
+          startTaskRequest={startTaskRequest}
+          onStartTaskCancelled={onStartTaskCancelled}
         />
 
         <McpStatus servers={mcpServers} />

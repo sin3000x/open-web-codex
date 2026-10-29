@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import Archive from "lucide-react/dist/esm/icons/archive";
 import ChevronRight from "lucide-react/dist/esm/icons/chevron-right";
@@ -23,6 +23,12 @@ export type CopilotOption = {
   displayName: string;
 };
 
+/** A request from outside the sidebar to start a task in one Workspace. */
+export type StartTaskRequest = {
+  id: number;
+  workspaceId: string;
+};
+
 type Props = {
   workspaces: WorkspaceInfo[];
   activeId: string | null;
@@ -43,6 +49,8 @@ type Props = {
   onRemoveWorkspace: (workspaceId: string) => void;
   copilotSelectionRequired?: boolean;
   onCopilotUnavailable?: () => void;
+  startTaskRequest?: StartTaskRequest | null;
+  onStartTaskCancelled?: () => void;
 };
 
 export default function Workspaces({
@@ -61,6 +69,8 @@ export default function Workspaces({
   onRemoveWorkspace,
   copilotSelectionRequired = false,
   onCopilotUnavailable = () => undefined,
+  startTaskRequest = null,
+  onStartTaskCancelled = () => undefined,
 }: Props) {
   const [createName, setCreateName] = useState("");
   const [expandedId, setExpandedId] = useState<string | null>(null);
@@ -76,15 +86,19 @@ export default function Workspaces({
     const closeOnEscape = (event: KeyboardEvent) => {
       if (event.key !== "Escape") return;
       setPendingArchive(null);
-      setPendingTaskWorkspace(null);
+      if (pendingTaskWorkspace) {
+        setPendingTaskWorkspace(null);
+        onStartTaskCancelled();
+      }
     };
     window.addEventListener("keydown", closeOnEscape);
     return () => window.removeEventListener("keydown", closeOnEscape);
-  }, [pendingArchive, pendingTaskWorkspace]);
+  }, [onStartTaskCancelled, pendingArchive, pendingTaskWorkspace]);
 
   const openCopilotPicker = (workspace: WorkspaceInfo) => {
     if (copilots.length === 0) {
       if (copilotSelectionRequired) {
+        onStartTaskCancelled();
         onCopilotUnavailable();
         return;
       }
@@ -94,6 +108,29 @@ export default function Workspaces({
     setSelectedPackageId(copilots[0]?.packageId ?? null);
     setPendingTaskWorkspace(workspace);
   };
+
+  const closeCopilotPicker = () => {
+    setPendingTaskWorkspace(null);
+    onStartTaskCancelled();
+  };
+
+  // Every task start, including the composer's first message, goes through the
+  // same Copilot choice so the server always receives an explicit selection.
+  const handleStartTaskRequest = useRef<(request: StartTaskRequest) => void>(() => undefined);
+  handleStartTaskRequest.current = (request) => {
+    const workspace = workspaces.find((candidate) => candidate.id === request.workspaceId);
+    if (!workspace) {
+      onStartTaskCancelled();
+      return;
+    }
+    openCopilotPicker(workspace);
+  };
+  const handledStartTaskRequestId = useRef<number | null>(null);
+  useEffect(() => {
+    if (!startTaskRequest || handledStartTaskRequestId.current === startTaskRequest.id) return;
+    handledStartTaskRequestId.current = startTaskRequest.id;
+    handleStartTaskRequest.current(startTaskRequest);
+  }, [startTaskRequest]);
 
   const createTask = () => {
     if (!pendingTaskWorkspace || !selectedPackageId) return;
@@ -269,7 +306,7 @@ export default function Workspaces({
         <div
           className="web-settings-backdrop"
           onMouseDown={(event) => {
-            if (event.target === event.currentTarget) setPendingTaskWorkspace(null);
+            if (event.target === event.currentTarget) closeCopilotPicker();
           }}
         >
           <section
@@ -304,7 +341,7 @@ export default function Workspaces({
               })}
             </div>
             <div className="web-copilot-actions">
-              <button type="button" onClick={() => setPendingTaskWorkspace(null)}>
+              <button type="button" onClick={closeCopilotPicker}>
                 Cancel
               </button>
               <button type="button" className="is-primary" onClick={createTask}>

@@ -40,6 +40,7 @@ const client = {
   listThreadMcpFormRequests: vi.fn(),
   respondToMcpForm: vi.fn(),
   startThread: vi.fn(),
+  copilotProfileStatus: vi.fn(),
   resumeThread: vi.fn(),
   listThreadTurns: vi.fn(),
   readThread: vi.fn(),
@@ -53,6 +54,26 @@ vi.mock("./services/webClient", () => ({
 }));
 
 afterEach(cleanup);
+
+function warehouseCopilotStatus() {
+  return {
+    packages: [{
+      packageId: "warehouse-network-copilot",
+      available: true,
+      displayName: "Warehouse Network · Multi-Agent",
+    }],
+    installations: [{
+      packageId: "warehouse-network-copilot",
+      sourceRevision: "revision-1",
+      active: true,
+      state: "configured",
+      restartRequired: false,
+      managedSkillIds: [],
+      managedAgentRoleIds: [],
+      runtimeDiscoveredSkillIds: [],
+    }],
+  };
+}
 
 describe("WebApp workspace-first messaging", () => {
   beforeEach(() => {
@@ -110,6 +131,7 @@ describe("WebApp workspace-first messaging", () => {
       options.onRunAccepted?.({ taskId: "task-new", runId: "run-new" });
       return { thread: { id: "thread-new" } };
     });
+    client.copilotProfileStatus.mockResolvedValue({ packages: [], installations: [] });
     client.resumeThread.mockResolvedValue({ thread: { id: "thread-new", turns: [] } });
     client.listThreadTurns.mockResolvedValue([]);
     client.readThread.mockResolvedValue({ thread: { id: "thread-new", turns: [] } });
@@ -1126,6 +1148,89 @@ describe("WebApp workspace-first messaging", () => {
     await waitFor(() =>
       expect(screen.getAllByText("Accepted task")).toHaveLength(2),
     );
+  });
+
+  it("asks for the Copilot before creating the task for a first message", async () => {
+    client.copilotProfileStatus.mockResolvedValue(warehouseCopilotStatus());
+    render(<WebApp />);
+
+    const composer = await screen.findByPlaceholderText("Ask Codex to do something...");
+    await waitFor(() => expect((composer as HTMLTextAreaElement).disabled).toBe(false));
+    await waitFor(() => expect(client.copilotProfileStatus).toHaveBeenCalled());
+    fireEvent.change(composer, { target: { value: "计算 12 小时时效达标率" } });
+    fireEvent.click(screen.getByRole("button", { name: "Send" }));
+
+    const dialog = await screen.findByRole("dialog", { name: "Choose a Copilot" });
+    expect(client.startThread).not.toHaveBeenCalled();
+    fireEvent.click(within(dialog).getByRole("button", { name: "Create Thread" }));
+
+    await waitFor(() => expect(client.startThread).toHaveBeenCalledWith(
+      "workspace-1",
+      expect.objectContaining({ copilot: { packageId: "warehouse-network-copilot" } }),
+    ));
+    await waitFor(() => expect(client.sendUserMessage).toHaveBeenCalledWith(
+      "workspace-1",
+      "thread-new",
+      "计算 12 小时时效达标率",
+      "deepseek-v4-flash",
+      "deepseek",
+      null,
+    ));
+    expect((composer as HTMLTextAreaElement).value).toBe("");
+  });
+
+  it("keeps the first message when the Copilot choice is cancelled", async () => {
+    client.copilotProfileStatus.mockResolvedValue(warehouseCopilotStatus());
+    render(<WebApp />);
+
+    const composer = await screen.findByPlaceholderText("Ask Codex to do something...");
+    await waitFor(() => expect((composer as HTMLTextAreaElement).disabled).toBe(false));
+    await waitFor(() => expect(client.copilotProfileStatus).toHaveBeenCalled());
+    fireEvent.change(composer, { target: { value: "计算 12 小时时效达标率" } });
+    fireEvent.click(screen.getByRole("button", { name: "Send" }));
+    const dialog = await screen.findByRole("dialog", { name: "Choose a Copilot" });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Cancel" }));
+
+    expect(screen.queryByRole("dialog", { name: "Choose a Copilot" })).toBeNull();
+    expect((composer as HTMLTextAreaElement).value).toBe("计算 12 小时时效达标率");
+
+    fireEvent.click(screen.getByRole("button", { name: "New task in Demo" }));
+    fireEvent.click(
+      within(await screen.findByRole("dialog", { name: "Choose a Copilot" }))
+        .getByRole("button", { name: "Create Thread" }),
+    );
+    await waitFor(() => expect(client.startThread).toHaveBeenCalledTimes(1));
+    expect(client.sendUserMessage).not.toHaveBeenCalled();
+  });
+
+  it("retries a failed Thread creation with its original Copilot", async () => {
+    client.copilotProfileStatus.mockResolvedValue(warehouseCopilotStatus());
+    client.startThread
+      .mockImplementationOnce(async (
+        _workspaceId: string,
+        options: {
+          onRunAccepted?: (value: { taskId: string; runId: string }) => void;
+        },
+      ) => {
+        options.onRunAccepted?.({ taskId: "task-failed", runId: "run-failed" });
+        throw new Error("Thread startup failed");
+      });
+    render(<WebApp />);
+
+    await waitFor(() => expect(client.copilotProfileStatus).toHaveBeenCalled());
+    fireEvent.click(await screen.findByRole("button", { name: "New task in Demo" }));
+    fireEvent.click(
+      within(await screen.findByRole("dialog", { name: "Choose a Copilot" }))
+        .getByRole("button", { name: "Create Thread" }),
+    );
+    await waitFor(() => expect(client.startThread).toHaveBeenCalledTimes(1));
+
+    fireEvent.click(await screen.findByRole("button", { name: /重试|Retry/ }));
+
+    await waitFor(() => expect(client.startThread).toHaveBeenCalledTimes(2));
+    expect(client.startThread.mock.calls[1][1]).toEqual(expect.objectContaining({
+      copilot: { packageId: "warehouse-network-copilot" },
+    }));
   });
 
   it("keeps the returned Thread name while the task list still has the placeholder", async () => {

@@ -100,6 +100,70 @@ describe("Web workspace actions", () => {
     });
   });
 
+  it("opens the Copilot choice for an external start request", () => {
+    const props = baseProps();
+    props.copilots = [
+      { packageId: "warehouse-network", displayName: "Warehouse Network · Multi-Agent" },
+    ];
+    const onStartTaskCancelled = vi.fn();
+    const { rerender } = render(
+      <Workspaces {...props} onStartTaskCancelled={onStartTaskCancelled} />,
+    );
+
+    rerender(
+      <Workspaces
+        {...props}
+        startTaskRequest={{ id: 1, workspaceId: "ws-1" }}
+        onStartTaskCancelled={onStartTaskCancelled}
+      />,
+    );
+    expect(screen.getByRole("dialog", { name: "Choose a Copilot" })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Create Thread" }));
+
+    expect(props.onStartTask).toHaveBeenCalledWith("ws-1", { packageId: "warehouse-network" });
+    expect(onStartTaskCancelled).not.toHaveBeenCalled();
+  });
+
+  it("reports a cancelled Copilot choice", () => {
+    const props = baseProps();
+    props.copilots = [
+      { packageId: "warehouse-network", displayName: "Warehouse Network · Multi-Agent" },
+    ];
+    const onStartTaskCancelled = vi.fn();
+    render(
+      <Workspaces
+        {...props}
+        startTaskRequest={{ id: 1, workspaceId: "ws-1" }}
+        onStartTaskCancelled={onStartTaskCancelled}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+
+    expect(screen.queryByRole("dialog", { name: "Choose a Copilot" })).toBeNull();
+    expect(onStartTaskCancelled).toHaveBeenCalledTimes(1);
+    expect(props.onStartTask).not.toHaveBeenCalled();
+  });
+
+  it("does not start a plain task from an external request when selection is required", () => {
+    const props = baseProps();
+    const onCopilotUnavailable = vi.fn();
+    const onStartTaskCancelled = vi.fn();
+    render(
+      <Workspaces
+        {...props}
+        copilotSelectionRequired
+        onCopilotUnavailable={onCopilotUnavailable}
+        startTaskRequest={{ id: 1, workspaceId: "ws-1" }}
+        onStartTaskCancelled={onStartTaskCancelled}
+      />,
+    );
+
+    expect(onCopilotUnavailable).toHaveBeenCalledTimes(1);
+    expect(onStartTaskCancelled).toHaveBeenCalledTimes(1);
+    expect(props.onStartTask).not.toHaveBeenCalled();
+  });
+
   it("shows running state and confirms before archiving a thread", () => {
     const props = baseProps();
     const onArchiveThread = vi.fn();
