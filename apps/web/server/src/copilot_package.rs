@@ -1873,6 +1873,11 @@ mod tests {
         for skill in [MAP_DELIVERY_SKILL, SINGLE_AGENT_MAP_DELIVERY_SKILL] {
             assert!(skill.contains("`create_network_map_card`"));
             assert!(skill.contains("`prepare_network_coverage_map`"));
+            assert!(skill.contains("`prepare_network_distribution_map`"));
+            assert!(skill.contains("`include_candidates=true`"));
+            assert!(skill.contains("`prepare_network_comparison_map`"));
+            assert!(skill.contains("原样作为 `network_data_ref`"));
+            assert!(skill.contains("`require_polygon=true`"));
             assert!(skill.contains("用户要求的服务时限"));
             assert!(skill.contains("地图只展示规划工具已经确认的结果"));
             assert!(!skill.contains("`create_map_card`"));
