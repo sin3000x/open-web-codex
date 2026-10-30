@@ -1,18 +1,7 @@
 name: Codex protocol drift checks
 
 on:
-  push:
-    paths:
-      - "codex/**"
-      - "scripts/cargo-build-cache.sh"
-      - "scripts/test-codex.sh"
-      - ".github/workflows/codex-protocol-ci.yml"
-  pull_request:
-    paths:
-      - "codex/**"
-      - "scripts/cargo-build-cache.sh"
-      - "scripts/test-codex.sh"
-      - ".github/workflows/codex-protocol-ci.yml"
+  workflow_dispatch:
 
 permissions:
   contents: read

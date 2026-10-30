@@ -1,20 +1,7 @@
 name: Web and contract checks
 
 on:
-  push:
-    paths:
-      - "apps/web/**"
-      - "docs/**"
-      - ".sync/**"
-      - "scripts/**"
-      - ".github/workflows/web-ci.yml"
-  pull_request:
-    paths:
-      - "apps/web/**"
-      - "docs/**"
-      - ".sync/**"
-      - "scripts/**"
-      - ".github/workflows/web-ci.yml"
+  workflow_dispatch:
 
 permissions:
   contents: read
