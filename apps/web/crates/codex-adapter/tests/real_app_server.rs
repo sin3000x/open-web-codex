@@ -267,7 +267,7 @@ async fn archive_explicitly_abandons_an_unmaterialized_thread() {
         .await
         .expect("schedule Profile refresh");
     adapter
-        .archive_thread(&workspace, None, &started.thread_id)
+        .archive_thread(&workspace, &started.thread_id)
         .await
         .expect("explicit archive abandons the unmaterialized Thread");
     assert!(host
@@ -276,6 +276,117 @@ async fn archive_explicitly_abandons_an_unmaterialized_thread() {
         .expect("Runtime restart is allowed after explicit abandon"));
 
     host.shutdown().await.expect("shutdown Profile Host");
+}
+
+/// A Task's Copilot may be deactivated after its Thread was materialized.
+/// Archiving must still succeed because it never resumes the Thread.
+#[tokio::test]
+#[ignore = "requires a real Codex CLI binary"]
+async fn archive_does_not_require_the_tasks_copilot_to_remain_configured() {
+    use open_web_codex_adapter::real::{RootExecutionConfig, ThreadSkillConfig};
+
+    let codex_bin = PathBuf::from(std::env::var_os("CODEX_BIN").expect("CODEX_BIN is set"));
+    let temp = tempfile::tempdir().expect("temporary archive fixture");
+    let runner_root = temp.path().canonicalize().unwrap();
+    let home = runner_root.join("profile");
+    let workspace_root = runner_root.join("workspace");
+    std::fs::create_dir_all(&home).unwrap();
+    std::fs::create_dir_all(&workspace_root).unwrap();
+    let (model_uri, model_server) = start_mock_responses_server().await;
+    std::fs::write(
+        home.join("config.toml"),
+        format!(
+            r#"
+model = "mock-model"
+model_provider = "mock_provider"
+sandbox_mode = "read-only"
+[model_providers.mock_provider]
+name = "Archive fixture"
+base_url = "{model_uri}/v1"
+wire_api = "responses"
+request_max_retries = 0
+stream_max_retries = 0
+"#
+        ),
+    )
+    .unwrap();
+    let root_skill = home.join("skills/archive-root/SKILL.md");
+    std::fs::create_dir_all(root_skill.parent().unwrap()).unwrap();
+    std::fs::write(
+        &root_skill,
+        "---\nname: archive-root\ndescription: Archive test root\n---\nAnswer briefly.\n",
+    )
+    .unwrap();
+    let config = host_config(&codex_bin, &home, &runner_root);
+    let host = ProfileHost::spawn(config.clone())
+        .await
+        .expect("spawn archive Runtime");
+    let package_adapter = RealCodexAdapter::from_host_with_root_executions(
+        host.clone(),
+        "runner",
+        runner_root.clone(),
+        vec![RootExecutionConfig {
+            id: "deactivated-package".to_string(),
+            skill_config: vec![ThreadSkillConfig {
+                name: "archive-root".into(),
+                enabled: true,
+                main_prompt: Some(root_skill),
+            }],
+            runtime_config: json!({}),
+        }],
+        None,
+    )
+    .unwrap();
+    let workspace = AuthorizedWorkspace {
+        id: "archive-workspace".into(),
+        root: workspace_root,
+    };
+    let package = Some("deactivated-package");
+    let started = package_adapter
+        .start_thread(&workspace, package)
+        .await
+        .unwrap();
+    let options = TurnOptions {
+        copilot_package_id: package.map(str::to_string),
+        ..Default::default()
+    };
+    let mut events = host.subscribe();
+    let turn = package_adapter
+        .send_user_message(
+            &workspace,
+            &started.thread_id,
+            "Persist archive fixture",
+            &options,
+        )
+        .await
+        .unwrap();
+    wait_for_turn_context_window(
+        &mut events,
+        &started.thread_id,
+        turn["turnId"].as_str().unwrap(),
+    )
+    .await;
+
+    // Reproduce deactivation: the next Runtime no longer configures the
+    // package, and no adapter has the Thread bound.
+    host.schedule_restart(config).await.unwrap();
+    let adapter = RealCodexAdapter::from_host(host.clone(), "runner", runner_root.clone())
+        .expect("construct adapter without the package");
+    adapter
+        .archive_thread(&workspace, &started.thread_id)
+        .await
+        .expect("archive a Thread whose Copilot is no longer configured");
+
+    let archived = host
+        .request("thread/list", json!({ "archived": true }))
+        .await
+        .expect("list archived Threads");
+    assert!(archived["data"].as_array().is_some_and(|threads| threads
+        .iter()
+        .any(|thread| thread["id"] == started.thread_id.as_str())));
+
+    host.shutdown().await.expect("shutdown Profile Host");
+    model_server.abort();
 }
 
 /// Cold history reads must restore the Task's selected package before they

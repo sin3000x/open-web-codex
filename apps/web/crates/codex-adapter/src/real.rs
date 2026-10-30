@@ -1339,7 +1339,6 @@ impl CodexAdapter for RealCodexAdapter {
     async fn archive_thread(
         &self,
         workspace: &AuthorizedWorkspace,
-        copilot_package_id: Option<&str>,
         thread_id: &str,
     ) -> Result<(), AdapterError> {
         if self
@@ -1348,9 +1347,22 @@ impl CodexAdapter for RealCodexAdapter {
         {
             return Ok(());
         }
-        let (_workspace_root, _runtime) = self
-            .ensure_thread_bound(workspace, copilot_package_id, thread_id)
-            .await?;
+        // Official `thread/archive` operates on the stored Thread. Resuming it
+        // first would require the Task's Copilot execution, which may since
+        // have been deactivated.
+        let _runtime = self.prepare_runtime().await?;
+        self.authorized_root(workspace)?;
+        if self
+            .thread_workspaces
+            .read()
+            .await
+            .get(thread_id)
+            .is_some_and(|bound| bound != workspace)
+        {
+            return Err(AdapterError::Rpc(
+                "Thread is not bound to the authorized workspace".to_string(),
+            ));
+        }
         self.host
             .request("thread/archive", json!({ "threadId": thread_id }))
             .await?;

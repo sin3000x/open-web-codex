@@ -314,10 +314,11 @@ pub trait CodexAdapter: Send + Sync {
         login_id: &str,
     ) -> Result<ProfileLoginStatus, AdapterError>;
 
+    /// Archive a stored Thread. Archiving does not resume the Thread, so it
+    /// does not depend on the Task's Copilot package still being configured.
     async fn archive_thread(
         &self,
         workspace: &AuthorizedWorkspace,
-        copilot_package_id: Option<&str>,
         thread_id: &str,
     ) -> Result<(), AdapterError>;
 

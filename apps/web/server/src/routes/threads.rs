@@ -322,11 +322,7 @@ pub async fn archive(
             .is_none();
     if !recovery_without_active_turn {
         adapter
-            .archive_thread(
-                &context.workspace,
-                context.copilot_package_id.as_deref(),
-                &context.thread_id,
-            )
+            .archive_thread(&context.workspace, &context.thread_id)
             .await
             .map_err(runtime_error)?;
     }

@@ -582,7 +582,6 @@ impl CodexAdapter for FakeCodexAdapter {
     async fn archive_thread(
         &self,
         workspace: &AuthorizedWorkspace,
-        _copilot_package_id: Option<&str>,
         thread_id: &str,
     ) -> Result<(), AdapterError> {
         let mut state = self.state.lock().await;
