@@ -156,7 +156,6 @@ export default function Workspaces({
     return threadsByWorkspace[wsId] ?? [];
   };
 
-  const activeWorkspace = workspaces.find((candidate) => candidate.id === activeId) ?? null;
 
   const handleCreate = () => {
     const name = createName.trim();
@@ -170,20 +169,6 @@ export default function Workspaces({
         <span className="web-ws-header-count">{workspaces.length}</span>
       </div>
 
-      <button
-        type="button"
-        className="web-ws-new-task-primary"
-        onClick={() => {
-          if (!activeWorkspace) return;
-          setExpandedId(activeWorkspace.id);
-          openCopilotPicker(activeWorkspace);
-        }}
-        disabled={busy || !activeWorkspace}
-        title={activeWorkspace ? `New task in ${activeWorkspace.name}` : "Select a workspace first"}
-      >
-        <Plus size={14} aria-hidden="true" />
-        <span>New task</span>
-      </button>
 
       <div className="web-ws-create">
         <input
@@ -270,6 +255,16 @@ export default function Workspaces({
               {/* Thread list (collapsible) */}
               {isExpanded && (
               <div className="web-ws-threads">
+                <button
+                  type="button"
+                  className="web-ws-new-task-row"
+                  onClick={() => openCopilotPicker(ws)}
+                  disabled={busy}
+                  title={`New task in ${ws.name}`}
+                >
+                  <Plus size={12} aria-hidden="true" />
+                  <span>New task</span>
+                </button>
                 {threads.length === 0 && (
                   <div className="web-ws-threads-empty">No threads</div>
                 )}

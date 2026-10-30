@@ -118,12 +118,23 @@ describe("Web workspace actions", () => {
     });
   });
 
-  it("disables the primary New task action without an active workspace", () => {
+  it("offers New task inside the expanded workspace's thread list", () => {
     const props = baseProps();
-    render(<Workspaces {...props} activeId={null} />);
+    render(
+      <Workspaces
+        {...props}
+        threadsByWorkspace={{ "ws-1": [{ id: "t-1", label: "Existing", updatedAt: 1 }] }}
+      />,
+    );
 
-    const newTask = screen.getByRole("button", { name: "New task" }) as HTMLButtonElement;
-    expect(newTask.disabled).toBe(true);
+    const newTask = screen.getByRole("button", { name: "New task" });
+    expect(newTask.closest(".web-ws-threads")).toBeTruthy();
+    expect(
+      newTask.compareDocumentPosition(screen.getByText("Existing")) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+    fireEvent.click(newTask);
+    expect(props.onStartTask).toHaveBeenCalledWith("ws-1", null);
   });
 
   it("opens the Copilot choice for an external start request", () => {
