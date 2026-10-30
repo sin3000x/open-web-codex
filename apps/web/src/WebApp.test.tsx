@@ -56,15 +56,19 @@ vi.mock("./services/webClient", () => ({
 
 afterEach(cleanup);
 
-function warehouseCopilotStatus() {
+const warehouseCopilotPackages = [
+  { packageId: "warehouse-network-copilot", displayName: "Warehouse Network · Multi-Agent" },
+  {
+    packageId: "warehouse-network-single-agent",
+    displayName: "Warehouse Network · Single Agent",
+  },
+];
+
+function warehouseCopilotStatus(packages = warehouseCopilotPackages) {
   return {
-    packages: [{
-      packageId: "warehouse-network-copilot",
-      available: true,
-      displayName: "Warehouse Network · Multi-Agent",
-    }],
-    installations: [{
-      packageId: "warehouse-network-copilot",
+    packages: packages.map((candidate) => ({ ...candidate, available: true })),
+    installations: packages.map(({ packageId }) => ({
+      packageId,
       sourceRevision: "revision-1",
       active: true,
       state: "configured",
@@ -72,7 +76,7 @@ function warehouseCopilotStatus() {
       managedSkillIds: [],
       managedAgentRoleIds: [],
       runtimeDiscoveredSkillIds: [],
-    }],
+    })),
   };
 }
 
@@ -1179,6 +1183,26 @@ describe("WebApp workspace-first messaging", () => {
       null,
     ));
     expect((composer as HTMLTextAreaElement).value).toBe("");
+  });
+
+  it("starts the only active Copilot directly for a first message", async () => {
+    client.copilotProfileStatus.mockResolvedValue(
+      warehouseCopilotStatus([warehouseCopilotPackages[1]]),
+    );
+    render(<WebApp />);
+
+    const composer = await screen.findByPlaceholderText("Ask Codex to do something...");
+    await waitFor(() => expect((composer as HTMLTextAreaElement).disabled).toBe(false));
+    await waitFor(() => expect(client.copilotProfileStatus).toHaveBeenCalled());
+    fireEvent.change(composer, { target: { value: "计算 12 小时时效达标率" } });
+    fireEvent.click(screen.getByRole("button", { name: "Send" }));
+
+    await waitFor(() => expect(client.startThread).toHaveBeenCalledWith(
+      "workspace-1",
+      expect.objectContaining({ copilot: { packageId: "warehouse-network-single-agent" } }),
+    ));
+    expect(screen.queryByRole("dialog", { name: "Choose a Copilot" })).toBeNull();
+    await waitFor(() => expect(client.sendUserMessage).toHaveBeenCalledTimes(1));
   });
 
   it("keeps the first message when the Copilot choice is cancelled", async () => {

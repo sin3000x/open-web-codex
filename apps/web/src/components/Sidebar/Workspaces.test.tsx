@@ -100,10 +100,40 @@ describe("Web workspace actions", () => {
     });
   });
 
+  it("starts the only active Copilot without asking", () => {
+    const props = baseProps();
+    props.copilots = [
+      {
+        packageId: "warehouse-network-single-agent",
+        displayName: "Warehouse Network · Single Agent",
+      },
+    ];
+    render(<Workspaces {...props} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "New task" }));
+
+    expect(screen.queryByRole("dialog", { name: "Choose a Copilot" })).toBeNull();
+    expect(props.onStartTask).toHaveBeenCalledWith("ws-1", {
+      packageId: "warehouse-network-single-agent",
+    });
+  });
+
+  it("disables the primary New task action without an active workspace", () => {
+    const props = baseProps();
+    render(<Workspaces {...props} activeId={null} />);
+
+    const newTask = screen.getByRole("button", { name: "New task" }) as HTMLButtonElement;
+    expect(newTask.disabled).toBe(true);
+  });
+
   it("opens the Copilot choice for an external start request", () => {
     const props = baseProps();
     props.copilots = [
       { packageId: "warehouse-network", displayName: "Warehouse Network · Multi-Agent" },
+      {
+        packageId: "warehouse-network-single-agent",
+        displayName: "Warehouse Network · Single Agent",
+      },
     ];
     const onStartTaskCancelled = vi.fn();
     const { rerender } = render(
@@ -128,6 +158,10 @@ describe("Web workspace actions", () => {
     const props = baseProps();
     props.copilots = [
       { packageId: "warehouse-network", displayName: "Warehouse Network · Multi-Agent" },
+      {
+        packageId: "warehouse-network-single-agent",
+        displayName: "Warehouse Network · Single Agent",
+      },
     ];
     const onStartTaskCancelled = vi.fn();
     render(

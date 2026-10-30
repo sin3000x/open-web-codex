@@ -5,6 +5,7 @@ import ChevronRight from "lucide-react/dist/esm/icons/chevron-right";
 import Folder from "lucide-react/dist/esm/icons/folder";
 import LoaderCircle from "lucide-react/dist/esm/icons/loader-circle";
 import MessageSquare from "lucide-react/dist/esm/icons/message-square";
+import Plus from "lucide-react/dist/esm/icons/plus";
 import Sparkles from "lucide-react/dist/esm/icons/sparkles";
 import Trash2 from "lucide-react/dist/esm/icons/trash-2";
 import type { WorkspaceInfo } from "../../types";
@@ -105,6 +106,11 @@ export default function Workspaces({
       onStartTask(workspace.id, null);
       return;
     }
+    // A single active Copilot is already an explicit Profile choice.
+    if (copilots.length === 1) {
+      onStartTask(workspace.id, { packageId: copilots[0].packageId });
+      return;
+    }
     setSelectedPackageId(copilots[0]?.packageId ?? null);
     setPendingTaskWorkspace(workspace);
   };
@@ -150,6 +156,8 @@ export default function Workspaces({
     return threadsByWorkspace[wsId] ?? [];
   };
 
+  const activeWorkspace = workspaces.find((candidate) => candidate.id === activeId) ?? null;
+
   const handleCreate = () => {
     const name = createName.trim();
     if (name) { onCreate(name); setCreateName(""); }
@@ -161,6 +169,21 @@ export default function Workspaces({
         <span className="web-ws-header-label">Workspaces</span>
         <span className="web-ws-header-count">{workspaces.length}</span>
       </div>
+
+      <button
+        type="button"
+        className="web-ws-new-task-primary"
+        onClick={() => {
+          if (!activeWorkspace) return;
+          setExpandedId(activeWorkspace.id);
+          openCopilotPicker(activeWorkspace);
+        }}
+        disabled={busy || !activeWorkspace}
+        title={activeWorkspace ? `New task in ${activeWorkspace.name}` : "Select a workspace first"}
+      >
+        <Plus size={14} aria-hidden="true" />
+        <span>New task</span>
+      </button>
 
       <div className="web-ws-create">
         <input
