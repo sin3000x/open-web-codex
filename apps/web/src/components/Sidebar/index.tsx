@@ -115,6 +115,7 @@ export default function Sidebar({
   return (
     <aside className="web-sidebar">
       <div className="web-sidebar-scroll">
+        <img className="web-site-logo" src="/brand-logo.png" alt="Logo" width={74} height={24} />
         <Brand state={gatewayState} version={gatewayVersion} />
 
         <Workspaces

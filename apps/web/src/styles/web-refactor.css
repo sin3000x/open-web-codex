@@ -80,6 +80,13 @@ body:has(.web-app-shell) {
   padding: 20px 18px 12px;
 }
 
+.web-site-logo {
+  display: block;
+  width: 74px;
+  height: 24px;
+  margin: 0 8px 14px;
+}
+
 .web-brand {
   min-height: 44px;
   padding: 0 8px 14px;
