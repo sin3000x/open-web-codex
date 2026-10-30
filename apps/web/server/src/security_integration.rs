@@ -18,8 +18,8 @@ use open_web_codex_run_orchestrator::RunOrchestrator;
 use open_web_codex_secret_store::{PostgresSecretStore, SecretCipher};
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
-use sqlx::postgres::PgPoolOptions;
-use sqlx::Row;
+use sqlx::postgres::{PgConnectOptions, PgPool, PgPoolOptions};
+use sqlx::{AssertSqlSafe, Row};
 use tower::ServiceExt;
 use uuid::Uuid;
 
@@ -29,15 +29,7 @@ use crate::routes::{self, RuntimeProfileBinding};
 #[tokio::test]
 #[ignore = "requires TEST_DATABASE_URL pointing at a disposable PostgreSQL database"]
 async fn task_creation_binds_only_an_authorized_project_workspace() {
-    let database_url = std::env::var("TEST_DATABASE_URL").expect("TEST_DATABASE_URL");
-    let pool = PgPoolOptions::new()
-        .max_connections(4)
-        .connect(&database_url)
-        .await
-        .expect("connect disposable PostgreSQL database");
-    open_web_codex_platform_store::migrate::run(&pool)
-        .await
-        .expect("migrate database");
+    let pool = isolated_database_pool().await;
     for retired_table in [
         "data_intake_sessions",
         "data_intake_input_requests",
@@ -452,15 +444,7 @@ async fn task_creation_binds_only_an_authorized_project_workspace() {
 #[tokio::test]
 #[ignore = "requires TEST_DATABASE_URL pointing at a disposable PostgreSQL database"]
 async fn organization_and_profile_authorization_prevent_cross_tenant_access() {
-    let database_url = std::env::var("TEST_DATABASE_URL").expect("TEST_DATABASE_URL");
-    let pool = PgPoolOptions::new()
-        .max_connections(4)
-        .connect(&database_url)
-        .await
-        .expect("connect disposable PostgreSQL database");
-    open_web_codex_platform_store::migrate::run(&pool)
-        .await
-        .expect("migrate database");
+    let pool = isolated_database_pool().await;
 
     let codex_home = tempfile::tempdir().expect("Codex home");
     let profile = RuntimeProfileBinding {
@@ -2138,6 +2122,38 @@ async fn organization_and_profile_authorization_prevent_cross_tenant_access() {
     .await
     .unwrap();
     assert_eq!(retained_artifact_count, 1);
+}
+
+/// Creates and migrates a fresh database on the `TEST_DATABASE_URL` server.
+///
+/// Each test bootstraps its own installation, and bootstrap succeeds only
+/// while no user exists, so tests that share one database conflict when run
+/// in parallel.
+async fn isolated_database_pool() -> PgPool {
+    let database_url = std::env::var("TEST_DATABASE_URL").expect("TEST_DATABASE_URL");
+    let server_options: PgConnectOptions = database_url.parse().expect("parse TEST_DATABASE_URL");
+    let database_name = format!("owc_security_{}", Uuid::now_v7().simple());
+    let admin = PgPoolOptions::new()
+        .max_connections(1)
+        .connect_with(server_options.clone())
+        .await
+        .expect("connect disposable PostgreSQL server");
+    sqlx::query(AssertSqlSafe(format!(
+        "CREATE DATABASE \"{database_name}\""
+    )))
+    .execute(&admin)
+    .await
+    .expect("create isolated test database");
+    admin.close().await;
+    let pool = PgPoolOptions::new()
+        .max_connections(4)
+        .connect_with(server_options.database(&database_name))
+        .await
+        .expect("connect isolated test database");
+    open_web_codex_platform_store::migrate::run(&pool)
+        .await
+        .expect("migrate database");
+    pool
 }
 
 async fn call(app: &Router, request: Request<Body>) -> (StatusCode, Value) {
