@@ -408,6 +408,24 @@ describe("WebApp direct Server client", () => {
     expect(fetchMock.mock.calls.every((call) => !String(call[0]).includes("/api/rpc"))).toBe(true);
   });
 
+  it("restores the persisted Thread token usage for an already-bound Thread", async () => {
+    const tokenUsage = {
+      total: { totalTokens: 900, inputTokens: 800, cachedInputTokens: 100, outputTokens: 100, reasoningOutputTokens: 0 },
+      last: { totalTokens: 300, inputTokens: 250, cachedInputTokens: 50, outputTokens: 50, reasoningOutputTokens: 0 },
+      modelContextWindow: 128_000,
+    };
+    const baseFetch = resourceFetch();
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = new URL(String(input));
+      if (url.pathname === `/api/runs/${run.id}/thread/token-usage`) return json({ tokenUsage });
+      return baseFetch(input, init);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const client = new CodexMonitorWebClient({ baseUrl: "http://server.test" });
+    await expect(client.readThreadTokenUsage("thread-1")).resolves.toEqual(tokenUsage);
+  });
+
   it("returns the object-shaped Thread status consumed by WebApp", async () => {
     const activeRun = { ...run, active_turn_id: "turn-active" };
     const baseFetch = resourceFetch();

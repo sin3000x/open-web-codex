@@ -317,7 +317,9 @@ export default function Composer({ draft, onDraftChange, onSend, onStop, running
     ? lastTokens > 0 ? tokenUsage.last : tokenUsage.total
     : null;
   const usedTokens = contextUsage?.totalTokens ?? 0;
-  const usedPercent = contextWindow > 0
+  // Unreported usage is not zero usage: keep the meter unavailable until the
+  // Runtime (or its durable projection) reports a value for this Thread.
+  const usedPercent = contextUsage && contextWindow > 0
     ? Math.min(Math.max((usedTokens / contextWindow) * 100, 0), 100)
     : null;
   const roundedPercent = usedPercent === null ? null : Math.round(usedPercent);

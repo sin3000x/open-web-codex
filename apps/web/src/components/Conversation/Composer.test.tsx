@@ -88,6 +88,38 @@ describe("Web Composer context usage", () => {
     expect(screen.getByText("Input 30,000 · Output 2,000")).not.toBeNull();
   });
 
+  it("keeps unreported usage unavailable even when the model context window is known", () => {
+    render(
+      <Composer
+        draft=""
+        onDraftChange={vi.fn()}
+        onSend={vi.fn()}
+        onStop={vi.fn()}
+        running={false}
+        stopping={false}
+        busy={false}
+        disabled={false}
+        tokenUsage={null}
+        currentProviderId="deepseek"
+        selectedModelId="deepseek-flash"
+        providers={[{
+          id: "deepseek",
+          name: "DeepSeek",
+          kind: "custom",
+          supportsFunctionTools: false,
+          isCurrent: true,
+          modelCount: 1,
+          canEdit: true,
+          models: [{ modelId: "deepseek-flash", contextWindow: 64_000 }],
+        }]}
+        models={[{ id: "deepseek-flash", model: "deepseek-flash", displayName: "DeepSeek Flash" }]}
+      />,
+    );
+
+    expect(screen.getByLabelText("Context usage unavailable")).not.toBeNull();
+    expect(screen.queryByLabelText(/Context used 0%/)).toBeNull();
+  });
+
   it("uses the selected model context setting for the context indicator", () => {
     const { rerender } = render(
       <Composer

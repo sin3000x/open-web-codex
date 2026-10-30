@@ -13,7 +13,7 @@ use open_web_codex_adapter::{AuthorizedWorkspace, CodexAdapter};
 use open_web_codex_platform_contracts::error::PlatformError;
 use open_web_codex_platform_contracts::{
     SetThreadNameRequest, ThreadHistory, ThreadHistoryError, ThreadHistoryResponse,
-    ThreadHistoryStatus, ThreadHistoryTurn,
+    ThreadHistoryStatus, ThreadHistoryTurn, ThreadTokenUsage, ThreadTokenUsageResponse,
 };
 use open_web_codex_platform_store::AppState;
 use serde_json::{json, Value};
@@ -255,6 +255,50 @@ pub async fn list_agent_turns(
         projected.push(turn);
     }
     Ok(Json(projected))
+}
+
+/// Return the latest usage the Runtime reported for the Run's root Thread.
+///
+/// Codex replays usage only when a Thread is first resumed into an app-server
+/// process, so later hydrations of an already-bound Thread read the durable
+/// `thread/tokenUsage/updated` projection instead of assuming zero usage.
+pub async fn read_token_usage(
+    State(state): State<AppState>,
+    auth: AuthenticatedUser,
+    Path(run_id): Path<Uuid>,
+) -> ApiResult<ThreadTokenUsageResponse> {
+    let context = authorized_thread(&state, &auth, run_id).await?;
+    let payload: Option<Value> = sqlx::query_scalar(
+        "SELECT payload FROM run_events \
+         WHERE run_id = $1 AND thread_id = $2 \
+           AND event_type = 'codex.thread.token_usage.updated' \
+         ORDER BY sequence DESC LIMIT 1",
+    )
+    .bind(run_id)
+    .bind(&context.thread_id)
+    .fetch_optional(&state.db)
+    .await
+    .map_err(database_error)?;
+    let token_usage = payload
+        .map(|payload| projected_token_usage(&payload))
+        .transpose()
+        .map_err(|error| {
+            tracing::warn!(%run_id, %error, "persisted Thread token usage is malformed");
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(PlatformError::internal(
+                    "Thread token usage projection is malformed",
+                )),
+            )
+        })?;
+    Ok(Json(ThreadTokenUsageResponse { token_usage }))
+}
+
+fn projected_token_usage(payload: &Value) -> Result<ThreadTokenUsage, String> {
+    let usage = payload
+        .pointer("/data/tokenUsage")
+        .ok_or_else(|| "event omitted tokenUsage".to_string())?;
+    serde_json::from_value(usage.clone()).map_err(|error| error.to_string())
 }
 
 pub async fn archive(
@@ -1033,12 +1077,34 @@ fn database_error(_: sqlx::Error) -> ApiError {
 #[cfg(test)]
 mod tests {
     use super::{
-        mcp_resource_bytes, project_turn, public_approval_status, valid_geojson_root,
-        ApprovalOverlay, ThreadHistoryOverlay,
+        mcp_resource_bytes, project_turn, projected_token_usage, public_approval_status,
+        valid_geojson_root, ApprovalOverlay, ThreadHistoryOverlay,
     };
     use open_web_codex_platform_contracts::ThreadHistoryTurn;
     use serde_json::json;
     use std::collections::HashMap;
+
+    #[test]
+    fn restores_persisted_token_usage_and_rejects_missing_usage() {
+        let usage = projected_token_usage(&json!({
+            "data": {
+                "threadId": "thread-1",
+                "tokenUsage": {
+                    "total": {"totalTokens": 900, "inputTokens": 800, "cachedInputTokens": 100,
+                              "outputTokens": 100, "reasoningOutputTokens": 10},
+                    "last": {"totalTokens": 300, "inputTokens": 250, "cachedInputTokens": 50,
+                             "outputTokens": 50, "reasoningOutputTokens": 5},
+                    "modelContextWindow": 128000
+                }
+            }
+        }))
+        .expect("persisted usage");
+        assert_eq!(usage.last.total_tokens, 300);
+        assert_eq!(usage.total.total_tokens, 900);
+        assert_eq!(usage.model_context_window, Some(128000));
+
+        assert!(projected_token_usage(&json!({"data": {}})).is_err());
+    }
 
     #[test]
     fn projects_authoritative_history_without_runtime_only_fields() {

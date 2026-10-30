@@ -43,6 +43,7 @@ const client = {
   copilotProfileStatus: vi.fn(),
   resumeThread: vi.fn(),
   listThreadTurns: vi.fn(),
+  readThreadTokenUsage: vi.fn(),
   readThread: vi.fn(),
   sendUserMessage: vi.fn(),
   interruptTurn: vi.fn(),
@@ -134,6 +135,7 @@ describe("WebApp workspace-first messaging", () => {
     client.copilotProfileStatus.mockResolvedValue({ packages: [], installations: [] });
     client.resumeThread.mockResolvedValue({ thread: { id: "thread-new", turns: [] } });
     client.listThreadTurns.mockResolvedValue([]);
+    client.readThreadTokenUsage.mockResolvedValue(null);
     client.readThread.mockResolvedValue({ thread: { id: "thread-new", turns: [] } });
     client.sendUserMessage.mockResolvedValue({ turn: { id: "turn-1" } });
     client.interruptTurn.mockResolvedValue({ status: "interrupted" });
@@ -1494,6 +1496,33 @@ describe("WebApp workspace-first messaging", () => {
     expect(screen.getByText("First history")).toBeTruthy();
     expect(screen.queryByText("正在加载 Thread…")).toBeNull();
     expect(client.listThreadTurns).toHaveBeenCalledTimes(2);
+  });
+
+  it("restores persisted context usage when switching back to an already-bound Thread", async () => {
+    client.listThreads.mockResolvedValue({
+      data: [
+        { id: "thread-first", name: "First thread", cwd: "/tmp/demo", updatedAt: 100, status: "idle" },
+        { id: "thread-second", name: "Second thread", cwd: "/tmp/demo", updatedAt: 200, status: "idle" },
+      ],
+    });
+    const usage = (totalTokens: number) => ({
+      total: { totalTokens, inputTokens: totalTokens, cachedInputTokens: 0, outputTokens: 0, reasoningOutputTokens: 0 },
+      last: { totalTokens, inputTokens: totalTokens, cachedInputTokens: 0, outputTokens: 0, reasoningOutputTokens: 0 },
+      modelContextWindow: 128_000,
+    });
+    client.readThreadTokenUsage.mockImplementation((threadId: string) =>
+      Promise.resolve(threadId === "thread-first" ? usage(32_000) : null));
+    render(<WebApp />);
+
+    fireEvent.click(await screen.findByText("First thread"));
+    expect(await screen.findByLabelText(/Context used \d+%: 32,000 of/)).toBeTruthy();
+
+    fireEvent.click(screen.getByText("Second thread"));
+    expect(await screen.findByLabelText("Context usage unavailable")).toBeTruthy();
+
+    fireEvent.click(screen.getByText("First thread"));
+    expect(await screen.findByLabelText(/Context used \d+%: 32,000 of/)).toBeTruthy();
+    expect(client.readThreadTokenUsage).toHaveBeenCalledTimes(3);
   });
 
   it("does not activate or render a replayed thread until the user selects it", async () => {

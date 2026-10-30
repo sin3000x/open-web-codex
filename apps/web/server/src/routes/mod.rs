@@ -250,6 +250,10 @@ pub fn router(
             axum::routing::get(threads::list_turns),
         )
         .route(
+            "/runs/{id}/thread/token-usage",
+            axum::routing::get(threads::read_token_usage),
+        )
+        .route(
             "/runs/{id}/agents/{thread_id}/turns",
             axum::routing::get(threads::list_agent_turns),
         )

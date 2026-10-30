@@ -439,6 +439,22 @@ export type ThreadHistoryTurn = {
   durationMs?: number | null;
 };
 
+export type ThreadTokenUsageBreakdown = {
+  totalTokens: number;
+  inputTokens: number;
+  cachedInputTokens: number;
+  outputTokens: number;
+  reasoningOutputTokens: number;
+};
+
+export type ThreadTokenUsageResponse = {
+  tokenUsage: {
+    total: ThreadTokenUsageBreakdown;
+    last: ThreadTokenUsageBreakdown;
+    modelContextWindow: number | null;
+  } | null;
+};
+
 export type ThreadHistoryResponse = {
   thread: {
     id: string;

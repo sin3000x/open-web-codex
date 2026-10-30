@@ -728,6 +728,9 @@ export default function WebApp() {
   const interruptRequestTurnId = useRef<string | null>(null);
   const queueDispatching = useRef(false);
   const threadHydrationSequence = useRef(0);
+  // Counts live usage updates so a slower durable usage read cannot replace
+  // a newer Runtime-reported value for the same selection.
+  const tokenUsageUpdateSequence = useRef(0);
   const recentAppServerEvents = useRef<Map<string, number>>(new Map());
   const pendingApprovalsByThread = useRef<Map<string, LogEntry[]>>(new Map());
   const submittingApprovalIdsRef = useRef<Set<string>>(new Set());
@@ -1800,7 +1803,10 @@ export default function WebApp() {
 
         case "thread/tokenUsage/updated": {
           const raw = params.tokenUsage as Record<string, unknown> | undefined;
-          if (raw) setTokenUsage(normalizeTokenUsage(raw));
+          if (raw) {
+            tokenUsageUpdateSequence.current += 1;
+            setTokenUsage(normalizeTokenUsage(raw));
+          }
           return null;
         }
 
@@ -2744,6 +2750,21 @@ export default function WebApp() {
       setThreadLoading(false);
       return;
     }
+    // Codex replays usage only when a Thread first binds to the app-server
+    // process, so an already-bound Thread restores it from the durable
+    // projection instead of showing an empty context meter.
+    const usageSequenceAtSelection = tokenUsageUpdateSequence.current;
+    void client.readThreadTokenUsage(id).then((usage) => {
+      if (
+        !usage
+        || threadHydrationSequence.current !== hydrationSequence
+        || tokenUsageUpdateSequence.current !== usageSequenceAtSelection
+      ) return;
+      setTokenUsage(normalizeTokenUsage(usage));
+    }).catch((error) => {
+      if (threadHydrationSequence.current !== hydrationSequence) return;
+      console.warn("Thread token usage could not be restored", error);
+    });
     if (threadProvider && threadModel) {
       const cachedProvider = modelProviders.find((provider) => provider.id === threadProvider);
       const cachedModels = modelSummariesForProvider(cachedProvider);

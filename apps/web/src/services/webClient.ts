@@ -862,6 +862,11 @@ export class CodexMonitorWebClient {
     return await this.platform.listRunThreadTurns(context.runId);
   }
 
+  async readThreadTokenUsage(threadId: string) {
+    const context = await this.findThreadContext(threadId);
+    return (await this.platform.readRunThreadTokenUsage(context.runId)).tokenUsage;
+  }
+
   async listWorkspaceFiles(workspaceId: string, threadId?: string | null) {
     if (threadId) await this.readyRunForWorkspace(workspaceId, threadId);
     return await this.platform.listWorkspaceFiles(workspaceId);

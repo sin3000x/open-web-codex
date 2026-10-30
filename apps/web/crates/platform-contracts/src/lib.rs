@@ -343,6 +343,33 @@ pub struct ThreadHistoryResponse {
     pub thread: ThreadHistory,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ThreadTokenUsageBreakdown {
+    pub total_tokens: u64,
+    pub input_tokens: u64,
+    pub cached_input_tokens: u64,
+    pub output_tokens: u64,
+    pub reasoning_output_tokens: u64,
+}
+
+/// Latest Runtime-reported usage for one Codex Thread, read from the durable
+/// `thread/tokenUsage/updated` projection.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ThreadTokenUsage {
+    pub total: ThreadTokenUsageBreakdown,
+    pub last: ThreadTokenUsageBreakdown,
+    pub model_context_window: Option<u64>,
+}
+
+/// `token_usage` is `None` until the Runtime has reported usage for the Thread.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ThreadTokenUsageResponse {
+    pub token_usage: Option<ThreadTokenUsage>,
+}
+
 /// Request to start a run.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]

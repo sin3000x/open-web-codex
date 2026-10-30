@@ -35,6 +35,7 @@ import type {
   ProjectThreadContext,
   ThreadHistoryResponse,
   ThreadHistoryTurn,
+  ThreadTokenUsageResponse,
   BrowserWorkspacePreference,
   CreateGitHubRepositoryResponse,
   MapsConfiguration,
@@ -504,6 +505,12 @@ export class PlatformClient {
   listRunThreadTurns(runId: string) {
     return this.request<ThreadHistoryTurn[]>(
       `/api/runs/${encodeURIComponent(runId)}/thread/turns`,
+    );
+  }
+
+  readRunThreadTokenUsage(runId: string) {
+    return this.request<ThreadTokenUsageResponse>(
+      `/api/runs/${encodeURIComponent(runId)}/thread/token-usage`,
     );
   }
 
