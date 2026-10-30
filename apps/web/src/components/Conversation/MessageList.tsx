@@ -57,6 +57,12 @@ function isAssistantProcessEntry(entry: MessageEntry) {
   return entry.level === "assistant" && entry.messagePhase === "commentary";
 }
 
+function isPostReplyNotice(entry: MessageEntry) {
+  if (entry.kind === "approval") return isTerminalApproval(entry);
+  return entry.kind === undefined
+    && (entry.level === "event" || entry.level === "info" || entry.level === "system");
+}
+
 function typedArtifactDeliveries(entry: MessageEntry) {
   return entry.level === "assistant" && Array.isArray(entry.inlineArtifacts)
     ? entry.inlineArtifacts
@@ -383,10 +389,16 @@ export default function MessageList({ items, thinking = false, turnStartedAt, on
         ? "Waiting for approval…"
         : "Working…";
     const isActiveTurn = end === items.length && (thinking || hasLiveItem);
-    const finalReplyIndex = turnItems.length > 0
-      && isAssistantReply(turnItems[turnItems.length - 1])
-      ? turnItems.length - 1
-      : -1;
+    // Platform notices and resolved approval overlays are not Runtime work.
+    // History restore and resume can place them after the reply, so only a
+    // later Runtime item demotes that reply into the execution timeline.
+    let finalReplyIndex = turnItems.length - 1;
+    while (finalReplyIndex >= 0 && isPostReplyNotice(turnItems[finalReplyIndex])) {
+      finalReplyIndex -= 1;
+    }
+    if (finalReplyIndex >= 0 && !isAssistantReply(turnItems[finalReplyIndex])) {
+      finalReplyIndex = -1;
+    }
     const completedTurnDurationMs = entry.turnDurationMs
       ?? turnItems.find((item) => item.turnDurationMs !== undefined)?.turnDurationMs;
 

@@ -522,6 +522,43 @@ describe("MessageList", () => {
     expect(view.container.querySelector(".web-execution-current .web-msg-commentary")).toBeTruthy();
   });
 
+  it("keeps a restored final reply visible when platform notices follow it", () => {
+    const view = render(
+      <MessageList
+        items={[
+          { id: "user-1", level: "user", text: "Add a warehouse in Jambi" },
+          {
+            id: "tool-1",
+            level: "info",
+            kind: "tool",
+            toolType: "MCP",
+            toolTitle: "supply_chain / assess_facility_change",
+            text: "assess_facility_change",
+            toolStatus: "completed",
+          },
+          { id: "final-1", level: "assistant", text: "Coverage rises to 72%." },
+          {
+            id: "approval-1",
+            level: "info",
+            kind: "approval",
+            text: "Allow assess_facility_change?",
+            approvalTool: "assess_facility_change",
+            approvalStatus: "accepted",
+          },
+          { id: "event-1", level: "event", text: "thread/queue/changed · thread-1" },
+        ]}
+      />,
+    );
+
+    const summary = screen.getByRole("button", { name: "1 tool call, 0 messages" });
+    expect(summary.getAttribute("aria-expanded")).toBe("false");
+    expect(screen.getByText("Coverage rises to 72%.")).toBeTruthy();
+    fireEvent.click(summary);
+    const timeline = view.container.querySelector(".web-execution-timeline");
+    expect(timeline?.textContent).toContain("thread/queue/changed");
+    expect(timeline?.textContent).not.toContain("Coverage rises to 72%.");
+  });
+
   it("keeps the latest unclassified reply visible, then folds it behind later work", () => {
     const items = [
       { id: "user-1", level: "user" as const, text: "Write the script" },
