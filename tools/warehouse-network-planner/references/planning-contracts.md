@@ -48,6 +48,13 @@ selected-set change returns `source_changed` without creating output. `needs_inp
 business handoff, not a retry loop. Data registers no Resource or Resource template, so callers must
 not use `read_mcp_resource` for the inspection result.
 
+`query_prepared_network_input` is the read-only fact query over one exact prepared input. It
+evaluates typed filters, up to two `group_by` fields, sum/min/max/mean measures and an ordered row
+list of at most 100 records over every record of the selected dataset, and returns
+`prepared_network_query.v1` with exact `record_count`, `matched_count`, groups and measures. A changed
+selected source returns `prepared_input_stale` with `next_action="reinspect"` and no facts. Business
+fact questions are answered by this Tool, never by inspection preview rows.
+
 `prepare_route_matrix` returns a discriminated `ready | needs_input` result. `ready` always has
 zero missing pairs and the exact `route_matrix.v3` reference. An incomplete provided scope returns
 bounded missing-pair evidence and executable completion choices without publishing a consumable

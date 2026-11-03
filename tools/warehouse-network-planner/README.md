@@ -12,7 +12,7 @@
 
 | Server | 责任 |
 | --- | --- |
-| `supply_chain_data` | 发现和检查授权 Workspace 的 CSV/JSON/XLSX，发布来源画像、映射、标准化输入和行政区结果 |
+| `supply_chain_data` | 发现和检查授权 Workspace 的 CSV/JSON/XLSX，发布来源画像、映射、标准化输入和行政区结果，并在准备好的输入上回答只读事实查询 |
 | `supply_chain` | 构建路线/成本矩阵，计算覆盖、成本、场景、p-median、服务约束选址、比较地图和报告 |
 
 `network/server.py` 只负责创建 FastMCP、按固定顺序注册一个 Resource template 与 12 个公开 Tool、
@@ -40,6 +40,13 @@ publish_network_planning_report
 ```
 
 Data Tool 先以 `workspace_source_profile.v2` inline `source_profile`、exact source units、`inspection_identity` 和 `inspected_relative_paths` 返回有界检查结果，再重新检查完整文件并以 create-new 语义写入用户可见的 `outputs/warehouse-network/prepared/` Workspace JSON；Data/Network Agent 只交接精确相对路径、内容身份、roles/role_counts 和有界 warnings。`prepared_ready` 直接交接，`prepared_selection_required` 只请求一次选择，`source_changed` 最多重检一次。Data 不注册 Resource template，也不要求读取 source profile Resource。导航请求只写入 `outputs/warehouse-network/requests/`，单 Agent 经 Skill 授权的有界全量统计脚本与结果只写入 `outputs/warehouse-network/calculations/`，最终地图/报告文件只写入 `outputs/warehouse-network/deliverables/`，所有输入源保持原位。路线、成本、方案与比较等 Network 计算结果写入 Resource Store，并都绑定同一输入身份。Agent 不传原始文件、整张矩阵或完整工具结果。缺失数据、矩阵不完整、求解器不可用和超时都是显式状态；不会自动加载 Mock、填零或切换旧实现。
+
+`query_prepared_network_input` 是 Data 的只读事实查询入口：对一个准备好的输入中某个数据集
+（warehouses、demand_cities、current_assignments、route_quotes、provided_route_facts）的全部记录做
+typed 过滤、最多两个字段分组、sum/min/max/mean 以及最多 100 行的排序列表，返回
+`prepared_network_query.v1` 的精确 `record_count`、`matched_count` 和分组计数。字段按记录模型分为
+text/number/bool，非法字段、类型不符或范围比较作用于非数值字段时返回带原因的错误；所选原始来源已变化时
+返回 `prepared_input_stale`，不返回过期事实。“有几个中心仓”这类问题由它回答，不读取预览、不跑脚本。
 
 Data Tool 会把用户输入中完整的起点、终点、距离、时长与来源方法保存在
 `prepared_network_input.v2`；Network Tool 可以按分析范围把这些事实物化为

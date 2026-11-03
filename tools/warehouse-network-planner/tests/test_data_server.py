@@ -60,6 +60,7 @@ def test_data_server_exposes_workspace_preparation_not_cross_agent_data_resource
         "inspect_workspace_sources",
         "prepare_network_input",
         "prepare_network_geography",
+        "query_prepared_network_input",
     }
     assert "normalize_candidate_delta" not in tools
     assert "derive_normalized_network_input" not in tools

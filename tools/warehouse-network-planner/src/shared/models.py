@@ -417,6 +417,118 @@ class DataPreparationToolResult(
     """Discriminated Data-to-Network preparation result."""
 
 
+PreparedQueryDataset = Literal[
+    "warehouses",
+    "demand_cities",
+    "current_assignments",
+    "route_quotes",
+    "provided_route_facts",
+]
+PreparedQueryScalar = str | bool | float | None
+PreparedQueryKey = dict[str, PreparedQueryScalar]
+
+
+class PreparedQueryFilter(StrictModel):
+    """One typed predicate over a normalized prepared record field."""
+
+    field_name: str = Field(min_length=1, max_length=64)
+    op: Literal["eq", "ne", "in", "gt", "gte", "lt", "lte"]
+    value: PreparedQueryScalar = None
+    values: list[str | bool | float] | None = Field(default=None, min_length=1, max_length=64)
+
+    @model_validator(mode="after")
+    def validate_operands(self) -> PreparedQueryFilter:
+        if self.op == "in":
+            if self.values is None or self.value is not None:
+                raise ValueError("query_filter_in_requires_values")
+        elif self.values is not None:
+            raise ValueError("query_filter_values_only_for_in")
+        if self.op in {"gt", "gte", "lt", "lte"} and (
+            self.value is None or isinstance(self.value, bool)
+        ):
+            raise ValueError("query_filter_range_requires_value")
+        return self
+
+
+class PreparedQueryMeasure(StrictModel):
+    op: Literal["sum", "min", "max", "mean"]
+    field_name: str = Field(min_length=1, max_length=64)
+
+
+class PreparedQueryOrder(StrictModel):
+    field_name: str = Field(min_length=1, max_length=64)
+    descending: bool = False
+
+
+class PreparedQueryMeasureValue(StrictModel):
+    op: Literal["sum", "min", "max", "mean"]
+    field_name: str = Field(min_length=1, max_length=64)
+    value: Decimal | None
+    value_count: int = Field(ge=0)
+
+
+class PreparedQueryGroup(StrictModel):
+    key: PreparedQueryKey
+    count: int = Field(ge=1)
+    measures: list[PreparedQueryMeasureValue] = Field(max_length=4)
+
+
+class PreparedQueryAnswered(StrictModel):
+    """Exact facts computed over every record of one prepared dataset."""
+
+    outcome: Literal["answered"]
+    schema_version: Literal["prepared_network_query.v1"] = Field(alias="schemaVersion")
+    summary: str
+    prepared_input_relative_path: str = Field(min_length=1, max_length=1024)
+    input_identity: PlanningInputIdentity
+    country_code: str = Field(pattern=r"^[A-Z]{2}$")
+    roles: list[SourceRole] = Field(min_length=1, max_length=5)
+    role_counts: PreparationRoleCounts
+    dataset: PreparedQueryDataset
+    record_count: int = Field(ge=0)
+    matched_count: int = Field(ge=0)
+    measures: list[PreparedQueryMeasureValue] = Field(max_length=4)
+    groups: list[PreparedQueryGroup] = Field(max_length=200)
+    group_count: int = Field(ge=0)
+    groups_truncated: bool
+    rows: list[PreparedQueryKey] = Field(max_length=100)
+    rows_truncated: bool
+
+    @model_validator(mode="after")
+    def validate_bounded_counts(self) -> PreparedQueryAnswered:
+        if self.matched_count > self.record_count:
+            raise ValueError("query_matched_count_exceeds_records")
+        if len(self.groups) != min(self.group_count, 200):
+            raise ValueError("query_group_count_bounded_length_mismatch")
+        if self.groups_truncated != (self.group_count > 200):
+            raise ValueError("query_group_count_truncation_mismatch")
+        if self.groups and self.rows:
+            raise ValueError("query_groups_and_rows_exclusive")
+        return self
+
+
+class PreparedQueryStale(StrictModel):
+    """The prepared file no longer matches its selected Workspace sources."""
+
+    outcome: Literal["prepared_input_stale"]
+    summary: str
+    reason: str = Field(min_length=1, max_length=128)
+    prepared_input_relative_path: str = Field(min_length=1, max_length=1024)
+    next_action: Literal["reinspect"]
+    retryable: Literal[False]
+
+
+class PreparedQueryToolResult(
+    RootModel[
+        Annotated[
+            PreparedQueryAnswered | PreparedQueryStale,
+            Field(discriminator="outcome"),
+        ]
+    ]
+):
+    """Discriminated read-only query result over one prepared planning input."""
+
+
 class PlanningInputOption(StrictModel):
     label: str = Field(min_length=1, max_length=64)
     description: str = Field(min_length=1, max_length=240)

@@ -71,6 +71,7 @@ async def smoke() -> None:
                     "inspect_workspace_sources",
                     "prepare_network_input",
                     "prepare_network_geography",
+                    "query_prepared_network_input",
                 }
                 assert names == expected_tools
                 assert (await asyncio.wait_for(session.list_resources(), timeout=10)).resources == []

@@ -254,7 +254,10 @@ identity、Workspace 路径和 typed Network Resource 各司其职：Data Server
 `workspace_source_profile.v2`、精确 source units、预览样本数与完整总数、`workspace_source_inspection.v2` identity 及精确
 inspected paths；角色评估不是全局业务缺口，只有选中 unit 的业务语义无法确定时才询问。prepare 使用
 `source_selections` 和必要的显式 mapping，若来源在握手期间变化则返回 `source_changed` 且不写文件，否则以
-`prepared_network_input.v2` 原子写入 `outputs/warehouse-network/prepared/`，保存 selected provenance、roles、role_counts 和有界 warnings；`prepare_network_geography` 再从该文件生成新的完整输入。Network
+`prepared_network_input.v2` 原子写入 `outputs/warehouse-network/prepared/`，保存 selected provenance、roles、role_counts 和有界 warnings；`prepare_network_geography` 再从该文件生成新的完整输入。只读的
+`query_prepared_network_input` 在同一准备文件的全部标准化记录上返回 `prepared_network_query.v1`
+计数、分组、数值汇总和有界行列表，所选来源变化时返回 `prepared_input_stale` 而不给事实；业务事实问题由它
+回答，不由预览样本推断。Network
 Tool 只接受这个确切路径，并为矩阵与方案 Resource 绑定输入内容身份；不存在 candidate delta 或
 Data-to-Network ResourceRef 交接。
 CaseRepository、NetworkSnapshot、

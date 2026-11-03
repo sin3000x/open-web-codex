@@ -1729,6 +1729,7 @@ mod tests {
             .as_str()
             .expect("single-Agent developer instructions");
         assert!(instructions.contains("prepared_input_relative_path"));
+        assert!(instructions.contains("`query_prepared_network_input` 在已准备数据上精确回答"));
         assert!(instructions.contains("outputs/warehouse-network/calculations/"));
         assert!(instructions.contains("只有用户明确要求脚本核算时"));
         assert!(instructions.contains("同时保存可复用的 `.py` 脚本和 `.json` 结果"));

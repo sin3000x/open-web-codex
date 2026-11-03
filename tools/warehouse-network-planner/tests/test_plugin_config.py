@@ -72,6 +72,7 @@ DATA_TOOLS = {
     "inspect_workspace_sources",
     "prepare_network_input",
     "prepare_network_geography",
+    "query_prepared_network_input",
 }
 NETWORK_TOOLS = {
     "assess_facility_change",

@@ -44,6 +44,11 @@ from supply_chain_planner.data.normalization import (
     ConfirmedSourceRows,
     normalize_confirmed_rows,
 )
+from supply_chain_planner.data.prepared_query import (
+    MAX_QUERY_ROWS,
+    field_catalog_description,
+    query_prepared_input,
+)
 from supply_chain_planner.data.workspace_intake import (
     discover,
     inspect,
@@ -77,6 +82,12 @@ from supply_chain_planner.shared.models import (
     PreparedAdministrativeCatalog,
     PreparedCandidateSummary,
     PreparedNetworkResource,
+    PreparedQueryDataset,
+    PreparedQueryFilter,
+    PreparedQueryMeasure,
+    PreparedQueryOrder,
+    PreparedQueryStale,
+    PreparedQueryToolResult,
     PreparedSourceSelection,
     SourceInspectionIdentity,
     SourceSelection,
@@ -1516,6 +1527,73 @@ def prepare_network_geography(
         output_relative_path,
         ctx,
         f"Prepared network geography and {geography.summary}.",
+    )
+
+
+@mcp.tool(
+    structured_output=True,
+    annotations=READ_ONLY_LOCAL_TOOL,
+    description=(
+        "Answer business fact questions exactly over every normalized record of one prepared "
+        "input: counts, group-by breakdowns, sum/min/max/mean and bounded filtered row lists. "
+        "Use it for questions such as how many warehouses of each type exist, which cities "
+        "have the most demand, or which candidates lie in a province; never answer such "
+        "questions from inspection preview rows. roles and role_counts show which roles the "
+        "prepared file contains; a role it did not prepare is not evidence of zero. group_by returns groups and no rows; without "
+        "group_by it returns at most `limit` rows plus the exact matched_count. A changed "
+        "selected source returns prepared_input_stale instead of facts. Fields by dataset: "
+        f"{field_catalog_description()}."
+    ),
+)
+def query_prepared_network_input(
+    prepared_input_relative_path: Annotated[str, Field(min_length=1, max_length=1024)],
+    dataset: PreparedQueryDataset,
+    ctx: Context,
+    filters: Annotated[list[PreparedQueryFilter], Field(max_length=8)] | None = None,
+    group_by: Annotated[list[str], Field(max_length=2)] | None = None,
+    measures: Annotated[list[PreparedQueryMeasure], Field(max_length=4)] | None = None,
+    select: Annotated[list[str], Field(max_length=16)] | None = None,
+    order_by: PreparedQueryOrder | None = None,
+    limit: Annotated[int, Field(ge=0, le=MAX_QUERY_ROWS)] = 20,
+) -> Annotated[CallToolResult, PreparedQueryToolResult]:
+    root = _workspace(ctx)
+    prepared, identity = load_prepared_network_input(root, prepared_input_relative_path)
+    fresh, reason = validate_prepared_freshness(
+        root,
+        prepared,
+        required_roles=prepared.roles,
+        country_code=prepared.country_code,
+        allow_needs_geography=True,
+    )
+    if fresh:
+        outcome = query_prepared_input(
+            prepared,
+            identity,
+            prepared_input_relative_path,
+            dataset,
+            filters=filters or (),
+            group_by=group_by or (),
+            measures=measures or (),
+            select=select or (),
+            order_by=order_by,
+            limit=limit,
+        )
+    else:
+        outcome = PreparedQueryStale(
+            outcome="prepared_input_stale",
+            summary=(
+                f"Prepared input {prepared_input_relative_path} no longer matches its selected "
+                f"sources ({reason}); reinspect and prepare again before answering."
+            ),
+            reason=reason,
+            prepared_input_relative_path=prepared_input_relative_path,
+            next_action="reinspect",
+            retryable=False,
+        )
+    result = PreparedQueryToolResult(root=outcome)
+    return CallToolResult(
+        content=[TextContent(type="text", text=outcome.summary)],
+        structuredContent=result.model_dump(mode="json", by_alias=True),
     )
 
 

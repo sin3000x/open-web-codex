@@ -42,11 +42,12 @@ const WAREHOUSE_SKILLS: [&str; 4] = [
     "warehouse-supervisor",
 ];
 const WAREHOUSE_MCP_SERVERS: [&str; 3] = ["map_utils", "supply_chain", "supply_chain_data"];
-const DATA_TOOLS: [&str; 4] = [
+const DATA_TOOLS: [&str; 5] = [
     "discover_workspace_sources",
     "inspect_workspace_sources",
     "prepare_network_input",
     "prepare_network_geography",
+    "query_prepared_network_input",
 ];
 const NETWORK_TOOLS: [&str; 12] = [
     "assess_facility_change",
