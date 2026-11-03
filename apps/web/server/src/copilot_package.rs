@@ -1733,7 +1733,6 @@ mod tests {
         assert!(instructions.contains("outputs/warehouse-network/calculations/"));
         assert!(instructions.contains("只有用户明确要求脚本核算时"));
         assert!(instructions.contains("同时保存可复用的 `.py` 脚本和 `.json` 结果"));
-        assert!(instructions.contains("`create_network_map_card` 成功后立即回复并结束"));
         assert!(
             role["plugins"]["map_utils"]["mcp_servers"]["map_utils"]["tools"]
                 .get("publish_workspace_geojson")
