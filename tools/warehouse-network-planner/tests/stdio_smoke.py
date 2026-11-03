@@ -155,7 +155,7 @@ async def smoke() -> None:
                 )
                 assert blocked_inspection.isError is not True
                 blocked_profile = blocked_inspection.structuredContent
-                assert blocked_profile["schemaVersion"] == "workspace_source_profile.v2"
+                assert blocked_profile["schemaVersion"] == "workspace_source_profile.v3"
                 assert blocked_profile["outcome"] == "inspected"
                 assert blocked_profile["next_action"] == "confirm_sources"
                 assert blocked_profile["retryable"] is False

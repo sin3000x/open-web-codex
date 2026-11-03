@@ -1,8 +1,8 @@
 """Exact read-only queries over one prepared planning input.
 
-Inspection previews are schema examples. Business fact questions (counts,
-group totals, filtered lists) are answered here over every normalized record
-of the prepared file, so the model never has to infer facts from samples.
+Inspection statistics describe raw source columns before mapping. Business
+fact questions (counts, group totals, filtered lists) are answered here over
+every normalized record of the prepared file.
 """
 
 from __future__ import annotations

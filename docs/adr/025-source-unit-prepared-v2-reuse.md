@@ -31,6 +31,11 @@ Data 需要支持 CSV、XLSX sheet 和任意 JSON array，同时避免把 previe
 `prepared_unavailable`。比较记录而非 source selection，是因为规范化跨 role 校验、地理补全会改写记录，
 记录才是权威数据。
 
+同日，source profile 升级为 `workspace_source_profile.v3`：不再返回 head preview 行（此前截到 3 行，类型和代表值
+只来自前 20 行），改为对每个 unit 的全部记录做一次流式统计，每字段给出类型计数、空值、去重计数（超过 256 个
+跟踪值即标为非精确）、全数值字段的 min/max，以及重复的低基数字段的取值计数或至多 3 个代表值。统计仅用于判断
+字段含义和映射；业务事实仍由准备后的 `query_prepared_network_input` 回答。
+
 ## Owner、持久化与边界
 
 Data Tool 拥有 unit 解析、全量读取、映射、规范化和 prepared 文件；Network/Maps 拥有其 typed Resource 和交付。Platform 不保存映射、复用 registry、revision、fingerprint 或 workflow state；Codex Runtime 不做领域解释。Role TOML 继续显式声明 MCP 权限，Skill 只描述目标角色、业务询问和 typed 终态交接。

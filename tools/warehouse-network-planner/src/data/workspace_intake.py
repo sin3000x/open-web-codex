@@ -1,8 +1,10 @@
 """Bounded Workspace source discovery and evidence profiling.
 
-This module deliberately exposes only structural samples to the model.  Full
-file reads are reserved for the deterministic normalizer after the user has
-confirmed the mapping after the requirement profile was published.
+Inspection streams every record of each source unit once and reduces each
+field to bounded statistics (types, nulls, distinct values, numeric range and
+low-cardinality value counts) plus a few representative values.  Raw rows are
+never returned to the model; complete rows are read again only by the
+deterministic normalizer after the mapping is confirmed.
 """
 
 from __future__ import annotations
@@ -15,6 +17,7 @@ import json
 import re
 import stat
 import zipfile
+from collections import Counter
 from collections.abc import Mapping
 from dataclasses import dataclass
 from decimal import Decimal, InvalidOperation
@@ -28,7 +31,10 @@ from openpyxl import load_workbook
 
 MAX_FILES = 500
 MAX_BYTES = 100 * 1024 * 1024
-MAX_SAMPLE_ROWS = 20
+MAX_SNIFF_LINES = 20
+MAX_TRACKED_DISTINCT_VALUES = 256
+MAX_VALUE_COUNTS = 12
+MAX_REPRESENTATIVE_VALUES = 3
 MAX_JSON_DEPTH = 64
 MAX_JSON_NODES = 250_000
 MAX_JSON_STRING = 64 * 1024
@@ -320,14 +326,13 @@ def inspect(root: Path, relative_path: str) -> dict[str, Any]:
 def inspect_csv(path: Path) -> dict[str, Any]:
     raw = _read_prefix(path, 256 * 1024)
     text = decode_text(raw)
-    sample = text.splitlines()[: MAX_SAMPLE_ROWS + 1]
+    sample = text.splitlines()[: MAX_SNIFF_LINES + 1]
     if not sample:
         return {
             "kind": "table",
             "unit_ref": "table",
             "columns": [],
             "fields": [],
-            "preview": _preview_payload([], total_count=0, total_count_exact=True),
             "record_count": 0,
             "record_count_exact": True,
         }
@@ -336,46 +341,34 @@ def inspect_csv(path: Path) -> dict[str, Any]:
         delimiter = dialect.delimiter
     except csv.Error:
         delimiter = ","
-    rows = list(csv.reader(sample, delimiter=delimiter))
-    if len(rows[0]) > MAX_XLSX_COLUMNS:
-        raise ValueError("source_column_limit_exceeded")
-    header = [cell.strip() for cell in rows[0]]
-    preview_rows = rows[1 : MAX_SAMPLE_ROWS + 1]
-    if any(len(row) > MAX_XLSX_COLUMNS for row in preview_rows):
-        raise ValueError("source_column_limit_exceeded")
-    record_count = _count_csv_records(path, delimiter)
-    if record_count > MAX_NORMALIZE_ROWS:
-        raise ValueError("source_row_limit_exceeded")
+    with path.open("rb") as binary:
+        text_stream = io.TextIOWrapper(
+            binary,
+            encoding=detect_encoding(_read_prefix(path, 64 * 1024)),
+            errors="strict",
+        )
+        reader = csv.reader(text_stream, delimiter=delimiter)
+        first = next(reader, [])
+        if len(first) > MAX_XLSX_COLUMNS:
+            raise ValueError("source_column_limit_exceeded")
+        header = [cell.strip() for cell in first]
+        statistics = _UnitStatistics(header, text=True)
+        for row in reader:
+            if len(row) > MAX_XLSX_COLUMNS:
+                raise ValueError("source_column_limit_exceeded")
+            if not any(cell not in (None, "") for cell in row):
+                continue
+            if statistics.record_count >= MAX_NORMALIZE_ROWS:
+                raise ValueError("source_row_limit_exceeded")
+            statistics.add_row(row)
     return {
         "kind": "table",
         "unit_ref": "table",
         "delimiter": delimiter,
         "columns": header,
-        "fields": _field_profiles(header, preview_rows, text=True),
-        "preview": _preview_payload(
-            preview_rows,
-            total_count=record_count,
-            total_count_exact=True,
-        ),
-        "record_count": record_count,
+        "fields": statistics.field_profiles(),
+        "record_count": statistics.record_count,
         "record_count_exact": True,
-    }
-
-
-def _preview_payload(
-    rows: list[Any],
-    *,
-    total_count: int = 0,
-    total_count_exact: bool = False,
-) -> dict[str, Any]:
-    return {
-        "strategy": "head",
-        "limit": MAX_SAMPLE_ROWS,
-        "preview_sample_count": len(rows),
-        "total_count": total_count,
-        "total_count_exact": total_count_exact,
-        "complete": False,
-        "rows": rows,
     }
 
 
@@ -416,41 +409,108 @@ def _bounded_representative(value: Any) -> Any:
     return str(value)[:256]
 
 
-def _field_profiles(
-    columns: list[Any], rows: list[list[Any]], *, text: bool = False
-) -> list[dict[str, Any]]:
-    profiles: list[dict[str, Any]] = []
-    for index, column in enumerate(columns):
-        name = str(column or "").strip()
-        if not name:
-            continue
-        values = [
-            row[index]
-            for row in rows
-            if isinstance(row, list) and index < len(row) and row[index] not in (None, "")
+def _numeric_value(value: Any, value_type: str) -> Decimal | None:
+    if value_type not in {"integer", "number"}:
+        return None
+    try:
+        return Decimal(str(value).strip().replace(",", ""))
+    except (InvalidOperation, ValueError):
+        return None
+
+
+def _json_number(value: Decimal) -> int | float:
+    return int(value) if value == value.to_integral_value() else float(value)
+
+
+class _FieldStatistics:
+    """Bounded full-column statistics for one source field."""
+
+    def __init__(self, name: str, *, text: bool) -> None:
+        self.name = name
+        self.text = text
+        self.null_count = 0
+        self.type_counts: Counter[str] = Counter()
+        self.value_counts: Counter[Any] = Counter()
+        self.distinct_overflow = False
+        self.minimum: Decimal | None = None
+        self.maximum: Decimal | None = None
+        self.all_numeric = True
+        self.representatives: list[Any] = []
+
+    def add(self, value: Any) -> None:
+        value_type = _sample_type(value, text=self.text)
+        if value_type == "null":
+            self.null_count += 1
+            return
+        self.type_counts[value_type] += 1
+        number = _numeric_value(value, value_type)
+        if number is None:
+            self.all_numeric = False
+        else:
+            self.minimum = number if self.minimum is None else min(self.minimum, number)
+            self.maximum = number if self.maximum is None else max(self.maximum, number)
+        key = _bounded_representative(value.strip() if isinstance(value, str) else value)
+        if key in self.value_counts:
+            self.value_counts[key] += 1
+        elif len(self.value_counts) < MAX_TRACKED_DISTINCT_VALUES:
+            self.value_counts[key] = 1
+            if len(self.representatives) < MAX_REPRESENTATIVE_VALUES:
+                self.representatives.append(key)
+        else:
+            self.distinct_overflow = True
+
+    def profile(self) -> dict[str, Any]:
+        non_null_count = sum(self.type_counts.values())
+        result: dict[str, Any] = {
+            "name": self.name,
+            "value_types": dict(sorted(self.type_counts.items())),
+            "null_count": self.null_count,
+            "distinct_count": len(self.value_counts),
+            "distinct_count_exact": not self.distinct_overflow,
+        }
+        if non_null_count and self.all_numeric and self.minimum is not None:
+            result["min"] = _json_number(self.minimum)
+            result["max"] = _json_number(self.maximum)
+        # Counts are emitted only for repeating categories; per-value counts of
+        # identifiers would reproduce the rows themselves.
+        if (
+            not self.distinct_overflow
+            and len(self.value_counts) <= MAX_VALUE_COUNTS
+            and len(self.value_counts) * 2 <= non_null_count
+        ):
+            result["value_counts"] = [
+                {"value": value, "count": count}
+                for value, count in sorted(
+                    self.value_counts.items(), key=lambda item: (-item[1], str(item[0]))
+                )
+            ]
+        else:
+            result["representative_values"] = self.representatives
+        return result
+
+
+class _UnitStatistics:
+    """Record count and per-field statistics for one tabular source unit."""
+
+    def __init__(self, columns: list[Any], *, text: bool = False) -> None:
+        self.record_count = 0
+        self.formula_cell_count = 0
+        self.fields = [
+            (index, _FieldStatistics(str(column or "").strip(), text=text))
+            for index, column in enumerate(columns)
+            if str(column or "").strip()
         ]
-        profiles.append(
-            {
-                "name": name,
-                "sample_types": sorted({_sample_type(value, text=text) for value in values}),
-                "representative_values": [
-                    _bounded_representative(value) for value in values[:3]
-                ],
-            }
-        )
-    return profiles
 
-
-def _count_csv_records(path: Path, delimiter: str) -> int:
-    with path.open("rb") as binary:
-        text_stream = io.TextIOWrapper(
-            binary,
-            encoding=detect_encoding(_read_prefix(path, 64 * 1024)),
-            errors="strict",
+    def add_row(self, row: list[Any]) -> None:
+        self.record_count += 1
+        self.formula_cell_count += sum(
+            1 for value in row if isinstance(value, dict) and value.get("formula") is True
         )
-        reader = csv.reader(text_stream, delimiter=delimiter)
-        next(reader, None)
-        return sum(1 for row in reader if any(cell not in (None, "") for cell in row))
+        for index, field in self.fields:
+            field.add(row[index] if index < len(row) else None)
+
+    def field_profiles(self) -> list[dict[str, Any]]:
+        return [field.profile() for _, field in self.fields]
 
 
 def inspect_json(path: Path) -> dict[str, Any]:
@@ -483,10 +543,10 @@ def inspect_json(path: Path) -> dict[str, Any]:
                     "path": array_path,
                     "unit_ref": array_path,
                     "array_prefix": "" if array_key == "$" else array_key,
-                    "length": 0,
-                    "length_exact": True,
+                    "record_count": 0,
+                    "record_count_exact": True,
+                    "non_object_item_count": 0,
                     "fields": [],
-                    "preview": _preview_payload([]),
                 }
             if event == "map_key":
                 object_keys.setdefault(prefix, set()).add(str(value)[:256])
@@ -496,60 +556,35 @@ def inspect_json(path: Path) -> dict[str, Any]:
                 raise ValueError("json_structure_limit_exceeded")
 
     # ijson's event stream is used above for limits and structure.  A second
-    # streaming pass counts every item while extracting at most three preview
-    # items per discovered array.  The full JSON document is never loaded into
-    # memory or sent to the model.
+    # streaming pass reduces every item of each discovered array to bounded
+    # per-field statistics.  The full JSON document is never loaded into memory
+    # or sent to the model.
     for array_prefix, array in arrays.items():
         item_prefix = "item" if array_prefix == "$" else f"{array_prefix}.item"
-        field_types: dict[str, set[str]] = {}
-        field_values: dict[str, list[Any]] = {}
+        fields: dict[str, _FieldStatistics] = {}
         with path.open("rb") as stream:
             try:
                 for index, item in enumerate(ijson.items(stream, item_prefix)):
                     if index >= MAX_NORMALIZE_ROWS:
                         raise ValueError("source_row_limit_exceeded")
-                    array["length"] = index + 1
-                    if isinstance(item, dict):
-                        for key, value in item.items():
-                            name = str(key)[:256]
-                            field_types.setdefault(name, set()).add(_sample_type(value))
-                            if value not in (None, "") and len(field_values.setdefault(name, [])) < 3:
-                                field_values[name].append(_bounded_representative(value))
-                    if index < 3:
-                        if isinstance(item, dict):
-                            array["preview"]["rows"].append(
-                                {
-                                    "kind": "object",
-                                    "fields": {
-                                        str(key)[:256]: {
-                                            "type": type(value).__name__,
-                                            "sample": _bounded_json_sample(value),
-                                        }
-                                        for key, value in item.items()
-                                    },
-                                }
-                            )
-                        else:
-                            array["preview"]["rows"].append(
-                                {
-                                    "kind": "value",
-                                    "type": type(item).__name__,
-                                    "sample": _bounded_json_sample(item),
-                                }
-                            )
-                    array["preview"]["preview_sample_count"] = len(array["preview"]["rows"])
+                    array["record_count"] = index + 1
+                    if not isinstance(item, dict):
+                        array["non_object_item_count"] += 1
+                        continue
+                    for key, value in item.items():
+                        name = str(key)[:256]
+                        if name not in fields:
+                            if len(fields) >= MAX_XLSX_COLUMNS:
+                                raise ValueError("source_column_limit_exceeded")
+                            fields[name] = _FieldStatistics(name, text=False)
+                        fields[name].add(value)
             except (ijson.common.IncompleteJSONError, ijson.common.JSONError) as error:
                 raise ValueError("invalid_json") from error
-        array["preview"]["total_count"] = array["length"]
-        array["preview"]["total_count_exact"] = array["length_exact"]
-        array["fields"] = [
-            {
-                "name": name,
-                "sample_types": sorted(field_types[name]),
-                "representative_values": field_values.get(name, []),
-            }
-            for name in sorted(field_types)
-        ]
+        object_count = array["record_count"] - array["non_object_item_count"]
+        for field in fields.values():
+            # A key absent from an object item counts as a null for that field.
+            field.null_count = object_count - sum(field.type_counts.values())
+        array["fields"] = [fields[name].profile() for name in sorted(fields)]
     return {
         "kind": "json",
         "tree": {"kind": root_kind},
@@ -558,20 +593,6 @@ def inspect_json(path: Path) -> dict[str, Any]:
         "node_count": node_count,
         "administrative_metadata": administrative_metadata,
     }
-
-
-def _bounded_json_sample(value: Any) -> Any:
-    if isinstance(value, str):
-        return value[:256]
-    if isinstance(value, (int, float, bool)) or value is None:
-        return value
-    if isinstance(value, list):
-        return [_bounded_json_sample(item) for item in value[:3]]
-    if isinstance(value, dict):
-        return {
-            str(key)[:128]: _bounded_json_sample(item) for key, item in list(value.items())[:16]
-        }
-    return str(value)[:256]
 
 
 def _json_array_path(prefix: str) -> str:
@@ -624,8 +645,7 @@ def inspect_xlsx(path: Path) -> dict[str, Any]:
             raise ValueError("xlsx_sheet_limit_exceeded")
         for worksheet in workbook.worksheets:
             header: list[Any] | None = None
-            preview_rows: list[list[Any]] = []
-            record_count = 0
+            statistics: _UnitStatistics | None = None
             for row in worksheet.iter_rows(values_only=False):
                 values = []
                 if len(row) > MAX_XLSX_COLUMNS:
@@ -638,30 +658,24 @@ def inspect_xlsx(path: Path) -> dict[str, Any]:
                 if any(value not in (None, "") for value in values):
                     if header is None:
                         header = values
+                        statistics = _UnitStatistics(header)
                     else:
-                        record_count += 1
-                        if record_count > MAX_NORMALIZE_ROWS:
+                        if statistics.record_count >= MAX_NORMALIZE_ROWS:
                             raise ValueError("source_row_limit_exceeded")
-                        if len(preview_rows) < MAX_SAMPLE_ROWS:
-                            preview_rows.append(values)
-            if header is not None:
+                        statistics.add_row(values)
+            if header is not None and statistics is not None:
                 summaries.append(
                     {
                         "sheet": worksheet.title,
                         "unit_ref": f"sheet:{worksheet.title}",
                         "columns": [str(value or "").strip() for value in header],
-                        "fields": _field_profiles(header, preview_rows),
-                        "preview": _preview_payload(
-                            preview_rows,
-                            total_count=record_count,
-                            total_count_exact=True,
-                        ),
-                        "record_count": record_count,
+                        "fields": statistics.field_profiles(),
+                        "record_count": statistics.record_count,
                         "record_count_exact": True,
-                        "preview_formula_cells": sum(
+                        "formula_cell_count": statistics.formula_cell_count
+                        + sum(
                             1
-                            for row in [header, *preview_rows]
-                            for value in row
+                            for value in header
                             if isinstance(value, dict) and value.get("formula") is True
                         ),
                     }

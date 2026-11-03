@@ -131,10 +131,10 @@ mcp = FastMCP(
         "Workspace before confirming mappings. Inspection returns one bounded inline profile and "
         "workspace_source_inspection.v2 identity; Data does not publish a source Resource. "
         "Inspection accepts raw sources only; reuse prepared inputs through "
-        "resolve_prepared_network_input. The "
-        "head preview has separate "
-        "preview_sample_count, total_count, and total_count_exact fields; preview rows are examples "
-        "only and never the full source. Never use the preview sample count as the source row count. "
+        "resolve_prepared_network_input. Each unit reports its exact record_count and, per "
+        "field, bounded statistics over every record: value types, null and distinct counts, "
+        "numeric min/max, value counts for low-cardinality fields and a few representative "
+        "values. No raw rows are returned. "
         "Inspection reports independent source-unit role assessments; partial or ambiguous units "
         "do not block inspection. Only the selected sources are validated during preparation. "
         "The initial normalization tool rereads "
@@ -349,7 +349,7 @@ def inspect_workspace_sources(
     result = DataInspectionToolResult(
         root=DataInspectionInspected(
             outcome="inspected",
-            schemaVersion="workspace_source_profile.v2",
+            schemaVersion="workspace_source_profile.v3",
             summary=summary,
             next_action="confirm_sources",
             retryable=False,
@@ -497,14 +497,12 @@ def _inspect_workspace_sources(
                 ),
             )
         sources.append(source)
-    profile = _bound_agent_previews(
-        {
-            "schemaVersion": "workspace_source_profile.v2",
-            "sources": sources,
-            "source_count": len(sources),
-            "unit_count": unit_count,
-        }
-    )
+    profile = {
+        "schemaVersion": "workspace_source_profile.v3",
+        "sources": sources,
+        "source_count": len(sources),
+        "unit_count": unit_count,
+    }
     profile_bytes = len(json.dumps(profile, ensure_ascii=False, separators=(",", ":")).encode())
     if profile_bytes > _workspace_intake.MAX_INSPECTION_BYTES:
         return _selection_required_result(
@@ -521,7 +519,7 @@ def _selection_required_result(
 ) -> DataInspectionSelectionRequired:
     return DataInspectionSelectionRequired(
         outcome="selection_required",
-        schemaVersion="workspace_source_profile.v2",
+        schemaVersion="workspace_source_profile.v3",
         summary=summary,
         code="inspection_selection_required",
         next_action="select_fewer_sources",
@@ -553,36 +551,20 @@ def _unit_definitions(structure: dict[str, Any]) -> list[dict[str, Any]]:
 
 
 def _unit_observations(unit: dict[str, Any]) -> list[FieldObservation]:
-    fields = unit.get("fields")
-    if isinstance(fields, list):
-        observations: list[FieldObservation] = []
-        for field in fields:
-            if not isinstance(field, dict) or not str(field.get("name", "")).strip():
-                continue
-            values = field.get("representative_values", [])
-            observations.append(
-                FieldObservation(
-                    name=str(field["name"]).strip(),
-                    sample_values=tuple(str(value)[:256] for value in values[:3]),
-                )
-            )
-        if observations:
-            return observations
-
-    observations = []
-    columns = unit.get("columns", [])
-    rows = unit.get("preview", {}).get("rows", [])
-    for index, column in enumerate(columns):
-        name = str(column).strip()
-        if not name:
-            continue
-        samples = tuple(
-            str(row[index])[:256]
-            for row in rows[:3]
-            if isinstance(row, list) and index < len(row) and row[index] not in (None, "")
+    return [
+        FieldObservation(
+            name=str(field["name"]).strip(),
+            sample_values=tuple(str(value)[:256] for value in _field_sample_values(field)[:3]),
         )
-        observations.append(FieldObservation(name=name, sample_values=samples))
-    return observations
+        for field in unit.get("fields", [])
+        if isinstance(field, dict) and str(field.get("name", "")).strip()
+    ]
+
+
+def _field_sample_values(field: dict[str, Any]) -> list[Any]:
+    if "value_counts" in field:
+        return [item["value"] for item in field["value_counts"]]
+    return list(field.get("representative_values", []))
 
 
 def _role_assessment_payload(assessment: SuggestedRoleAssessment) -> dict[str, Any]:
@@ -657,13 +639,13 @@ def _mapping_analysis(
             "kind": unit_kind,
             "locator": locator,
             "fields": unit.get("fields", []),
-            "preview": unit.get("preview", {}),
-            "record_count": unit.get("record_count", unit.get("length", 0)),
-            "record_count_exact": unit.get(
-                "record_count_exact", unit.get("length_exact", True)
-            ),
+            "record_count": unit.get("record_count", 0),
+            "record_count_exact": unit.get("record_count_exact", True),
             "role_assessments": assessments,
         }
+        for count_key in ("formula_cell_count", "non_object_item_count"):
+            if unit.get(count_key):
+                unit_profile[count_key] = unit[count_key]
         units.append(unit_profile)
     return units
 
@@ -678,25 +660,6 @@ def _missing_fields_question(relative_path: str, missing_fields: tuple[str, ...]
     return f"文件 {relative_path} 缺少必需字段：{fields}。请补充源数据后再继续。"
 
 
-def _bound_agent_previews(profile: dict[str, Any]) -> dict[str, Any]:
-    """Keep structural evidence while preventing sample rows from entering context."""
-
-    def trim(value: Any) -> Any:
-        if isinstance(value, dict):
-            result = {key: trim(item) for key, item in value.items()}
-            preview = result.get("preview")
-            if isinstance(preview, dict) and isinstance(preview.get("rows"), list):
-                preview["rows"] = preview["rows"][:3]
-                preview["preview_sample_count"] = len(preview["rows"])
-                preview["limit"] = min(int(preview.get("limit", 3)), 3)
-            return result
-        if isinstance(value, list):
-            return [trim(item) for item in value]
-        return value
-
-    return trim(profile)
-
-
 @mcp.tool(structured_output=True, annotations=WORKSPACE_PREPARATION_TOOL)
 def prepare_network_input(
     inspection_identity: SourceInspectionIdentity,
@@ -707,7 +670,7 @@ def prepare_network_input(
             min_length=1,
             max_length=640,
             description=(
-                "Select exact units from the latest workspace_source_profile.v2. Each item must "
+                "Select exact units from the latest workspace_source_profile.v3. Each item must "
                 "include relative_path, unit_ref, role, and optional explicit mappings. "
                 "Never include an administrative catalog here."
             )
@@ -1438,7 +1401,7 @@ def prepare_network_geography(
         "input: counts, group-by breakdowns, sum/min/max/mean and bounded filtered row lists. "
         "Use it for questions such as how many warehouses of each type exist, which cities "
         "have the most demand, or which candidates lie in a province; never answer such "
-        "questions from inspection preview rows. Each group carries its exact record count; "
+        "questions from inspection statistics. Each group carries its exact record count; "
         "measures add sums or extremes. roles and role_counts show which roles the "
         "prepared file contains; a role it did not prepare is not evidence of zero. group_by returns groups and no rows; without "
         "group_by it returns at most `limit` rows plus the exact matched_count. A changed "

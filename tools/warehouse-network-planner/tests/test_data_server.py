@@ -206,7 +206,7 @@ def test_missing_warehouse_type_is_typed_non_retryable_user_input(
     inspection = inspected.structuredContent
 
     assert inspection["outcome"] == "inspected"
-    assert inspection["schemaVersion"] == "workspace_source_profile.v2"
+    assert inspection["schemaVersion"] == "workspace_source_profile.v3"
     assert inspection["next_action"] == "confirm_sources"
     assert inspection["retryable"] is False
     warehouse_profile = next(
@@ -339,7 +339,7 @@ def test_preparation_bounded_count_contract_rejects_underfilled_or_wrong_flags()
         DataPreparationReady.model_validate({**ready, "warnings_truncated": True})
 
 
-def test_source_profile_distinguishes_preview_samples_from_exact_total(
+def test_source_profile_reports_full_column_statistics_without_rows(
     tmp_path, monkeypatch
 ) -> None:
     rows = [
@@ -368,18 +368,20 @@ def test_source_profile_distinguishes_preview_samples_from_exact_total(
     source = inspection["source_profile"]["sources"][0]
     assert "structure" not in source
     unit = source["units"][0]
-    preview = unit["preview"]
     inspection_identity = SourceInspectionIdentity.model_validate(
         inspection["inspection_identity"]
     )
     inspected_paths = inspection["inspected_relative_paths"]
 
     assert unit["record_count"] == 12
-    assert preview["preview_sample_count"] == 3
-    assert preview["total_count"] == 12
-    assert preview["total_count_exact"] is True
-    assert "returned_count" not in preview
-    assert "Balikpapan" not in json.dumps(preview["rows"])
+    assert unit["record_count_exact"] is True
+    assert "preview" not in unit
+    fields = {field["name"]: field for field in unit["fields"]}
+    assert fields["warehouse_type"]["value_counts"] == [{"value": "cross_docking", "count": 12}]
+    assert fields["is_existing"]["value_counts"] == [{"value": "false", "count": 12}]
+    assert fields["longitude"]["max"] == 116.996737
+    assert fields["city_name"]["distinct_count"] == 12
+    assert "Balikpapan" not in json.dumps(fields["city_name"]["representative_values"])
 
     with pytest.raises(ProviderContractError, match="generated_output_path_invalid"):
         data_server.prepare_network_input(

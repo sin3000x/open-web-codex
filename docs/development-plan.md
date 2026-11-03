@@ -544,7 +544,7 @@ producer-time verifier snapshot，恢复不依赖届时 active package registry�
 6. Data Tool 以 create-new 语义把完整 `prepared_network_input.v2`（含选中 source units、候选仓和质量问题）
    写入用户可见 `outputs/warehouse-network/prepared/`；该路径、内容身份、roles/role_counts 和有界 warnings 是唯一 Data→Network 交接。路线/成本/方案等高成本
    typed intermediate 继续保存为 MCP Resource。
-7. Data inspect 返回 `workspace_source_profile.v2` 的 exact units；角色评估不是全局缺口。fresh prepared 只有显式候选路径且 provenance fresh 才复用；`needs_input` 一次交回用户，`source_changed` 最多一次重检。
+7. Data inspect 只检查原始来源，返回 `workspace_source_profile.v3` 的 exact units 与全列有界统计；角色评估不是全局缺口。fresh prepared 只有显式候选路径且 provenance fresh 才由 `resolve_prepared_network_input` 复用，所需 roles 记录相同即不询问；`needs_input` 一次交回用户，`source_changed` 最多一次重检。
 8. 候选仓、城市、现网仓、实际分配、需求或原始路线事实任一变化都产生新的完整准备输入；不使用
    candidate delta 或原地修改。校验结果不构成授权、可信等级或自动复用许可。
 

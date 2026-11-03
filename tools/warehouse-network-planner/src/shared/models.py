@@ -247,7 +247,7 @@ class DataInspectionInspected(StrictModel):
     """Successful v2 source-unit inspection."""
 
     outcome: Literal["inspected"]
-    schema_version: Literal["workspace_source_profile.v2"] = Field(alias="schemaVersion")
+    schema_version: Literal["workspace_source_profile.v3"] = Field(alias="schemaVersion")
     summary: str
     next_action: Literal["confirm_sources"]
     retryable: Literal[False]
@@ -272,7 +272,7 @@ class DataInspectionSelectionRequired(StrictModel):
     """Typed bounded request to reduce inspection scope before retrying."""
 
     outcome: Literal["selection_required"]
-    schema_version: Literal["workspace_source_profile.v2"] = Field(alias="schemaVersion")
+    schema_version: Literal["workspace_source_profile.v3"] = Field(alias="schemaVersion")
     summary: str
     code: Literal["inspection_selection_required"]
     next_action: Literal["select_fewer_sources"]

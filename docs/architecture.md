@@ -165,8 +165,9 @@ Platform 侧过滤 Runtime discovery 或 Tool。
 预批准路线/成本/验证/分析/选址/比较、coverage GeoJSON 等本地 Tool 与最终 Markdown 报告 `publish_network_planning_report`；`map_utils` 预批准 `create_network_map_card`、`create_map_card` 与 `revise_map_card`。
 外部导航、距离矩阵和 final Workspace 地图导出继续保留 official approval。Data→Network 输入是 Data Tool
 create-new 的 `prepared_network_input.v2` Workspace 相对路径与 `input_identity`；Network Tool 在同一授权
-Workspace 内自行验证和读取该文件，Role 不枚举、猜测、扫描 raw 数据或重解析其来源。fresh prepared candidate
-只有在 inspect 输入中显式出现且 selected raw/admin provenance 仍 fresh 时复用；未选来源变化不阻塞当前目标。路线、成本和方案
+Workspace 内自行验证和读取该文件，Role 不枚举、猜测、扫描 raw 数据或重解析其来源。prepared 复用由只读
+`resolve_prepared_network_input` 负责：只考虑显式给出的 discover 候选，selected raw/admin provenance 须仍 fresh，
+所需 roles 的规范化记录相同即复用其一，记录不同才请用户选择；未选来源变化不阻塞当前目标。路线、成本和方案
 继续是 provider-owned Resource，并逐一绑定同一输入身份。Platform 不为当前原生协作链建立消息或数据平面。
 同时在 Tool annotations 中声明 read-only、destructive、idempotent 和 open-world 事实，Role
 policy 只裁决该 child 的精确允许面，不修改全局 `approvalPolicy`。prepared transport 不固定 MCP
@@ -251,7 +252,8 @@ revision、operation、dependency、readiness 或 deliverable 状态。
 能力提供不可变 Resource 内容，并以 Profile 私有、canonical Workspace 隔离的物理目录保存
 字节；Data inspection 不发布 Resource。Data4 与 Network 的 active surface 以 inline inspection
 identity、Workspace 路径和 typed Network Resource 各司其职：Data Server 的 inspect 返回有界
-`workspace_source_profile.v2`、精确 source units、预览样本数与完整总数、`workspace_source_inspection.v2` identity 及精确
+`workspace_source_profile.v3`（只含原始来源；每个 source unit 给出精确记录数，每个字段给出覆盖全部记录的有界统计：
+类型、空值与去重计数、数值范围、低基数取值计数和少量代表值，不返回原始行）、`workspace_source_inspection.v2` identity 及精确
 inspected paths；角色评估不是全局业务缺口，只有选中 unit 的业务语义无法确定时才询问。prepare 使用
 `source_selections` 和必要的显式 mapping，若来源在握手期间变化则返回 `source_changed` 且不写文件，否则以
 `prepared_network_input.v2` 原子写入 `outputs/warehouse-network/prepared/`，保存 selected provenance、roles、role_counts 和有界 warnings；`prepare_network_geography` 再从该文件生成新的完整输入。只读的

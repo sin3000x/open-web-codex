@@ -108,16 +108,27 @@ def test_source_structure_limits_reject_instead_of_truncating(tmp_path: Path, mo
         inspect(tmp_path, "columns.xlsx")
 
 
-def test_csv_and_json_profiles_are_structural_samples_with_exact_counts(tmp_path: Path) -> None:
+def test_csv_and_json_profiles_report_full_column_statistics(tmp_path: Path) -> None:
     csv_path = tmp_path / "demand.csv"
     csv_path.write_text(
-        "origin;qty\n" + "\n".join(f"city-{index};{index}" for index in range(25)) + "\n",
+        "origin;qty;kind\n"
+        + "\n".join(
+            f"city-{index};{index};{'center' if index % 5 == 0 else ''}" for index in range(25)
+        )
+        + "\n",
         encoding="utf-8",
     )
     json_path = tmp_path / "nested.json"
     json_path.write_text(
         json.dumps(
-            {"orders": [{"origin": f"city-{index}", "quantity": index} for index in range(25)]}
+            {
+                "orders": [
+                    {"origin": f"city-{index}", "quantity": index}
+                    if index != 24
+                    else {"origin": "city-24"}
+                    for index in range(25)
+                ]
+            }
         ),
         encoding="utf-8",
     )
@@ -128,23 +139,47 @@ def test_csv_and_json_profiles_are_structural_samples_with_exact_counts(tmp_path
     }
 
     assert profiles["demand.csv"]["structure"]["delimiter"] == ";"
-    assert profiles["demand.csv"]["structure"]["columns"] == ["origin", "qty"]
+    assert profiles["demand.csv"]["structure"]["columns"] == ["origin", "qty", "kind"]
     csv_structure = profiles["demand.csv"]["structure"]
     assert csv_structure["record_count"] == 25
     assert csv_structure["record_count_exact"] is True
-    assert csv_structure["preview"]["strategy"] == "head"
-    assert csv_structure["preview"]["preview_sample_count"] == 20
-    assert csv_structure["preview"]["total_count"] == 25
-    assert csv_structure["preview"]["total_count_exact"] is True
-    assert csv_structure["preview"]["complete"] is False
-    assert profiles["nested.json"]["structure"]["arrays"][0]["path"] == "$.orders"
+    assert "preview" not in csv_structure
+    origin, qty, kind = csv_structure["fields"]
+    assert origin["value_types"] == {"string": 25}
+    assert origin["distinct_count"] == 25
+    assert origin["distinct_count_exact"] is True
+    assert "value_counts" not in origin
+    assert origin["representative_values"] == ["city-0", "city-1", "city-2"]
+    assert "representative_values" not in kind
+    assert (qty["min"], qty["max"]) == (0, 24)
+    assert qty["null_count"] == 0
+    # Values beyond the old 20-row head sample are counted, not sampled.
+    assert kind["null_count"] == 20
+    assert kind["value_counts"] == [{"value": "center", "count": 5}]
+    assert "min" not in kind
     json_array = profiles["nested.json"]["structure"]["arrays"][0]
-    assert json_array["length"] == 25
-    assert json_array["length_exact"] is True
-    assert json_array["preview"]["preview_sample_count"] == 3
-    assert json_array["preview"]["total_count"] == 25
-    assert json_array["preview"]["total_count_exact"] is True
-    assert json_array["preview"]["complete"] is False
+    assert json_array["path"] == "$.orders"
+    assert json_array["record_count"] == 25
+    assert json_array["record_count_exact"] is True
+    assert "preview" not in json_array
+    quantity = next(field for field in json_array["fields"] if field["name"] == "quantity")
+    assert quantity["null_count"] == 1
+    assert quantity["value_types"] == {"integer": 24}
+    assert (quantity["min"], quantity["max"]) == (0, 23)
+
+
+def test_field_statistics_bound_distinct_tracking(tmp_path: Path) -> None:
+    (tmp_path / "wide.csv").write_text(
+        "code\n" + "\n".join(f"C-{index}" for index in range(300)) + "\n",
+        encoding="utf-8",
+    )
+    (field,) = inspect(tmp_path, "wide.csv")["structure"]["fields"]
+
+    assert field["value_types"] == {"string": 300}
+    assert field["distinct_count"] == 256
+    assert field["distinct_count_exact"] is False
+    assert "value_counts" not in field
+    assert len(field["representative_values"]) == 3
 
 
 def test_read_unit_rows_supports_explicit_json_array_locator(tmp_path: Path) -> None:
@@ -186,10 +221,11 @@ def test_xlsx_profile_preserves_multiple_sheets_and_bounded_rows(tmp_path: Path)
         "Region",
     ]
     warehouse_sheet = profile["structure"]["sheets"][1]
-    assert warehouse_sheet["preview"]["rows"] == [["F1", "Existing", "existing"]]
-    assert warehouse_sheet["preview"]["preview_sample_count"] == 1
-    assert warehouse_sheet["preview"]["total_count"] == 1
-    assert warehouse_sheet["preview"]["total_count_exact"] is True
+    assert "preview" not in warehouse_sheet
+    # A single row is not a repeating category, so its value is a sample, not a count.
+    assert warehouse_sheet["fields"][2]["representative_values"] == ["existing"]
+    assert "value_counts" not in warehouse_sheet["fields"][2]
+    assert warehouse_sheet["formula_cell_count"] == 0
     assert warehouse_sheet["record_count"] == 1
     assert warehouse_sheet["record_count_exact"] is True
 
@@ -221,7 +257,6 @@ def test_json_profile_exposes_every_nested_array_as_an_exact_source_unit(tmp_pat
     }
     cities = arrays["$.payload.cities"]
     assert cities["path"] == "$.payload.cities"
-    assert cities["length"] == 1
-    assert cities["preview"]["preview_sample_count"] == 1
-    assert cities["preview"]["total_count"] == 1
+    assert cities["record_count"] == 1
+    assert arrays["$.payload.meta"]["non_object_item_count"] == 2
     assert {field["name"] for field in cities["fields"]} == {"city_code", "city_name"}

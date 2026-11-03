@@ -38,9 +38,13 @@ paths but is passed separately to preparation.
 `country_code` is optional: when omitted, the Tool derives one only from a uniquely identified
 administrative catalog metadata record; missing or conflicting metadata leaves it null with a bounded
 warning. The Tool returns a bounded inline
-`workspace_source_profile.v2`, exact source units, `preview_sample_count`, `total_count`,
-`total_count_exact`, `inspection_identity` and inspected relative paths. Preview rows are schema
-examples only; `total_count` is the complete unit count. Each unit carries `role_assessments`
+`workspace_source_profile.v3`, exact source units with an exact `record_count`, `inspection_identity`
+and inspected relative paths. Each field carries bounded statistics over every record: `value_types`
+counts, `null_count`, `distinct_count` (exact up to 256 tracked values, then `distinct_count_exact:
+false`), numeric `min`/`max` when every value is numeric, and either `value_counts` for repeating
+low-cardinality fields (at most 12 values, each seen at least twice on average) or up to three
+`representative_values`. XLSX units add `formula_cell_count` and JSON arrays `non_object_item_count`
+when non-zero. No raw rows are returned. Each unit carries `role_assessments`
 (`complete`, `partial` or `ambiguous`); preparation auto-resolves mappings only from a single
 `complete` assessment for the selected role.
 
