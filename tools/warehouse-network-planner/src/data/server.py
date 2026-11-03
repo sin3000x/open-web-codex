@@ -37,7 +37,6 @@ from supply_chain_planner.data.mapping import (
     SuggestedRoleAssessment,
     TransformSpec,
     assess_role_mappings,
-    suggest_role_mappings,
 )
 from supply_chain_planner.data.normalization import (
     ConfirmedFieldMapping,
@@ -48,6 +47,10 @@ from supply_chain_planner.data.prepared_query import (
     MAX_QUERY_ROWS,
     field_catalog_description,
     query_prepared_input,
+)
+from supply_chain_planner.data.prepared_resolution import (
+    MAX_PREPARED_CANDIDATES,
+    resolve_prepared_inputs,
 )
 from supply_chain_planner.data.workspace_intake import (
     discover,
@@ -61,14 +64,11 @@ from supply_chain_planner.data.workspace_intake import (
 from supply_chain_planner.network.models import (
     DataQualityIssue,
     NormalizedInputBatch,
-    PlanningInputIdentity,
 )
 from supply_chain_planner.shared.models import (
     CandidateWarehouseSummary,
     ConfirmedFieldDecision,
     DataInspectionInspected,
-    DataInspectionPreparedReady,
-    DataInspectionPreparedSelectionRequired,
     DataInspectionSelectionRequired,
     DataInspectionToolResult,
     DataPreparationNeedsInput,
@@ -80,7 +80,6 @@ from supply_chain_planner.shared.models import (
     InspectionLimitCounts,
     PreparationRoleCounts,
     PreparedAdministrativeCatalog,
-    PreparedCandidateSummary,
     PreparedNetworkResource,
     PreparedQueryDataset,
     PreparedQueryFilter,
@@ -88,6 +87,7 @@ from supply_chain_planner.shared.models import (
     PreparedQueryOrder,
     PreparedQueryStale,
     PreparedQueryToolResult,
+    PreparedResolutionToolResult,
     PreparedSourceSelection,
     SourceInspectionIdentity,
     SourceSelection,
@@ -129,7 +129,9 @@ mcp = FastMCP(
         "never request or accept organization IDs, Profile IDs, credentials, arbitrary SQL, "
         "filesystem paths, or write statements. Discover and inspect the complete authorized "
         "Workspace before confirming mappings. Inspection returns one bounded inline profile and "
-        "workspace_source_inspection.v2 identity; Data does not publish a source Resource. The "
+        "workspace_source_inspection.v2 identity; Data does not publish a source Resource. "
+        "Inspection accepts raw sources only; reuse prepared inputs through "
+        "resolve_prepared_network_input. The "
         "head preview has separate "
         "preview_sample_count, total_count, and total_count_exact fields; preview rows are examples "
         "only and never the full source. Never use the preview sample count as the source row count. "
@@ -296,55 +298,34 @@ def discover_workspace_sources(ctx: Context) -> dict[str, Any]:
 @mcp.tool(structured_output=True, annotations=READ_ONLY_LOCAL_TOOL)
 def inspect_workspace_sources(
     relative_paths: list[str],
-    required_roles: Annotated[list[PlanningSourceRole], Field(min_length=1, max_length=5)],
     ctx: Context,
     country_code: Annotated[
         str | None,
         Field(
             pattern=r"^[A-Za-z]{2}$",
             description=(
-                "Only a country the user stated. Omit it otherwise: prepared candidates are "
-                "checked against the country recorded in each prepared file."
+                "Only a country the user stated. Omit it otherwise; a unique administrative "
+                "catalog among the inspected files may supply it."
             ),
         ),
     ] = None,
 ) -> Annotated[CallToolResult, DataInspectionToolResult]:
-    """Inspect selected Workspace files and return one bounded inline profile.
+    """Inspect selected raw Workspace sources and return one bounded inline profile.
 
-    Preview rows are examples for schema inspection only. They are never a
-    complete source snapshot and must not be used as the source row count.
+    Prepared inputs are not raw sources; reuse them with
+    resolve_prepared_network_input. Preview rows are examples for schema
+    inspection only. They are never a complete source snapshot and must not be
+    used as the source row count.
     """
-    required_roles = _canonical_required_roles(required_roles)
     country = country_code.strip().upper() if country_code is not None else None
     root = _workspace(ctx)
     if not relative_paths:
         raise ValueError("relative_paths must contain at least one Workspace-relative path")
     if len(set(relative_paths)) != len(relative_paths):
         raise ValueError("relative_paths must not contain duplicates")
-    selected_candidate_paths = {
-        path for path in relative_paths if _is_prepared_candidate_path(path)
-    }
-    discovered_candidate_paths = {
-        str(source["relative_path"])
-        for source in discover(root)
-        if source.get("kind") == "prepared_candidate"
-    }
-    unknown_candidate_paths = selected_candidate_paths - discovered_candidate_paths
-    if unknown_candidate_paths:
-        raise ValueError("prepared_candidate_not_found")
-    raw_paths = [path for path in relative_paths if path not in selected_candidate_paths]
-    candidate_paths = sorted(selected_candidate_paths)
-    fresh_candidates, candidate_warnings = _fresh_prepared_candidates(
-        root, candidate_paths, required_roles, country
-    )
-    if fresh_candidates:
-        if len({item[2].content_sha256 for item in fresh_candidates}) == 1:
-            selected = min(fresh_candidates, key=lambda item: item[0])
-            return _prepared_ready_result(selected, candidate_warnings)
-        return _prepared_selection_result(fresh_candidates)
-    if not raw_paths:
-        raise ProviderContractError("prepared_candidate_unavailable")
-    inspected = _inspect_workspace_sources(raw_paths, ctx)
+    if any(_is_prepared_candidate_path(path) for path in relative_paths):
+        raise ProviderContractError("prepared_input_not_raw_source")
+    inspected = _inspect_workspace_sources(relative_paths, ctx)
     if isinstance(inspected, DataInspectionSelectionRequired):
         summary = inspected.summary
         result = DataInspectionToolResult(root=inspected)
@@ -354,7 +335,7 @@ def inspect_workspace_sources(
         )
     profile = inspected
     derived_country, country_warnings = _derive_inspected_country(profile, country)
-    content_sha256, source_count = source_inspection_identity(root, raw_paths)
+    content_sha256, source_count = source_inspection_identity(root, relative_paths)
     identity = SourceInspectionIdentity(
         content_sha256=content_sha256,
         source_count=source_count,
@@ -375,10 +356,10 @@ def inspect_workspace_sources(
             country_code=derived_country,
             source_profile=profile,
             inspection_identity=identity,
-            inspected_relative_paths=sorted(raw_paths),
-            warnings=(candidate_warnings + country_warnings)[:64],
-            warning_count=len(candidate_warnings) + len(country_warnings),
-            warnings_truncated=len(candidate_warnings) + len(country_warnings) > 64,
+            inspected_relative_paths=sorted(relative_paths),
+            warnings=country_warnings[:64],
+            warning_count=len(country_warnings),
+            warnings_truncated=len(country_warnings) > 64,
         )
     )
     return CallToolResult(
@@ -440,94 +421,44 @@ def _is_prepared_candidate_path(relative_path: str) -> bool:
     )
 
 
-def _fresh_prepared_candidates(
-    root: Path,
-    candidate_paths: list[str],
-    required_roles: list[PlanningSourceRole],
-    country_code: str | None,
-) -> tuple[list[tuple[str, PreparedNetworkResource, PlanningInputIdentity]], list[str]]:
-    """Validate candidates against an explicit country or each file's recorded one."""
-    fresh: list[tuple[str, PreparedNetworkResource, PlanningInputIdentity]] = []
-    warnings: list[str] = []
-    for path in sorted(candidate_paths):
-        try:
-            prepared, identity = load_prepared_network_input(root, path)
-            valid, reason = validate_prepared_freshness(
-                root,
-                prepared,
-                required_roles=required_roles,
-                country_code=country_code or prepared.country_code,
-            )
-            if valid:
-                fresh.append((path, prepared, identity))
-            else:
-                warnings.append(f"prepared candidate {path} ignored: {reason}")
-        except ValueError as error:
-            reason = str(error).splitlines()[0] or "candidate_invalid"
-            warnings.append(f"prepared candidate {path} ignored: {reason}")
-        except OSError:
-            warnings.append(f"prepared candidate {path} ignored: candidate_unavailable")
-    return fresh, warnings
+@mcp.tool(structured_output=True, annotations=READ_ONLY_LOCAL_TOOL)
+def resolve_prepared_network_input(
+    prepared_relative_paths: Annotated[
+        list[str],
+        Field(
+            min_length=1,
+            max_length=MAX_PREPARED_CANDIDATES,
+            description="Exact prepared_candidate paths from discover_workspace_sources.",
+        ),
+    ],
+    required_roles: Annotated[list[PlanningSourceRole], Field(min_length=1, max_length=5)],
+    ctx: Context,
+    country_code: Annotated[
+        str | None,
+        Field(
+            pattern=r"^[A-Za-z]{2}$",
+            description=(
+                "Only a country the user stated. Omit it otherwise: each prepared file is "
+                "checked against the country it records."
+            ),
+        ),
+    ] = None,
+) -> Annotated[CallToolResult, PreparedResolutionToolResult]:
+    """Reuse one fresh prepared input for the requested roles.
 
-
-def _prepared_ready_result(
-    candidate: tuple[str, PreparedNetworkResource, PlanningInputIdentity],
-    warnings: list[str],
-) -> CallToolResult:
-    path, prepared, identity = candidate
-    persisted_warnings = [
-        issue.business_message
-        for issue in prepared.issues
-        if issue.severity == "warning"
-    ]
-    all_warnings = persisted_warnings + warnings
-    result = DataInspectionToolResult(
-        root=DataInspectionPreparedReady(
-            outcome="prepared_ready",
-            schemaVersion="workspace_source_profile.v2",
-            operation="reused",
-            summary=f"Reused fresh prepared input {path} for the requested roles.",
-            next_action="handoff",
-            retryable=False,
-            prepared_input_relative_path=path,
-            input_identity=identity,
-            role_counts=prepared.role_counts,
-            warnings=all_warnings[:64],
-            warning_count=prepared.issue_count + len(warnings),
-            warnings_truncated=prepared.issue_count + len(warnings) > 64,
-        )
+    Files whose records for the requested roles are identical are interchangeable
+    and resolve to one prepared_ready result; only differing records require a
+    user choice. prepared_unavailable means inspect the raw sources and prepare.
+    """
+    outcome = resolve_prepared_inputs(
+        _workspace(ctx),
+        prepared_relative_paths,
+        _canonical_required_roles(required_roles),
+        country_code.strip().upper() if country_code is not None else None,
     )
+    result = PreparedResolutionToolResult(root=outcome)
     return CallToolResult(
-        content=[TextContent(type="text", text=result.root.summary)],
-        structuredContent=result.model_dump(mode="json", by_alias=True),
-    )
-
-
-def _prepared_selection_result(
-    candidates: list[tuple[str, PreparedNetworkResource, PlanningInputIdentity]],
-) -> CallToolResult:
-    summaries = [
-        PreparedCandidateSummary(
-            prepared_input_relative_path=path,
-            input_identity=identity,
-            role_counts=prepared.role_counts,
-        )
-        for path, prepared, identity in sorted(candidates, key=lambda item: item[0])
-    ]
-    result = DataInspectionToolResult(
-        root=DataInspectionPreparedSelectionRequired(
-            outcome="prepared_selection_required",
-            schemaVersion="workspace_source_profile.v2",
-            summary="Multiple fresh prepared inputs match the requested roles; choose one.",
-            next_action="request_user_input",
-            retryable=False,
-            candidates=summaries[:64],
-            candidate_count=len(summaries),
-            candidates_truncated=len(summaries) > 64,
-        )
-    )
-    return CallToolResult(
-        content=[TextContent(type="text", text=result.root.summary)],
+        content=[TextContent(type="text", text=outcome.summary)],
         structuredContent=result.model_dump(mode="json", by_alias=True),
     )
 
@@ -654,24 +585,6 @@ def _unit_observations(unit: dict[str, Any]) -> list[FieldObservation]:
     return observations
 
 
-def _mapping_suggestion_payload(suggestion: Any) -> dict[str, Any]:
-    return {
-        "role": suggestion.role.value,
-        "confidence": suggestion.confidence,
-        "ambiguous": suggestion.ambiguous,
-        "field_mappings": [
-            {
-                "target_field": mapping.target_field,
-                "source_fields": list(mapping.source_fields),
-                "transform": mapping.transform.model_dump(mode="json"),
-                "score": mapping.score,
-                "reason_code": mapping.reason_code,
-            }
-            for mapping in suggestion.field_mappings
-        ],
-    }
-
-
 def _role_assessment_payload(assessment: SuggestedRoleAssessment) -> dict[str, Any]:
     return {
         "role": assessment.role.value,
@@ -724,9 +637,6 @@ def _mapping_analysis(
     administrative = _administrative_assessment(structure)
     for index, unit in enumerate(unit_definitions):
         observations = _unit_observations(unit)
-        suggestions = [
-            _mapping_suggestion_payload(item) for item in suggest_role_mappings(observations)
-        ]
         assessments = [
             _role_assessment_payload(item) for item in assess_role_mappings(observations)
         ]
@@ -753,7 +663,6 @@ def _mapping_analysis(
                 "record_count_exact", unit.get("length_exact", True)
             ),
             "role_assessments": assessments,
-            "mapping_suggestions": suggestions,
         }
         units.append(unit_profile)
     return units
@@ -1108,14 +1017,15 @@ def _resolve_source_selection(
         decision = selection
         return _ResolvedSelection(selection=selection, decision=decision, unit=unit)
 
-    suggestions = [
+    assessments = [
         item
-        for item in unit.get("mapping_suggestions", [])
+        for item in unit.get("role_assessments", [])
         if item.get("role") == selection.role.value
     ]
-    if len(suggestions) == 1 and suggestions[0].get("ambiguous") is False:
+    complete = [item for item in assessments if item.get("state") == "complete"]
+    if len(complete) == 1:
         mappings: list[ConfirmedFieldDecision] = []
-        for mapping in suggestions[0].get("field_mappings", []):
+        for mapping in complete[0].get("field_mappings", []):
             source_fields = mapping.get("source_fields")
             transform = mapping.get("transform")
             if not isinstance(source_fields, list) or len(source_fields) != 1:
@@ -1137,11 +1047,6 @@ def _resolve_source_selection(
             mappings=mappings,
         )
         return _ResolvedSelection(selection=selection, decision=decision, unit=unit)
-    assessments = [
-        item
-        for item in unit.get("role_assessments", [])
-        if item.get("role") == selection.role.value
-    ]
     for assessment in assessments:
         missing = tuple(sorted(str(value) for value in assessment.get("missing_required_fields", [])))
         if assessment.get("state") == "partial" and missing:
@@ -1151,7 +1056,7 @@ def _resolve_source_selection(
                 missing,
                 code="required_fields_missing",
             )
-    if suggestions:
+    if any(item.get("state") == "ambiguous" for item in assessments):
         return _mapping_requirement(selection, f"文件 {selection.relative_path} 的单元 {selection.unit_ref} 业务角色或字段映射存在歧义。")
     return _mapping_requirement(selection, f"文件 {selection.relative_path} 的单元 {selection.unit_ref} 无法完整映射为 {selection.role.value}。")
 

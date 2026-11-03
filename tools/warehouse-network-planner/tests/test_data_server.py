@@ -61,6 +61,7 @@ def test_data_server_exposes_workspace_preparation_not_cross_agent_data_resource
         "prepare_network_input",
         "prepare_network_geography",
         "query_prepared_network_input",
+        "resolve_prepared_network_input",
     }
     assert "normalize_candidate_delta" not in tools
     assert "derive_normalized_network_input" not in tools
@@ -107,9 +108,21 @@ def test_data_server_exposes_workspace_preparation_not_cross_agent_data_resource
     )
 
     inspect_tool = tools["inspect_workspace_sources"]
-    assert "country_code" not in inspect_tool.inputSchema["required"]
-    required_role_schema = inspect_tool.inputSchema["properties"]["required_roles"]
-    planning_role_definition = inspect_tool.inputSchema["$defs"][
+    assert inspect_tool.inputSchema["required"] == ["relative_paths"]
+    resolve_tool = tools["resolve_prepared_network_input"]
+    assert set(resolve_tool.inputSchema["required"]) == {
+        "prepared_relative_paths",
+        "required_roles",
+    }
+    assert resolve_tool.annotations is not None
+    assert resolve_tool.annotations.readOnlyHint is True
+    assert set(resolve_tool.outputSchema["discriminator"]["mapping"]) == {
+        "prepared_ready",
+        "prepared_selection_required",
+        "prepared_unavailable",
+    }
+    required_role_schema = resolve_tool.inputSchema["properties"]["required_roles"]
+    planning_role_definition = resolve_tool.inputSchema["$defs"][
         required_role_schema["items"]["$ref"].split("/")[-1]
     ]
     assert set(planning_role_definition["enum"]) == {
@@ -125,10 +138,8 @@ def test_data_server_exposes_workspace_preparation_not_cross_agent_data_resource
     assert set(inspection_schema["discriminator"]["mapping"]) == {
         "inspected",
         "selection_required",
-        "prepared_ready",
-        "prepared_selection_required",
     }
-    assert len(inspection_schema["oneOf"]) == 4
+    assert len(inspection_schema["oneOf"]) == 2
     branch_required = [
         set(inspection_schema["$defs"][ref["$ref"].split("/")[-1]]["required"])
         for ref in inspection_schema["oneOf"]
@@ -188,7 +199,6 @@ def test_missing_warehouse_type_is_typed_non_retryable_user_input(
     ctx = _context(tmp_path)
     inspected = data_server.inspect_workspace_sources(
         ["demand.csv", "warehouses.csv"],
-        [SourceRole.DEMAND, SourceRole.EXISTING_WAREHOUSE],
         ctx=ctx,
         country_code="ID",
     )
@@ -350,7 +360,6 @@ def test_source_profile_distinguishes_preview_samples_from_exact_total(
 
     result = data_server.inspect_workspace_sources(
         ["candidate.csv"],
-        [SourceRole.CANDIDATE_WAREHOUSE],
         ctx=object(),
         country_code="ID",
     )
@@ -430,7 +439,6 @@ def test_inspection_derives_country_from_admin_metadata_without_guessing(
 
     derived = data_server.inspect_workspace_sources(
         ["demand.csv", "admin-id.json"],
-        [SourceRole.DEMAND],
         ctx=ctx,
     ).structuredContent
     assert derived["country_code"] == "ID"
@@ -446,13 +454,12 @@ def test_inspection_derives_country_from_admin_metadata_without_guessing(
     )
     mixed = data_server.inspect_workspace_sources(
         ["demand.csv", "ordinary.json", "admin-id.json"],
-        [SourceRole.DEMAND],
         ctx=ctx,
     ).structuredContent
     assert mixed["country_code"] == "ID"
 
     missing = data_server.inspect_workspace_sources(
-        ["demand.csv"], [SourceRole.DEMAND], ctx=ctx
+        ["demand.csv"], ctx=ctx
     ).structuredContent
     assert missing["country_code"] is None
     assert "country_code_not_found" in missing["warnings"]
@@ -461,7 +468,6 @@ def test_inspection_derives_country_from_admin_metadata_without_guessing(
     (tmp_path / "admin-my.json").write_text(json.dumps(conflict_admin), encoding="utf-8")
     conflict = data_server.inspect_workspace_sources(
         ["demand.csv", "admin-id.json", "admin-my.json"],
-        [SourceRole.DEMAND],
         ctx=ctx,
     ).structuredContent
     assert conflict["country_code"] is None
@@ -469,7 +475,6 @@ def test_inspection_derives_country_from_admin_metadata_without_guessing(
 
     explicit = data_server.inspect_workspace_sources(
         ["demand.csv", "warehouse.csv", "admin-id.json"],
-        [SourceRole.DEMAND, SourceRole.EXISTING_WAREHOUSE],
         ctx=ctx,
         country_code="MY",
     ).structuredContent
@@ -503,7 +508,6 @@ def test_current_mock_sources_have_no_global_false_demand_blockers(tmp_path, mon
 
     result = data_server.inspect_workspace_sources(
         sorted(path.name for path in fixture.iterdir() if path.suffix in {".csv", ".json"}),
-        [SourceRole.DEMAND, SourceRole.EXISTING_WAREHOUSE, SourceRole.CANDIDATE_WAREHOUSE, SourceRole.ROUTE_QUOTE],
         ctx=object(),
         country_code="ID",
     )
@@ -548,7 +552,6 @@ def test_current_mock_sources_prepare_from_full_units_and_keep_preview_tail_rows
     ctx = _context(tmp_path)
     inspected = data_server.inspect_workspace_sources(
         sorted(selected_names),
-        [SourceRole.DEMAND, SourceRole.EXISTING_WAREHOUSE, SourceRole.CANDIDATE_WAREHOUSE, SourceRole.ROUTE_QUOTE],
         ctx=ctx,
         country_code="ID",
     )
@@ -617,7 +620,6 @@ def test_fresh_prepared_input_is_reused_and_only_selected_raw_changes_invalidate
     raw_paths = sorted(selected_names)
     first = data_server.inspect_workspace_sources(
         raw_paths,
-        [SourceRole.DEMAND, SourceRole.EXISTING_WAREHOUSE, SourceRole.CANDIDATE_WAREHOUSE, SourceRole.ROUTE_QUOTE],
         ctx=ctx,
         country_code="ID",
     ).structuredContent
@@ -637,204 +639,193 @@ def test_fresh_prepared_input_is_reused_and_only_selected_raw_changes_invalidate
     )
     created_payload = created.model_dump(mode="json", by_alias=True)
     assert created_payload["outcome"] == "ready"
-    unselected = data_server.inspect_workspace_sources(
-        raw_paths,
-        [SourceRole.DEMAND, SourceRole.EXISTING_WAREHOUSE, SourceRole.CANDIDATE_WAREHOUSE, SourceRole.ROUTE_QUOTE],
-        ctx=ctx,
-        country_code="ID",
-    ).structuredContent
-    assert unselected["outcome"] == "inspected"
-    reuse_paths = raw_paths + [created_payload["prepared_input_relative_path"]]
-    reused = data_server.inspect_workspace_sources(
-        reuse_paths,
-        [SourceRole.DEMAND, SourceRole.EXISTING_WAREHOUSE, SourceRole.CANDIDATE_WAREHOUSE, SourceRole.ROUTE_QUOTE],
-        ctx=ctx,
-        country_code="ID",
-    ).structuredContent
+    prepared_path = created_payload["prepared_input_relative_path"]
+    all_roles = [
+        SourceRole.DEMAND,
+        SourceRole.EXISTING_WAREHOUSE,
+        SourceRole.CANDIDATE_WAREHOUSE,
+        SourceRole.ROUTE_QUOTE,
+    ]
+
+    def resolve(paths, roles, country=None):
+        return data_server.resolve_prepared_network_input(
+            paths, roles, ctx=ctx, country_code=country
+        ).structuredContent
+
+    with pytest.raises(ProviderContractError, match="prepared_input_not_raw_source"):
+        data_server.inspect_workspace_sources(raw_paths + [prepared_path], ctx=ctx)
+    reused = resolve([prepared_path], all_roles, "ID")
     assert reused["outcome"] == "prepared_ready"
     assert reused["operation"] == "reused"
-    assert reused["prepared_input_relative_path"] == created_payload["prepared_input_relative_path"]
+    assert reused["prepared_input_relative_path"] == prepared_path
+    assert reused["equivalent_count"] == 1
     assert "source_profile" not in reused
-    reused_from_admin_country = data_server.inspect_workspace_sources(
-        reuse_paths,
-        [SourceRole.DEMAND, SourceRole.EXISTING_WAREHOUSE, SourceRole.CANDIDATE_WAREHOUSE, SourceRole.ROUTE_QUOTE],
-        ctx=ctx,
-    ).structuredContent
-    assert reused_from_admin_country["outcome"] == "prepared_ready"
-    reused_from_recorded_country = data_server.inspect_workspace_sources(
-        [created_payload["prepared_input_relative_path"]],
-        [SourceRole.DEMAND],
-        ctx=ctx,
-    ).structuredContent
+    reused_from_recorded_country = resolve([prepared_path], [SourceRole.DEMAND])
     assert reused_from_recorded_country["outcome"] == "prepared_ready"
-    assert (
-        reused_from_recorded_country["prepared_input_relative_path"]
-        == created_payload["prepared_input_relative_path"]
-    )
+    assert reused_from_recorded_country["prepared_input_relative_path"] == prepared_path
 
     canonical_copy = tmp_path / f"{PREPARED_OUTPUT_DIR}/a-copy.json"
-    canonical_copy.write_bytes(
-        (tmp_path / created_payload["prepared_input_relative_path"]).read_bytes()
-    )
-    canonical = data_server.inspect_workspace_sources(
-        raw_paths + [
-            created_payload["prepared_input_relative_path"],
-            f"{PREPARED_OUTPUT_DIR}/a-copy.json",
-        ],
-        [SourceRole.DEMAND, SourceRole.EXISTING_WAREHOUSE, SourceRole.CANDIDATE_WAREHOUSE, SourceRole.ROUTE_QUOTE],
-        ctx=ctx,
-        country_code="ID",
-    ).structuredContent
+    canonical_copy.write_bytes((tmp_path / prepared_path).read_bytes())
+    canonical = resolve([prepared_path, f"{PREPARED_OUTPUT_DIR}/a-copy.json"], all_roles, "ID")
     assert canonical["outcome"] == "prepared_ready"
     assert canonical["prepared_input_relative_path"] == f"{PREPARED_OUTPUT_DIR}/a-copy.json"
+    assert canonical["equivalent_count"] == 2
     canonical_copy.unlink()
 
-    changed_payload = json.loads(
-        (tmp_path / created_payload["prepared_input_relative_path"]).read_text(encoding="utf-8")
-    )
+    changed_payload = json.loads((tmp_path / prepared_path).read_text(encoding="utf-8"))
     changed_payload["demand_cities"][0]["city_name"] = "Changed City"
     changed_path = tmp_path / f"{PREPARED_OUTPUT_DIR}/changed.json"
     changed_path.write_text(json.dumps(changed_payload), encoding="utf-8")
-    ambiguous = data_server.inspect_workspace_sources(
-        raw_paths + [
-            created_payload["prepared_input_relative_path"],
-            f"{PREPARED_OUTPUT_DIR}/changed.json",
-        ],
-        [SourceRole.DEMAND, SourceRole.EXISTING_WAREHOUSE, SourceRole.CANDIDATE_WAREHOUSE, SourceRole.ROUTE_QUOTE],
-        ctx=ctx,
-        country_code="ID",
-    ).structuredContent
+    ambiguous = resolve([prepared_path, f"{PREPARED_OUTPUT_DIR}/changed.json"], all_roles, "ID")
     assert ambiguous["outcome"] == "prepared_selection_required"
     assert ambiguous["candidate_count"] == 2
     assert ambiguous["candidates_truncated"] is False
-    assert "source_profile" not in ambiguous
+    assert {item["equivalent_count"] for item in ambiguous["candidates"]} == {1}
+    without_demand = resolve(
+        [prepared_path, f"{PREPARED_OUTPUT_DIR}/changed.json"],
+        [SourceRole.EXISTING_WAREHOUSE, SourceRole.CANDIDATE_WAREHOUSE],
+        "ID",
+    )
+    assert without_demand["outcome"] == "prepared_ready"
+    assert without_demand["equivalent_count"] == 2
+    changed_path.unlink()
 
-    missing_role = data_server.inspect_workspace_sources(
-        raw_paths + [created_payload["prepared_input_relative_path"]],
-        [SourceRole.DEMAND, SourceRole.CURRENT_ASSIGNMENT],
-        ctx=ctx,
-        country_code="ID",
-    ).structuredContent
-    assert missing_role["outcome"] == "inspected"
-    assert any("required_roles_missing" in warning for warning in missing_role["warnings"])
-    wrong_country = data_server.inspect_workspace_sources(
-        raw_paths + [created_payload["prepared_input_relative_path"]],
-        [SourceRole.DEMAND, SourceRole.EXISTING_WAREHOUSE],
-        ctx=ctx,
-        country_code="MY",
-    ).structuredContent
-    assert wrong_country["outcome"] == "inspected"
-    assert any("country_mismatch" in warning for warning in wrong_country["warnings"])
+    missing_role = resolve([prepared_path], [SourceRole.DEMAND, SourceRole.CURRENT_ASSIGNMENT], "ID")
+    assert missing_role["outcome"] == "prepared_unavailable"
+    assert missing_role["next_action"] == "inspect_sources"
+    assert any("required_roles_missing" in reason for reason in missing_role["reasons"])
+    wrong_country = resolve([prepared_path], [SourceRole.DEMAND], "MY")
+    assert wrong_country["outcome"] == "prepared_unavailable"
+    assert any("country_mismatch" in reason for reason in wrong_country["reasons"])
     needs_geography_payload = dict(changed_payload)
     needs_geography_payload["state"] = "needs_geography"
     needs_geography_path = tmp_path / f"{PREPARED_OUTPUT_DIR}/needs-geography.json"
     needs_geography_path.write_text(json.dumps(needs_geography_payload), encoding="utf-8")
-    needs_geography = data_server.inspect_workspace_sources(
-        raw_paths + [f"{PREPARED_OUTPUT_DIR}/needs-geography.json"],
-        [SourceRole.DEMAND, SourceRole.EXISTING_WAREHOUSE],
-        ctx=ctx,
-        country_code="ID",
-    ).structuredContent
-    assert needs_geography["outcome"] == "inspected"
-    assert any("state_not_ready" in warning for warning in needs_geography["warnings"])
+    needs_geography = resolve([f"{PREPARED_OUTPUT_DIR}/needs-geography.json"], [SourceRole.DEMAND], "ID")
+    assert needs_geography["outcome"] == "prepared_unavailable"
+    assert any("state_not_ready" in reason for reason in needs_geography["reasons"])
 
-    mapping_payload = json.loads(
-        (tmp_path / created_payload["prepared_input_relative_path"]).read_text(encoding="utf-8")
-    )
+    mapping_payload = json.loads((tmp_path / prepared_path).read_text(encoding="utf-8"))
     mapping_payload["source_selections"][0]["mappings"][0]["source_field"] = "missing_field"
     mapping_path = tmp_path / f"{PREPARED_OUTPUT_DIR}/mapping-mismatch.json"
     mapping_path.write_text(json.dumps(mapping_payload), encoding="utf-8")
-    mapping_mismatch = data_server.inspect_workspace_sources(
-        raw_paths + [f"{PREPARED_OUTPUT_DIR}/mapping-mismatch.json"],
-        [SourceRole.DEMAND],
-        ctx=ctx,
-        country_code="ID",
-    ).structuredContent
-    assert mapping_mismatch["outcome"] == "inspected"
-    assert any("prepared_selected_source_identity_invalid" in warning for warning in mapping_mismatch["warnings"])
+    mapping_mismatch = resolve([f"{PREPARED_OUTPUT_DIR}/mapping-mismatch.json"], [SourceRole.DEMAND], "ID")
+    assert mapping_mismatch["outcome"] == "prepared_unavailable"
+    assert any(
+        "prepared_selected_source_identity_invalid" in reason
+        for reason in mapping_mismatch["reasons"]
+    )
 
     invalid_candidate_path = tmp_path / f"{PREPARED_OUTPUT_DIR}/invalid.json"
     invalid_candidate_path.write_text('{"schemaVersion":"prepared_network_input.v1"}', encoding="utf-8")
-    invalid_candidate = data_server.inspect_workspace_sources(
-        raw_paths + [f"{PREPARED_OUTPUT_DIR}/invalid.json"],
-        [SourceRole.DEMAND],
-        ctx=ctx,
-        country_code="ID",
-    ).structuredContent
-    assert invalid_candidate["outcome"] == "inspected"
+    invalid_candidate = resolve(
+        [prepared_path, f"{PREPARED_OUTPUT_DIR}/invalid.json"], [SourceRole.DEMAND], "ID"
+    )
+    assert invalid_candidate["outcome"] == "prepared_ready"
     assert any("prepared_network_input_invalid" in warning for warning in invalid_candidate["warnings"])
 
-    with pytest.raises(ValueError, match="relative_paths must not contain duplicates"):
-        data_server.inspect_workspace_sources(
-            reuse_paths + [created_payload["prepared_input_relative_path"]],
-            [SourceRole.DEMAND, SourceRole.EXISTING_WAREHOUSE, SourceRole.CANDIDATE_WAREHOUSE, SourceRole.ROUTE_QUOTE],
-            ctx=ctx,
-            country_code="ID",
-        )
+    with pytest.raises(ValueError, match="prepared_relative_paths_duplicate"):
+        resolve([prepared_path, prepared_path], [SourceRole.DEMAND], "ID")
     with pytest.raises(ValueError, match="prepared_candidate_not_found"):
-        data_server.inspect_workspace_sources(
-            [f"{PREPARED_OUTPUT_DIR}/missing.json"],
-            [SourceRole.DEMAND],
-            ctx=ctx,
-            country_code="ID",
-        )
+        resolve([f"{PREPARED_OUTPUT_DIR}/missing.json"], [SourceRole.DEMAND], "ID")
+    with pytest.raises(ValueError, match="prepared_candidate_not_found"):
+        resolve(["demand-cities.csv"], [SourceRole.DEMAND], "ID")
 
     (tmp_path / "population-snapshot.csv").write_text(
         (tmp_path / "population-snapshot.csv").read_text() + "extra,Extra,Province,1\n",
         encoding="utf-8",
     )
-    still_reused = data_server.inspect_workspace_sources(
-        reuse_paths,
-        [SourceRole.DEMAND, SourceRole.EXISTING_WAREHOUSE, SourceRole.CANDIDATE_WAREHOUSE, SourceRole.ROUTE_QUOTE],
-        ctx=ctx,
-        country_code="ID",
-    ).structuredContent
+    still_reused = resolve([prepared_path], all_roles, "ID")
     assert still_reused["outcome"] == "prepared_ready"
 
     (tmp_path / "administrative-areas.json").write_bytes(original_admin + b"\n")
-    admin_stale = data_server.inspect_workspace_sources(
-        reuse_paths,
-        [SourceRole.DEMAND, SourceRole.EXISTING_WAREHOUSE, SourceRole.CANDIDATE_WAREHOUSE, SourceRole.ROUTE_QUOTE],
-        ctx=ctx,
-        country_code="ID",
-    ).structuredContent
-    assert admin_stale["outcome"] == "inspected"
-    assert any("administrative_catalog_changed" in warning for warning in admin_stale["warnings"])
+    admin_stale = resolve([prepared_path], all_roles, "ID")
+    assert admin_stale["outcome"] == "prepared_unavailable"
+    assert any("administrative_catalog_changed" in reason for reason in admin_stale["reasons"])
     (tmp_path / "administrative-areas.json").write_bytes(original_admin)
 
     (tmp_path / "demand-cities.csv").write_text(
         (tmp_path / "demand-cities.csv").read_text() + "\n",
         encoding="utf-8",
     )
-    stale = data_server.inspect_workspace_sources(
-        reuse_paths,
-        [SourceRole.DEMAND, SourceRole.EXISTING_WAREHOUSE, SourceRole.CANDIDATE_WAREHOUSE, SourceRole.ROUTE_QUOTE],
-        ctx=ctx,
-        country_code="ID",
-    ).structuredContent
-    assert stale["outcome"] == "inspected"
-    assert stale["warnings"]
+    stale = resolve([prepared_path], all_roles, "ID")
+    assert stale["outcome"] == "prepared_unavailable"
+    assert any("source_changed" in reason for reason in stale["reasons"])
 
     (tmp_path / "demand-cities.csv").unlink()
+    missing_source = resolve([prepared_path], all_roles, "ID")
+    assert missing_source["outcome"] == "prepared_unavailable"
     with pytest.raises(ValueError, match="workspace_source_not_found"):
-        data_server.inspect_workspace_sources(
-            reuse_paths,
-            [SourceRole.DEMAND, SourceRole.EXISTING_WAREHOUSE, SourceRole.CANDIDATE_WAREHOUSE, SourceRole.ROUTE_QUOTE],
-            ctx=ctx,
-            country_code="ID",
-        )
-    (tmp_path / "demand-cities.csv").write_bytes(original_demand)
+        data_server.inspect_workspace_sources(raw_paths, ctx=ctx, country_code="ID")
     outside = tmp_path / "outside-demand.csv"
     outside.write_bytes(original_demand)
-    (tmp_path / "demand-cities.csv").unlink()
     (tmp_path / "demand-cities.csv").symlink_to(outside)
     with pytest.raises(ValueError, match="workspace_source_symlink_rejected"):
-        data_server.inspect_workspace_sources(
-            reuse_paths,
-            [SourceRole.DEMAND, SourceRole.EXISTING_WAREHOUSE, SourceRole.CANDIDATE_WAREHOUSE, SourceRole.ROUTE_QUOTE],
-            ctx=ctx,
-            country_code="ID",
+        data_server.inspect_workspace_sources(raw_paths, ctx=ctx, country_code="ID")
+
+
+def test_prepared_inputs_with_identical_requested_role_records_resolve_without_selection(
+    tmp_path, monkeypatch
+) -> None:
+    """Reproduces the false prepared_selection_required between goal-specific files."""
+    fixture_root = Path(__file__).parents[3] / "apps/web/scripts/fixtures/warehouse-network/mock_data"
+    selected_names = {
+        "administrative-areas.json",
+        "candidate-warehouses.csv",
+        "demand-cities.csv",
+        "existing-warehouses.csv",
+        "route-quotes.csv",
+    }
+    for path in fixture_root.iterdir():
+        if path.name in selected_names:
+            (tmp_path / path.name).write_bytes(path.read_bytes())
+    _use_store(tmp_path, monkeypatch)
+    ctx = _context(tmp_path)
+    raw_paths = sorted(selected_names)
+    inspected = data_server.inspect_workspace_sources(raw_paths, ctx=ctx, country_code="ID")
+    identity = SourceInspectionIdentity.model_validate(
+        inspected.structuredContent["inspection_identity"]
+    )
+    baseline_selections = [
+        SourceSelection(relative_path="demand-cities.csv", unit_ref="table", role=SourceRole.DEMAND),
+        SourceSelection(relative_path="existing-warehouses.csv", unit_ref="table", role=SourceRole.EXISTING_WAREHOUSE),
+        SourceSelection(relative_path="route-quotes.csv", unit_ref="table", role=SourceRole.ROUTE_QUOTE),
+    ]
+    candidate_selection = SourceSelection(
+        relative_path="candidate-warehouses.csv", unit_ref="table", role=SourceRole.CANDIDATE_WAREHOUSE
+    )
+    for name, selections in (
+        ("baseline.json", baseline_selections),
+        ("with-candidates.json", [*baseline_selections, candidate_selection]),
+    ):
+        prepared = data_server.prepare_network_input(
+            identity,
+            raw_paths,
+            selections,
+            "ID",
+            f"{PREPARED_OUTPUT_DIR}/{name}",
+            ctx,
+            administrative_catalog_relative_path="administrative-areas.json",
         )
+        assert prepared.model_dump(mode="json")["outcome"] == "ready"
+    paths = [f"{PREPARED_OUTPUT_DIR}/baseline.json", f"{PREPARED_OUTPUT_DIR}/with-candidates.json"]
+    assert (tmp_path / paths[0]).read_bytes() != (tmp_path / paths[1]).read_bytes()
+
+    baseline = data_server.resolve_prepared_network_input(
+        paths, [SourceRole.DEMAND, SourceRole.EXISTING_WAREHOUSE], ctx=ctx
+    ).structuredContent
+    assert baseline["outcome"] == "prepared_ready"
+    assert baseline["equivalent_count"] == 2
+    assert baseline["prepared_input_relative_path"] == paths[1]
+    assert "candidate_warehouse" in baseline["roles"]
+
+    with_candidates = data_server.resolve_prepared_network_input(
+        paths, [SourceRole.DEMAND, SourceRole.CANDIDATE_WAREHOUSE], ctx=ctx
+    ).structuredContent
+    assert with_candidates["outcome"] == "prepared_ready"
+    assert with_candidates["equivalent_count"] == 1
+    assert with_candidates["prepared_input_relative_path"] == paths[1]
+    assert any("required_roles_missing" in warning for warning in with_candidates["warnings"])
 
 
 def test_prepare_uses_one_post_read_snapshot_for_identity_and_provenance(
@@ -853,7 +844,6 @@ def test_prepare_uses_one_post_read_snapshot_for_identity_and_provenance(
     ctx = _context(tmp_path)
     inspection = data_server.inspect_workspace_sources(
         ["demand.csv", "warehouse.csv"],
-        [SourceRole.DEMAND, SourceRole.EXISTING_WAREHOUSE],
         ctx=ctx,
         country_code="ID",
     ).structuredContent
@@ -917,7 +907,6 @@ def test_xlsx_and_json_units_are_not_aggregated(tmp_path, monkeypatch) -> None:
     _use_store(tmp_path, monkeypatch)
     result = data_server.inspect_workspace_sources(
         ["network.xlsx", "nested.json"],
-        [SourceRole.DEMAND, SourceRole.EXISTING_WAREHOUSE],
         ctx=object(),
         country_code="ID",
     )
@@ -942,7 +931,6 @@ def test_xlsx_and_json_units_are_not_aggregated(tmp_path, monkeypatch) -> None:
     }
     xlsx_inspected = data_server.inspect_workspace_sources(
         ["network.xlsx"],
-        [SourceRole.DEMAND, SourceRole.EXISTING_WAREHOUSE],
         ctx=object(),
         country_code="ID",
     )
@@ -981,7 +969,6 @@ def test_explicit_mapping_handles_chinese_and_random_headers_without_name_infere
     ctx = _context(tmp_path)
     inspected = data_server.inspect_workspace_sources(
         ["random.csv", "opaque.csv"],
-        [SourceRole.DEMAND, SourceRole.EXISTING_WAREHOUSE],
         ctx=ctx,
         country_code="ID",
     )
@@ -1040,7 +1027,6 @@ def test_one_csv_unit_can_supply_multiple_selected_roles_without_duplicate_reads
     ctx = _context(tmp_path)
     inspected = data_server.inspect_workspace_sources(
         ["combined.csv"],
-        [SourceRole.DEMAND, SourceRole.EXISTING_WAREHOUSE],
         ctx=ctx,
         country_code="ID",
     )
@@ -1106,7 +1092,6 @@ def test_nested_json_array_unit_is_read_exactly_and_unselected_array_is_ignored(
     ctx = _context(tmp_path)
     inspected = data_server.inspect_workspace_sources(
         ["nested.json", "warehouse.csv"],
-        [SourceRole.DEMAND, SourceRole.EXISTING_WAREHOUSE],
         ctx=ctx,
         country_code="ID",
     )
@@ -1159,7 +1144,6 @@ def test_selected_full_data_invalid_value_outside_preview_is_needs_input_no_writ
     ctx = _context(tmp_path)
     profile = data_server.inspect_workspace_sources(
         ["demand.csv", "warehouse.csv"],
-        [SourceRole.DEMAND, SourceRole.EXISTING_WAREHOUSE],
         ctx=ctx,
         country_code="ID",
     )
@@ -1199,7 +1183,6 @@ def test_source_changed_covers_missing_selected_file_without_writing(
     ctx = _context(tmp_path)
     profile = data_server.inspect_workspace_sources(
         ["demand.csv", "warehouse.csv"],
-        [SourceRole.DEMAND, SourceRole.EXISTING_WAREHOUSE],
         ctx=ctx,
         country_code="ID",
     )
@@ -1233,7 +1216,6 @@ def test_invalid_source_unit_field_and_required_mapping_are_contract_errors(
     ctx = _context(tmp_path)
     profile = data_server.inspect_workspace_sources(
         ["demand.csv"],
-        [SourceRole.DEMAND],
         ctx=ctx,
         country_code="ID",
     )
@@ -1302,7 +1284,6 @@ def test_xlsx_selected_sheet_formula_is_a_full_data_blocker(tmp_path, monkeypatc
     ctx = _context(tmp_path)
     profile = data_server.inspect_workspace_sources(
         ["formula.xlsx"],
-        [SourceRole.DEMAND, SourceRole.EXISTING_WAREHOUSE],
         ctx=ctx,
         country_code="ID",
     )
@@ -1345,7 +1326,6 @@ def test_same_role_units_merge_exact_duplicates_and_block_conflicts_no_write(
     ctx = _context(tmp_path)
     profile = data_server.inspect_workspace_sources(
         ["demand-a.csv", "demand-b.csv", "warehouse.csv"],
-        [SourceRole.DEMAND, SourceRole.EXISTING_WAREHOUSE],
         ctx=ctx,
         country_code="ID",
     ).structuredContent
@@ -1371,7 +1351,6 @@ def test_same_role_units_merge_exact_duplicates_and_block_conflicts_no_write(
     )
     conflict_profile = data_server.inspect_workspace_sources(
         ["demand-a.csv", "demand-b.csv", "warehouse.csv"],
-        [SourceRole.DEMAND, SourceRole.EXISTING_WAREHOUSE],
         ctx=ctx,
         country_code="ID",
     ).structuredContent
@@ -1425,7 +1404,6 @@ def test_geography_error_is_attributed_to_warehouse_unit_not_first_demand_unit(
     ctx = _context(tmp_path)
     profile = data_server.inspect_workspace_sources(
         ["demand.csv", "warehouse.csv", "admin.json"],
-        [SourceRole.DEMAND, SourceRole.EXISTING_WAREHOUSE],
         ctx=ctx,
         country_code="ID",
     ).structuredContent
@@ -1480,7 +1458,6 @@ def test_candidate_geography_error_is_attributed_to_candidate_unit(
     ctx = _context(tmp_path)
     profile = data_server.inspect_workspace_sources(
         ["demand.csv", "candidate.csv", "admin.json"],
-        [SourceRole.DEMAND, SourceRole.CANDIDATE_WAREHOUSE],
         ctx=ctx,
         country_code="ID",
     ).structuredContent
@@ -1519,7 +1496,6 @@ def test_administrative_catalog_exception_is_attributed_to_admin_document(
     ctx = _context(tmp_path)
     profile = data_server.inspect_workspace_sources(
         ["demand.csv", "warehouse.csv", "bad-admin.json"],
-        [SourceRole.DEMAND, SourceRole.EXISTING_WAREHOUSE],
         ctx=ctx,
         country_code="ID",
     ).structuredContent
@@ -1549,7 +1525,6 @@ def test_inspection_limits_are_explicit_selection_errors(tmp_path, monkeypatch) 
     with pytest.raises(ValueError, match="at least one Workspace-relative path"):
         data_server.inspect_workspace_sources(
             [],
-            [SourceRole.DEMAND],
             ctx=object(),
             country_code="ID",
         )
@@ -1557,7 +1532,6 @@ def test_inspection_limits_are_explicit_selection_errors(tmp_path, monkeypatch) 
     monkeypatch.setattr(data_server._workspace_intake, "MAX_INSPECTION_FILES", 1)
     file_limited = data_server.inspect_workspace_sources(
         ["a.csv", "b.csv"],
-        [SourceRole.DEMAND],
         ctx=object(),
         country_code="ID",
     )
@@ -1585,7 +1559,6 @@ def test_inspection_limits_are_explicit_selection_errors(tmp_path, monkeypatch) 
     monkeypatch.setattr(data_server._workspace_intake, "MAX_INSPECTION_UNITS", 1)
     unit_limited = data_server.inspect_workspace_sources(
         ["multi.xlsx"],
-        [SourceRole.DEMAND],
         ctx=object(),
         country_code="ID",
     )
@@ -1599,7 +1572,6 @@ def test_inspection_limits_are_explicit_selection_errors(tmp_path, monkeypatch) 
     monkeypatch.setattr(data_server._workspace_intake, "MAX_INSPECTION_BYTES", 1)
     byte_limited = data_server.inspect_workspace_sources(
         ["a.csv"],
-        [SourceRole.DEMAND],
         ctx=object(),
         country_code="ID",
     )
@@ -1644,7 +1616,6 @@ def test_prepare_input_writes_a_complete_auditable_workspace_document(
     ctx = _context(tmp_path)
     profile = data_server.inspect_workspace_sources(
         ["demand.csv", "warehouses.csv", "admin.json"],
-        [SourceRole.DEMAND, SourceRole.EXISTING_WAREHOUSE],
         ctx=object(),
         country_code="ID",
     )
@@ -1835,7 +1806,6 @@ def test_candidate_changes_require_a_complete_new_workspace_preparation(
     ctx = _context(tmp_path)
     profile = data_server.inspect_workspace_sources(
         ["candidate.csv"],
-        [SourceRole.CANDIDATE_WAREHOUSE],
         ctx=object(),
         country_code="ID",
     )
@@ -1876,13 +1846,11 @@ def test_inspection_identity_is_order_independent_and_rejects_changed_inputs(
 
     first = data_server.inspect_workspace_sources(
         ["b.csv", "a.csv"],
-        [SourceRole.DEMAND],
         ctx=ctx,
         country_code="ID",
     )
     second = data_server.inspect_workspace_sources(
         ["a.csv", "b.csv"],
-        [SourceRole.DEMAND],
         ctx=ctx,
         country_code="ID",
     )
@@ -1927,14 +1895,12 @@ def test_inspection_rejects_symlink_and_data_resource_surface_is_empty(tmp_path,
     with pytest.raises(ValueError, match="workspace_source_symlink_rejected"):
         data_server.inspect_workspace_sources(
             ["linked.csv"],
-            [SourceRole.DEMAND],
             ctx=_context(tmp_path),
             country_code="ID",
         )
-    with pytest.raises(ValueError, match="workspace_source_symlink_rejected"):
+    with pytest.raises(ValueError, match="invalid_workspace_relative_path"):
         data_server.inspect_workspace_sources(
             ["../outside.csv"],
-            [SourceRole.DEMAND],
             ctx=_context(tmp_path),
             country_code="ID",
         )

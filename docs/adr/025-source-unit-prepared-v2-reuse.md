@@ -20,6 +20,17 @@ Data 需要支持 CSV、XLSX sheet 和任意 JSON array，同时避免把 previe
 3. inspect 只有在调用方显式传入 exact prepared candidate path，且候选为 ready、国家/角色匹配、选中来源和映射仍 fresh 时才复用。相同 prepared 内容按规范路径稳定选择；不同内容返回一次 `prepared_selection_required`；未选来源变化不影响复用。
 4. prepare 在完整读取前后校验 source snapshot；`ready` 写 create-new 文件，`needs_input` no-write 一次交接，`source_changed` 只允许一次重新 inspect。Network/Maps 只接受 v2 ready 输入，直接加载 prepared snapshot 不依赖 raw 文件；复用和 geography 准备另行校验 raw/admin 新鲜度。
 
+## 修订（2026-11-03）：检查与复用拆分
+
+第 1、3 点中 inspect 同时承担 prepared 复用的部分被替代。`inspect_workspace_sources` 只检查原始来源，
+不再接收 `required_roles`，传入 prepared 路径时明确失败；unit profile 只保留 `role_assessments`，不再
+重复输出 `mapping_suggestions`。prepared 复用由只读 `resolve_prepared_network_input` 负责：调用方仍须
+显式给出 discover 列出的 prepared 路径和本次 `required_roles`，新鲜度校验不变；新鲜文件按所需 roles 的
+规范化记录（及国家）分组，记录相同即视为对本次目标等价，复用 roles 最多、其次路径最小的文件并报告
+`equivalent_count`；只有记录不同才返回 `prepared_selection_required`；没有新鲜文件返回 typed
+`prepared_unavailable`。比较记录而非 source selection，是因为规范化跨 role 校验、地理补全会改写记录，
+记录才是权威数据。
+
 ## Owner、持久化与边界
 
 Data Tool 拥有 unit 解析、全量读取、映射、规范化和 prepared 文件；Network/Maps 拥有其 typed Resource 和交付。Platform 不保存映射、复用 registry、revision、fingerprint 或 workflow state；Codex Runtime 不做领域解释。Role TOML 继续显式声明 MCP 权限，Skill 只描述目标角色、业务询问和 typed 终态交接。

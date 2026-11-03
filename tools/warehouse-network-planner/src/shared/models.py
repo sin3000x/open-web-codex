@@ -281,28 +281,44 @@ class DataInspectionSelectionRequired(StrictModel):
     limit: InspectionLimitCounts
 
 
+class DataInspectionToolResult(
+    RootModel[
+        Annotated[
+            DataInspectionInspected | DataInspectionSelectionRequired,
+            Field(discriminator="outcome"),
+        ]
+    ]
+):
+    """Discriminated v2 raw-source inspection contract; no global business blockers."""
+
+
 class PreparedCandidateSummary(StrictModel):
     prepared_input_relative_path: str = Field(min_length=1, max_length=1024)
     input_identity: PlanningInputIdentity
+    roles: list[SourceRole] = Field(min_length=1, max_length=5)
     role_counts: PreparationRoleCounts
+    equivalent_count: int = Field(ge=1)
 
 
-class DataInspectionPreparedReady(StrictModel):
+class PreparedResolutionReady(StrictModel):
+    """One fresh prepared input, or several with identical requested-role records."""
+
     outcome: Literal["prepared_ready"]
-    schema_version: Literal["workspace_source_profile.v2"] = Field(alias="schemaVersion")
     operation: Literal["reused"]
     summary: str
     next_action: Literal["handoff"]
     retryable: Literal[False]
     prepared_input_relative_path: str = Field(min_length=1, max_length=1024)
     input_identity: PlanningInputIdentity
+    roles: list[SourceRole] = Field(min_length=1, max_length=5)
     role_counts: PreparationRoleCounts
+    equivalent_count: int = Field(ge=1)
     warnings: list[str] = Field(max_length=64)
     warning_count: int = Field(ge=0)
     warnings_truncated: bool
 
     @model_validator(mode="after")
-    def validate_warning_count(self) -> DataInspectionPreparedReady:
+    def validate_warning_count(self) -> PreparedResolutionReady:
         if len(self.warnings) != min(self.warning_count, 64):
             raise ValueError("prepared_warning_count_bounded_length_mismatch")
         if self.warnings_truncated != (self.warning_count > 64):
@@ -310,18 +326,19 @@ class DataInspectionPreparedReady(StrictModel):
         return self
 
 
-class DataInspectionPreparedSelectionRequired(StrictModel):
+class PreparedResolutionSelectionRequired(StrictModel):
+    """Fresh prepared inputs whose requested-role records differ."""
+
     outcome: Literal["prepared_selection_required"]
-    schema_version: Literal["workspace_source_profile.v2"] = Field(alias="schemaVersion")
     summary: str
     next_action: Literal["request_user_input"]
     retryable: Literal[False]
     candidates: list[PreparedCandidateSummary] = Field(max_length=64)
-    candidate_count: int = Field(ge=1)
+    candidate_count: int = Field(ge=2)
     candidates_truncated: bool
 
     @model_validator(mode="after")
-    def validate_candidate_count(self) -> DataInspectionPreparedSelectionRequired:
+    def validate_candidate_count(self) -> PreparedResolutionSelectionRequired:
         if len(self.candidates) != min(self.candidate_count, 64):
             raise ValueError("prepared_candidate_count_bounded_length_mismatch")
         if self.candidates_truncated != (self.candidate_count > 64):
@@ -329,18 +346,37 @@ class DataInspectionPreparedSelectionRequired(StrictModel):
         return self
 
 
-class DataInspectionToolResult(
+class PreparedResolutionUnavailable(StrictModel):
+    """No given prepared input is fresh for the requested roles and country."""
+
+    outcome: Literal["prepared_unavailable"]
+    summary: str
+    next_action: Literal["inspect_sources"]
+    retryable: Literal[False]
+    reasons: list[str] = Field(max_length=64)
+    reason_count: int = Field(ge=1)
+    reasons_truncated: bool
+
+    @model_validator(mode="after")
+    def validate_reason_count(self) -> PreparedResolutionUnavailable:
+        if len(self.reasons) != min(self.reason_count, 64):
+            raise ValueError("prepared_reason_count_bounded_length_mismatch")
+        if self.reasons_truncated != (self.reason_count > 64):
+            raise ValueError("prepared_reason_count_truncation_mismatch")
+        return self
+
+
+class PreparedResolutionToolResult(
     RootModel[
         Annotated[
-            DataInspectionInspected
-            | DataInspectionSelectionRequired
-            | DataInspectionPreparedReady
-            | DataInspectionPreparedSelectionRequired,
+            PreparedResolutionReady
+            | PreparedResolutionSelectionRequired
+            | PreparedResolutionUnavailable,
             Field(discriminator="outcome"),
         ]
     ]
 ):
-    """Discriminated v2 inspection contract; no global business blockers."""
+    """Discriminated prepared-input reuse contract over explicit candidate paths."""
 
 
 class CandidateWarehouseSummary(StrictModel):

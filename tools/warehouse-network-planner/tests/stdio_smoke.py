@@ -72,6 +72,7 @@ async def smoke() -> None:
                     "prepare_network_input",
                     "prepare_network_geography",
                     "query_prepared_network_input",
+                    "resolve_prepared_network_input",
                 }
                 assert names == expected_tools
                 assert (await asyncio.wait_for(session.list_resources(), timeout=10)).resources == []
@@ -88,7 +89,6 @@ async def smoke() -> None:
                         "inspect_workspace_sources",
                         {
                             "relative_paths": ["network.csv", "warehouse.csv"],
-                            "required_roles": ["demand", "existing_warehouse"],
                             "country_code": "ID",
                         },
                         meta=meta,
@@ -101,8 +101,11 @@ async def smoke() -> None:
                 assert inspection["outcome"] == "inspected"
                 assert inspection["source_profile"]["sources"][0]["relative_path"] == "network.csv"
                 assert inspection["source_profile"]["sources"][0]["units"][0][
-                    "mapping_suggestions"
+                    "role_assessments"
                 ]
+                assert "mapping_suggestions" not in inspection["source_profile"]["sources"][0][
+                    "units"
+                ][0]
                 assert inspection["inspection_identity"]["schemaVersion"] == "workspace_source_inspection.v2"
                 prepared = await asyncio.wait_for(
                     session.call_tool(
@@ -144,7 +147,6 @@ async def smoke() -> None:
                         "inspect_workspace_sources",
                         {
                             "relative_paths": ["warehouses-missing-type.csv"],
-                            "required_roles": ["existing_warehouse"],
                             "country_code": "ID",
                         },
                         meta=meta,

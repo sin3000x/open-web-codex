@@ -831,24 +831,10 @@ class DeterministicModelServer {
             "mock_data/population-snapshot.csv",
             "mock_data/route-quotes.csv",
           ],
-          required_roles: ["demand", "existing_warehouse", "candidate_warehouse", "route_quote"],
           country_code: "ID",
         });
       }
       if (!has("data:prepare")) {
-        const preparedReady = findLatestKey(
-          body,
-          ["outcome"],
-          (value) => value?.outcome === "prepared_ready" && typeof value?.prepared_input_relative_path === "string",
-        );
-        if (preparedReady) {
-          return message(
-            "data:done",
-            "已复用 fresh prepared input。prepared_input_relative_path=" +
-              preparedReady.prepared_input_relative_path +
-              " input_identity=" + JSON.stringify(preparedReady.input_identity),
-          );
-        }
         const inspectionIdentity = findLatestKey(
           body,
           ["inspection_identity"],

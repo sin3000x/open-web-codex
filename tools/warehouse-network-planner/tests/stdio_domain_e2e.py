@@ -145,6 +145,8 @@ async def _prepare_normalized_resource(
                 "inspect_workspace_sources",
                 "prepare_network_input",
                 "prepare_network_geography",
+                "query_prepared_network_input",
+                "resolve_prepared_network_input",
             }
             assert (await asyncio.wait_for(session.list_resources(), timeout=30)).resources == []
             assert (
@@ -156,13 +158,6 @@ async def _prepare_normalized_resource(
                 "inspect_workspace_sources",
                 {
                     "relative_paths": relative_paths,
-                    "required_roles": [
-                        "demand",
-                        "existing_warehouse",
-                        "candidate_warehouse",
-                        "current_assignment",
-                        "route_quote",
-                    ],
                     "country_code": "ID",
                 },
                 workspace,

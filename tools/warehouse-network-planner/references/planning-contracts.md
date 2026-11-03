@@ -32,19 +32,29 @@ scope or assumptions creates a new Resource.
 Resource files default to the owning Profile's `CODEX_HOME`; they are not shared
 application or repository state.
 
-For Data intake, `inspect_workspace_sources` accepts only the five planning roles
-`demand`, `existing_warehouse`, `candidate_warehouse`, `current_assignment` and `route_quote`;
-an administrative catalog is included in inspected paths but is passed separately to preparation.
+For Data intake, `inspect_workspace_sources` profiles raw sources only and rejects a prepared
+input path with `prepared_input_not_raw_source`; an administrative catalog is included in inspected
+paths but is passed separately to preparation.
 `country_code` is optional: when omitted, the Tool derives one only from a uniquely identified
 administrative catalog metadata record; missing or conflicting metadata leaves it null with a bounded
 warning. The Tool returns a bounded inline
 `workspace_source_profile.v2`, exact source units, `preview_sample_count`, `total_count`,
 `total_count_exact`, `inspection_identity` and inspected relative paths. Preview rows are schema
-examples only; `total_count` is the complete unit count. A fresh prepared candidate is reused only
-when its exact output path is included in the inspection selection and its selected raw/admin
-provenance is still fresh; otherwise inspection returns the raw profile. Candidates are checked
-against an explicit `country_code` when one is given and otherwise against the country recorded in
-each prepared file, so a prepared-only inspection never requires the caller to supply a country. `prepare_network_input`
+examples only; `total_count` is the complete unit count. Each unit carries `role_assessments`
+(`complete`, `partial` or `ambiguous`); preparation auto-resolves mappings only from a single
+`complete` assessment for the selected role.
+
+`resolve_prepared_network_input` owns prepared-input reuse. It accepts exact `prepared_candidate`
+paths from discovery and `required_roles` from the five planning roles `demand`,
+`existing_warehouse`, `candidate_warehouse`, `current_assignment` and `route_quote`. Each file must
+be ready, contain the required roles, match an explicit `country_code` or otherwise its recorded
+country, and keep fresh raw/admin provenance. Fresh files are compared by their normalized records
+for the requested roles only (existing and candidate warehouses split by `is_existing`; route quotes
+include provided route facts). Identical records resolve to one `prepared_ready` result that reuses
+the file with the most prepared roles, then the canonical path, and reports `equivalent_count`;
+differing records return `prepared_selection_required` with one summary per distinct group; no fresh
+file returns `prepared_unavailable` with bounded per-file reasons and
+`next_action="inspect_sources"`. `prepare_network_input`
 rereads the selected complete units and recomputes the identity before writing; a path, byte or
 selected-set change returns `source_changed` without creating output. `needs_input` is a terminal
 business handoff, not a retry loop. Data registers no Resource or Resource template, so callers must

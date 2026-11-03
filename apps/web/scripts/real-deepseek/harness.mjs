@@ -2233,7 +2233,7 @@ async function runGate(provider) {
     );
     const dataHandoffEvent = allEvents.find(
       (event) =>
-        /(prepare_network_input|inspect_workspace_sources)/.test(String(eventTool(event))) &&
+        /(prepare_network_input|resolve_prepared_network_input)/.test(String(eventTool(event))) &&
         event.event_type === "codex.item.completed" &&
         eventData(event)?.status === "completed" &&
         ["ready", "prepared_ready"].includes(

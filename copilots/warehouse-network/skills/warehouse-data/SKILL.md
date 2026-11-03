@@ -20,10 +20,10 @@ metadata:
 
 ## 处理方式
 
-1. 依次使用 `discover_workspace_sources` 和 `inspect_workspace_sources`，先发现可用来源以及可复用的已准备数据，再检查与本次目标有关的来源。
+1. 先用 `discover_workspace_sources` 发现来源。列出了准备好的数据（`prepared_candidate`）时，把这些路径和本次需要的数据交给 `resolve_prepared_network_input`；返回 `prepared_ready` 就直接复用，返回 `prepared_unavailable` 或没有准备好的数据时，再用 `inspect_workspace_sources` 检查与本次目标有关的原始来源。
 2. CSV 表、Excel sheet 和 JSON 数组分别选择。表头名称不同不是缺数据；只要含义和类型清楚，就提交明确的字段对应关系。
 3. 仅在字段含义有多种解释、单位或币种规则未知、仓型未知、选中记录缺少业务值，或同一标识存在冲突时询问。未选择的文件、预览之外的记录和不同表头都不构成阻塞。
-4. 检查结果为 `prepared_ready` 时直接复用；需要新准备数据时，把确切的表、sheet 或数组及字段对应关系组成 `source_selections`，再调用 `prepare_network_input`。行政区目录只用于地理补全，不把它误判为需求或仓库数据。
+4. 需要新准备数据时，把确切的表、sheet 或数组及字段对应关系组成 `source_selections`，再调用 `prepare_network_input`。行政区目录只用于地理补全，不把它误判为需求或仓库数据。
 
 ## 回答数据事实问题
 

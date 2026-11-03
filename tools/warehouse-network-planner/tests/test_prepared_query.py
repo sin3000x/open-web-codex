@@ -50,14 +50,8 @@ def prepared_workspace(tmp_path, monkeypatch) -> tuple[Path, SimpleNamespace]:
     monkeypatch.setattr(data_server, "_supply_chain_resources", resources)
     monkeypatch.setattr(data_server, "_workspace", lambda _ctx: tmp_path)
     ctx = _context(tmp_path)
-    roles = [
-        SourceRole.DEMAND,
-        SourceRole.EXISTING_WAREHOUSE,
-        SourceRole.CANDIDATE_WAREHOUSE,
-        SourceRole.ROUTE_QUOTE,
-    ]
     profile = data_server.inspect_workspace_sources(
-        sorted(SOURCE_NAMES), roles, ctx=ctx, country_code="ID"
+        sorted(SOURCE_NAMES), ctx=ctx, country_code="ID"
     ).structuredContent
     prepared = data_server.prepare_network_input(
         SourceInspectionIdentity.model_validate(profile["inspection_identity"]),

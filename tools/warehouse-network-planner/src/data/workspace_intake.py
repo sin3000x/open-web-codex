@@ -144,7 +144,8 @@ def source_descriptor(root: Path, relative_path: str) -> dict[str, Any]:
     }
 
 
-def _prepared_candidate_descriptors(root: Path) -> list[dict[str, Any]]:
+def discover_prepared_candidates(root: Path) -> list[dict[str, Any]]:
+    """Return descriptors for the direct prepared-input files only."""
     prepared_root = root / Path(*PREPARED_OUTPUT_ROOT.parts)
     if prepared_root.is_symlink():
         raise ValueError("prepared_output_directory_invalid")
@@ -184,7 +185,7 @@ def discover(root: Path) -> list[dict[str, Any]]:
             "as .xlsx, .csv or .json"
         )
     files = _iter_files(root)
-    candidates = _prepared_candidate_descriptors(root)
+    candidates = discover_prepared_candidates(root)
     if len(files) + len(candidates) > MAX_FILES:
         raise ValueError("workspace_source_limit_exceeded: more than 500 supported files")
     descriptors = [source_descriptor(root, path.relative_to(root).as_posix()) for path in files]

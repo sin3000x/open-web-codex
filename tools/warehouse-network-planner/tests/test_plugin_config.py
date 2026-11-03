@@ -73,6 +73,7 @@ DATA_TOOLS = {
     "prepare_network_input",
     "prepare_network_geography",
     "query_prepared_network_input",
+    "resolve_prepared_network_input",
 }
 NETWORK_TOOLS = {
     "assess_facility_change",
