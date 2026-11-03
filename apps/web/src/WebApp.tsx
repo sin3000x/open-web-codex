@@ -2297,6 +2297,7 @@ export default function WebApp() {
      setTokenUsage(null);
      setGoal(null);
      setThinking(false);
+     setTurnStartedAt(null);
      setThreadStatus("idle");
      setActiveTurnId(null);
      setStopping(false);
@@ -2388,6 +2389,7 @@ export default function WebApp() {
        setTokenUsage(null);
        setGoal(null);
      setThinking(false);
+     setTurnStartedAt(null);
      setThreadStatus("idle");
      setActiveTurnId(null);
      setStopping(false);
@@ -2433,6 +2435,7 @@ export default function WebApp() {
         setMessages([]);
         setThreadStatus("idle");
         setThinking(false);
+        setTurnStartedAt(null);
       }
     } catch (error) {
       appendLog("error", error instanceof Error ? error.message : String(error));
