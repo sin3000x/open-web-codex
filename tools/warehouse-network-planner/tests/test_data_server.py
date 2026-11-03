@@ -661,12 +661,16 @@ def test_fresh_prepared_input_is_reused_and_only_selected_raw_changes_invalidate
         ctx=ctx,
     ).structuredContent
     assert reused_from_admin_country["outcome"] == "prepared_ready"
-    with pytest.raises(ProviderContractError, match="prepared_candidate_country_required"):
-        data_server.inspect_workspace_sources(
-            [created_payload["prepared_input_relative_path"]],
-            [SourceRole.DEMAND],
-            ctx=ctx,
-        )
+    reused_from_recorded_country = data_server.inspect_workspace_sources(
+        [created_payload["prepared_input_relative_path"]],
+        [SourceRole.DEMAND],
+        ctx=ctx,
+    ).structuredContent
+    assert reused_from_recorded_country["outcome"] == "prepared_ready"
+    assert (
+        reused_from_recorded_country["prepared_input_relative_path"]
+        == created_payload["prepared_input_relative_path"]
+    )
 
     canonical_copy = tmp_path / f"{PREPARED_OUTPUT_DIR}/a-copy.json"
     canonical_copy.write_bytes(

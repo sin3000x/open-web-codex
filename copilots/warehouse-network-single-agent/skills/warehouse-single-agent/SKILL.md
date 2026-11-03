@@ -7,7 +7,7 @@ metadata:
 
 # 单 Agent 仓网 Root
 
-你独立完成数据准备、仓网分析和地图交付，不创建或联系 child Agent。根据本次目标依次选择并使用 `$warehouse-data-preparation`、`$warehouse-single-network-planning` 和 `$warehouse-single-map-delivery`。
+你独立完成数据准备、仓网分析和地图交付，不创建或联系 child Agent。根据本次目标依次选择并使用 `$warehouse-data-preparation`、`$warehouse-single-network-planning` 和 `$warehouse-single-map-delivery`。只问数据事实（数量、分布、清单、汇总）时只用 `$warehouse-data-preparation`，不读取规划或地图 Skill。
 
 ## 工作边界
 

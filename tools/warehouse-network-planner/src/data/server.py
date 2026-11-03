@@ -298,7 +298,16 @@ def inspect_workspace_sources(
     relative_paths: list[str],
     required_roles: Annotated[list[PlanningSourceRole], Field(min_length=1, max_length=5)],
     ctx: Context,
-    country_code: Annotated[str | None, Field(pattern=r"^[A-Za-z]{2}$")] = None,
+    country_code: Annotated[
+        str | None,
+        Field(
+            pattern=r"^[A-Za-z]{2}$",
+            description=(
+                "Only a country the user stated. Omit it otherwise: prepared candidates are "
+                "checked against the country recorded in each prepared file."
+            ),
+        ),
+    ] = None,
 ) -> Annotated[CallToolResult, DataInspectionToolResult]:
     """Inspect selected Workspace files and return one bounded inline profile.
 
@@ -325,22 +334,16 @@ def inspect_workspace_sources(
         raise ValueError("prepared_candidate_not_found")
     raw_paths = [path for path in relative_paths if path not in selected_candidate_paths]
     candidate_paths = sorted(selected_candidate_paths)
-    candidate_warnings: list[str] = []
-    if country is not None:
-        fresh_candidates, candidate_warnings = _fresh_prepared_candidates(
-            root, candidate_paths, required_roles, country
-        )
-        if fresh_candidates:
-            if len({item[2].content_sha256 for item in fresh_candidates}) == 1:
-                selected = min(fresh_candidates, key=lambda item: item[0])
-                return _prepared_ready_result(selected, candidate_warnings)
-            return _prepared_selection_result(fresh_candidates)
+    fresh_candidates, candidate_warnings = _fresh_prepared_candidates(
+        root, candidate_paths, required_roles, country
+    )
+    if fresh_candidates:
+        if len({item[2].content_sha256 for item in fresh_candidates}) == 1:
+            selected = min(fresh_candidates, key=lambda item: item[0])
+            return _prepared_ready_result(selected, candidate_warnings)
+        return _prepared_selection_result(fresh_candidates)
     if not raw_paths:
-        raise ProviderContractError(
-            "prepared_candidate_country_required"
-            if country is None
-            else "prepared_candidate_unavailable"
-        )
+        raise ProviderContractError("prepared_candidate_unavailable")
     inspected = _inspect_workspace_sources(raw_paths, ctx)
     if isinstance(inspected, DataInspectionSelectionRequired):
         summary = inspected.summary
@@ -351,15 +354,6 @@ def inspect_workspace_sources(
         )
     profile = inspected
     derived_country, country_warnings = _derive_inspected_country(profile, country)
-    if country is None and derived_country is not None and candidate_paths:
-        fresh_candidates, candidate_warnings = _fresh_prepared_candidates(
-            root, candidate_paths, required_roles, derived_country
-        )
-        if fresh_candidates:
-            if len({item[2].content_sha256 for item in fresh_candidates}) == 1:
-                selected = min(fresh_candidates, key=lambda item: item[0])
-                return _prepared_ready_result(selected, candidate_warnings)
-            return _prepared_selection_result(fresh_candidates)
     content_sha256, source_count = source_inspection_identity(root, raw_paths)
     identity = SourceInspectionIdentity(
         content_sha256=content_sha256,
@@ -450,8 +444,9 @@ def _fresh_prepared_candidates(
     root: Path,
     candidate_paths: list[str],
     required_roles: list[PlanningSourceRole],
-    country_code: str,
+    country_code: str | None,
 ) -> tuple[list[tuple[str, PreparedNetworkResource, PlanningInputIdentity]], list[str]]:
+    """Validate candidates against an explicit country or each file's recorded one."""
     fresh: list[tuple[str, PreparedNetworkResource, PlanningInputIdentity]] = []
     warnings: list[str] = []
     for path in sorted(candidate_paths):
@@ -461,7 +456,7 @@ def _fresh_prepared_candidates(
                 root,
                 prepared,
                 required_roles=required_roles,
-                country_code=country_code,
+                country_code=country_code or prepared.country_code,
             )
             if valid:
                 fresh.append((path, prepared, identity))
@@ -1538,7 +1533,8 @@ def prepare_network_geography(
         "input: counts, group-by breakdowns, sum/min/max/mean and bounded filtered row lists. "
         "Use it for questions such as how many warehouses of each type exist, which cities "
         "have the most demand, or which candidates lie in a province; never answer such "
-        "questions from inspection preview rows. roles and role_counts show which roles the "
+        "questions from inspection preview rows. Each group carries its exact record count; "
+        "measures add sums or extremes. roles and role_counts show which roles the "
         "prepared file contains; a role it did not prepare is not evidence of zero. group_by returns groups and no rows; without "
         "group_by it returns at most `limit` rows plus the exact matched_count. A changed "
         "selected source returns prepared_input_stale instead of facts. Fields by dataset: "

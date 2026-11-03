@@ -42,7 +42,9 @@ warning. The Tool returns a bounded inline
 `total_count_exact`, `inspection_identity` and inspected relative paths. Preview rows are schema
 examples only; `total_count` is the complete unit count. A fresh prepared candidate is reused only
 when its exact output path is included in the inspection selection and its selected raw/admin
-provenance is still fresh; otherwise inspection returns the raw profile. `prepare_network_input`
+provenance is still fresh; otherwise inspection returns the raw profile. Candidates are checked
+against an explicit `country_code` when one is given and otherwise against the country recorded in
+each prepared file, so a prepared-only inspection never requires the caller to supply a country. `prepare_network_input`
 rereads the selected complete units and recomputes the identity before writing; a path, byte or
 selected-set change returns `source_changed` without creating output. `needs_input` is a terminal
 business handoff, not a retry loop. Data registers no Resource or Resource template, so callers must
@@ -53,7 +55,8 @@ evaluates typed filters, up to two `group_by` fields, sum/min/max/mean measures 
 list of at most 100 records over every record of the selected dataset, and returns
 `prepared_network_query.v1` with exact `record_count`, `matched_count`, groups and measures. A changed
 selected source returns `prepared_input_stale` with `next_action="reinspect"` and no facts. Business
-fact questions are answered by this Tool, never by inspection preview rows.
+fact questions are answered by this Tool directly on a discovered prepared candidate, without a prior
+inspection, and never by inspection preview rows. Each group carries its exact record count.
 
 `prepare_route_matrix` returns a discriminated `ready | needs_input` result. `ready` always has
 zero missing pairs and the exact `route_matrix.v3` reference. An incomplete provided scope returns
