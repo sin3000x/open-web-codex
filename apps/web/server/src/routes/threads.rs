@@ -625,21 +625,42 @@ fn project_turn(value: &serde_json::Value) -> Result<ThreadHistoryTurn, ApiError
                 additional_details: None,
             }
         });
+    let status = object
+        .get("status")
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or("completed")
+        .to_string();
+    let started_at = object.get("startedAt").and_then(serde_json::Value::as_i64);
+    let elapsed_ms = in_progress_turn_elapsed_ms(
+        &status,
+        started_at,
+        chrono::Utc::now().timestamp_millis(),
+    );
     Ok(ThreadHistoryTurn {
         id: id.to_string(),
-        status: object
-            .get("status")
-            .and_then(serde_json::Value::as_str)
-            .unwrap_or("completed")
-            .to_string(),
+        status,
         items,
         error,
-        started_at: object.get("startedAt").and_then(serde_json::Value::as_i64),
+        started_at,
         completed_at: object
             .get("completedAt")
             .and_then(serde_json::Value::as_i64),
         duration_ms: object.get("durationMs").and_then(serde_json::Value::as_i64),
+        elapsed_ms,
     })
+}
+
+/// Elapsed time of an in-progress Turn on the server clock.
+///
+/// Codex reports `Turn.startedAt` as Unix seconds from the Runtime host clock,
+/// which shares this server's clock. Browsers must not subtract it from their
+/// own clock, so the relative value is computed here.
+fn in_progress_turn_elapsed_ms(status: &str, started_at: Option<i64>, now_ms: i64) -> Option<i64> {
+    if status != "inProgress" {
+        return None;
+    }
+    let started_at_ms = started_at?.checked_mul(1000)?;
+    Some(now_ms.saturating_sub(started_at_ms).max(0))
 }
 
 async fn project_turn_with_refs(
@@ -1073,12 +1094,47 @@ fn database_error(_: sqlx::Error) -> ApiError {
 #[cfg(test)]
 mod tests {
     use super::{
-        mcp_resource_bytes, project_turn, projected_token_usage, public_approval_status,
-        valid_geojson_root, ApprovalOverlay, ThreadHistoryOverlay,
+        in_progress_turn_elapsed_ms, mcp_resource_bytes, project_turn, projected_token_usage,
+        public_approval_status, valid_geojson_root, ApprovalOverlay, ThreadHistoryOverlay,
     };
     use open_web_codex_platform_contracts::ThreadHistoryTurn;
     use serde_json::json;
     use std::collections::HashMap;
+
+    #[test]
+    fn reports_server_relative_elapsed_time_only_for_in_progress_turns() {
+        let now_ms = 1_700_000_120_500;
+        assert_eq!(
+            in_progress_turn_elapsed_ms("inProgress", Some(1_700_000_000), now_ms),
+            Some(120_500)
+        );
+        assert_eq!(in_progress_turn_elapsed_ms("completed", Some(1_700_000_000), now_ms), None);
+        assert_eq!(in_progress_turn_elapsed_ms("inProgress", None, now_ms), None);
+        assert_eq!(
+            in_progress_turn_elapsed_ms("inProgress", Some(1_700_000_200), now_ms),
+            Some(0)
+        );
+
+        let running = project_turn(&json!({
+            "id": "turn-running",
+            "status": "inProgress",
+            "items": [],
+            "startedAt": chrono::Utc::now().timestamp() - 30,
+        }))
+        .expect("running turn");
+        let elapsed = running.elapsed_ms.expect("elapsed for running turn");
+        assert!((29_000..=32_000).contains(&elapsed), "elapsed {elapsed}");
+
+        let completed = project_turn(&json!({
+            "id": "turn-done",
+            "status": "completed",
+            "items": [],
+            "startedAt": 1_700_000_000,
+            "durationMs": 4_000,
+        }))
+        .expect("completed turn");
+        assert_eq!(completed.elapsed_ms, None);
+    }
 
     #[test]
     fn restores_persisted_token_usage_and_rejects_missing_usage() {
@@ -1314,6 +1370,7 @@ mod tests {
             started_at: None,
             completed_at: None,
             duration_ms: None,
+            elapsed_ms: None,
         };
         let overlay = ThreadHistoryOverlay {
             item_sequences: HashMap::from([

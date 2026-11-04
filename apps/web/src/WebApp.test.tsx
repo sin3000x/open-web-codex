@@ -559,10 +559,42 @@ describe("WebApp workspace-first messaging", () => {
     expect(screen.getByRole("button", { name: "Provider" })).toBeTruthy();
   });
 
-  it("keeps a local send time when Runtime reports a different Turn start", () => {
-    expect(resolveTurnStartedAt(1_700_000_120_000, 1_700_000_000)).toBe(1_700_000_120_000);
-    expect(resolveTurnStartedAt(null, 1_700_000_000)).toBe(1_700_000_000_000);
-    expect(resolveTurnStartedAt(null, null, 1_700_000_120_000)).toBe(1_700_000_120_000);
+  it("anchors Turn timers to the browser clock instead of server timestamps", () => {
+    const browserNow = 1_700_000_120_000;
+    // A locally submitted Turn keeps its send time.
+    expect(resolveTurnStartedAt(1_700_000_100_000, 90_000, browserNow)).toBe(1_700_000_100_000);
+    // Hydration uses the server-measured elapsed time, independent of clock skew.
+    expect(resolveTurnStartedAt(null, 15_000, browserNow)).toBe(browserNow - 15_000);
+    expect(resolveTurnStartedAt(null, -5, browserNow)).toBe(browserNow);
+    // A live turn/started without a local send time starts at zero.
+    expect(resolveTurnStartedAt(null, null, browserNow)).toBe(browserNow);
+  });
+
+  it("hydrates a running Turn timer from server elapsed time despite clock skew", async () => {
+    const skewedServerStartSeconds = Math.floor(Date.now() / 1000) - 5 * 60;
+    client.listThreads.mockResolvedValue({
+      data: [{
+        id: "thread-running",
+        name: "Running thread",
+        updatedAt: 1,
+        status: { type: "active", activeFlags: [] },
+        modelProvider: "deepseek",
+        model: "deepseek-v4-flash",
+      }],
+    });
+    client.listThreadTurns.mockResolvedValue([{
+      id: "turn-running",
+      status: "inProgress",
+      startedAt: skewedServerStartSeconds,
+      elapsedMs: 12_000,
+      items: [{ id: "user-1", type: "userMessage", content: [{ type: "text", text: "Go" }] }],
+    }]);
+    render(<WebApp />);
+
+    fireEvent.click(await screen.findByText("Running thread"));
+
+    await screen.findByText(/^0:1[2-3]$/);
+    expect(screen.queryByText(/^5:\d\d$/)).toBeNull();
   });
 
   it("persists a Profile Provider without requiring a Workspace", async () => {

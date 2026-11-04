@@ -401,18 +401,23 @@ function projectModelCatalogState(
 
 /* ─────────── Component ─────────── */
 
+/**
+ * Browser-clock start of a running Turn.
+ *
+ * Runtime `startedAt` values come from the server clock and must never be
+ * subtracted from `Date.now()`: any clock skew between the server and this
+ * browser would shift the visible timer by minutes. A locally submitted Turn
+ * keeps its send time; a live `turn/started` without one starts now; history
+ * hydration anchors the server-measured `elapsedMs` to this browser's clock.
+ */
 export function resolveTurnStartedAt(
   currentStartedAt: number | null,
-  runtimeStartedAt: unknown,
+  serverElapsedMs: number | null | undefined = null,
   now = Date.now(),
 ): number {
-  // A locally submitted Turn already has a stable start time. Runtime events
-  // can arrive later or be replayed with an older timestamp, so they must not
-  // move the visible timer backwards. A Runtime timestamp is only needed when
-  // hydrating an already-running Turn after refresh/reconnect.
   if (currentStartedAt !== null) return currentStartedAt;
-  if (typeof runtimeStartedAt === "number" && Number.isFinite(runtimeStartedAt)) {
-    return runtimeStartedAt < 10_000_000_000 ? runtimeStartedAt * 1000 : runtimeStartedAt;
+  if (typeof serverElapsedMs === "number" && Number.isFinite(serverElapsedMs)) {
+    return now - Math.max(0, serverElapsedMs);
   }
   return now;
 }
@@ -1118,10 +1123,7 @@ export default function WebApp() {
           }
           interruptRequestTurnId.current = null;
           setThinking(true);
-          setTurnStartedAt((previous) => resolveTurnStartedAt(
-            previous,
-            turn?.startedAt ?? params.startedAt ?? params.started_at,
-          ));
+          setTurnStartedAt((previous) => resolveTurnStartedAt(previous));
           setThreadStatus("running");
           setActiveTurnId(
             typeof startedTurnId === "string" && startedTurnId ? startedTurnId : null,
@@ -2850,10 +2852,7 @@ export default function WebApp() {
       });
       setActiveTurnId(typeof activeTurn?.id === "string" ? activeTurn.id : null);
       if (activeTurn) {
-        const rawStartedAt = activeTurn.startedAt;
-        setTurnStartedAt(typeof rawStartedAt === "number" && Number.isFinite(rawStartedAt)
-          ? rawStartedAt < 10_000_000_000 ? rawStartedAt * 1000 : rawStartedAt
-          : Date.now());
+        setTurnStartedAt(resolveTurnStartedAt(null, activeTurn.elapsedMs));
       } else {
         setTurnStartedAt(null);
       }

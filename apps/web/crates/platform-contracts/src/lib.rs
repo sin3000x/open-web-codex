@@ -324,6 +324,11 @@ pub struct ThreadHistoryTurn {
     pub started_at: Option<i64>,
     pub completed_at: Option<i64>,
     pub duration_ms: Option<i64>,
+    /// Elapsed time of an in-progress Turn, measured on the server clock when
+    /// the history was projected. `started_at` is a server-clock timestamp, so
+    /// browsers anchor live timers to this relative value instead of
+    /// subtracting `started_at` from their own, possibly skewed, clock.
+    pub elapsed_ms: Option<i64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

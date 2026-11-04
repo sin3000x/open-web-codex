@@ -437,6 +437,8 @@ export type ThreadHistoryTurn = {
   startedAt?: number | null;
   completedAt?: number | null;
   durationMs?: number | null;
+  /** Server-measured elapsed time of an in-progress Turn. */
+  elapsedMs?: number | null;
 };
 
 export type ThreadTokenUsageBreakdown = {
