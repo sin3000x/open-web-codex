@@ -1552,3 +1552,56 @@ fn function_call(name: &str, namespace: Option<&str>, call_id: &str) -> Response
         internal_chat_message_metadata_passthrough: None,
     }
 }
+
+#[test]
+fn wraps_unparsable_tool_arguments_only_on_the_chat_wire() {
+    let mut request = request(None);
+    request.instructions.clear();
+    let ResponseItem::FunctionCall {
+        id,
+        name,
+        namespace,
+        encrypted_function_args,
+        call_id,
+        internal_chat_message_metadata_passthrough,
+        ..
+    } = function_call("route", None, "call_1")
+    else {
+        unreachable!("function_call builds a FunctionCall");
+    };
+    request.input = vec![
+        ResponseItem::FunctionCall {
+            id,
+            name,
+            namespace,
+            arguments: "{\"x\":{\"x\":".to_string(),
+            encrypted_function_args,
+            call_id,
+            internal_chat_message_metadata_passthrough,
+        },
+        ResponseItem::FunctionCallOutput {
+            id: None,
+            call_id: "call_1".to_string(),
+            output: FunctionCallOutputPayload::from_text(
+                "failed to parse function arguments".to_string(),
+            ),
+            internal_chat_message_metadata_passthrough: None,
+        },
+    ];
+
+    let messages = responses_request_to_chat_completions_request(request)
+        .unwrap()
+        .messages;
+    let Some(ChatMessage::Assistant {
+        tool_calls: Some(tool_calls),
+        ..
+    }) = messages.first()
+    else {
+        panic!("expected an assistant tool call: {messages:?}");
+    };
+    let wire: Value = serde_json::from_str(&tool_calls[0].function.arguments).unwrap();
+    assert_eq!(
+        wire,
+        serde_json::json!({ "unparsed_arguments": "{\"x\":{\"x\":" })
+    );
+}

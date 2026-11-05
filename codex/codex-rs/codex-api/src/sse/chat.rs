@@ -303,13 +303,9 @@ async fn finish_chat_stream(
                         .to_string(),
                 });
             }
-            serde_json::from_str::<serde_json::Value>(&tool_call.function.arguments).map_err(
-                |error| ApiError::InvalidRequest {
-                    message: format!(
-                        "provider protocol violation: chat completion returned tool call arguments that are not valid JSON: {error}"
-                    ),
-                },
-            )?;
+            // Unparsable function arguments are not a transport failure: Core's
+            // tool handlers already return the parse error to the model as the
+            // call's output, exactly as for a Responses-native FunctionCall.
             let target = tool_targets.get(&tool_call.function.name).ok_or_else(|| {
                 ApiError::InvalidRequest {
                     message: format!(

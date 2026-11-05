@@ -207,6 +207,21 @@ fn raw_chat_reasoning_content(
     }
 }
 
+/// Chat providers require assistant tool-call arguments to be a JSON document.
+/// A model may emit unparsable arguments, which Core answers with a parse-error
+/// tool output; the canonical history keeps the raw text, and only this wire
+/// projection wraps it so the provider can still accept the follow-up request.
+fn chat_wire_function_arguments(arguments: &str) -> Result<String, ApiError> {
+    if serde_json::from_str::<serde_json::Value>(arguments).is_ok() {
+        return Ok(arguments.to_string());
+    }
+    serde_json::to_string(&serde_json::json!({ "unparsed_arguments": arguments })).map_err(
+        |error| ApiError::InvalidRequest {
+            message: format!("failed to serialize unparsed tool arguments: {error}"),
+        },
+    )
+}
+
 fn take_function_calls(
     input: &[ResponseItem],
     index: &mut usize,
@@ -229,7 +244,7 @@ fn take_function_calls(
                             .as_deref()
                             .map(|namespace| format!("{namespace}__{name}"))
                             .unwrap_or_else(|| name.clone()),
-                        arguments: arguments.clone(),
+                        arguments: chat_wire_function_arguments(arguments)?,
                     },
                 });
             }

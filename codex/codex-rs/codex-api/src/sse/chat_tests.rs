@@ -451,15 +451,6 @@ async fn chat_sse_rejects_invalid_tool_delta_shapes_before_completion() {
             "data: {\"choices\":[{\"index\":0,\"delta\":{\"tool_calls\":[{\"index\":0,\"type\":\"custom\"}]}}]}\n\n",
             "non-function type",
         ),
-        (
-            "duplicate-argument-fragment",
-            concat!(
-                "data: {\"choices\":[{\"index\":0,\"delta\":{\"tool_calls\":[{\"index\":0,\"id\":\"call_1\",\"function\":{\"name\":\"route\",\"arguments\":\"{\\\"x\\\":\"}}]}}]}\n\n",
-                "data: {\"choices\":[{\"index\":0,\"delta\":{\"tool_calls\":[{\"index\":0,\"function\":{\"arguments\":\"{\\\"x\\\":\"}}]},\"finish_reason\":\"tool_calls\"}]}\n\n",
-                "data: [DONE]\n\n"
-            ),
-            "not valid JSON",
-        ),
     ];
     for (name, body, expected) in cases {
         let events = collect(
@@ -473,16 +464,39 @@ async fn chat_sse_rejects_invalid_tool_delta_shapes_before_completion() {
             )]),
         )
         .await;
-        if name == "duplicate-argument-fragment" {
-            assert!(
-                matches!(events.last(), Some(Err(ApiError::InvalidRequest { message })) if message.contains(expected))
-            );
-        } else {
-            assert!(
-                matches!(events.last(), Some(Err(ApiError::Stream(message))) if message.contains(expected))
-            );
-        }
+        assert!(
+            matches!(events.last(), Some(Err(ApiError::Stream(message))) if message.contains(expected)),
+            "{name}"
+        );
     }
+}
+
+#[tokio::test]
+async fn chat_sse_passes_unparsable_tool_arguments_to_core() {
+    let body = concat!(
+        "data: {\"choices\":[{\"index\":0,\"delta\":{\"tool_calls\":[{\"index\":0,\"id\":\"call_1\",\"function\":{\"name\":\"route\",\"arguments\":\"{\\\"x\\\":\"}}]}}]}\n\n",
+        "data: {\"choices\":[{\"index\":0,\"delta\":{\"tool_calls\":[{\"index\":0,\"function\":{\"arguments\":\"{\\\"x\\\":\"}}]},\"finish_reason\":\"tool_calls\"}]}\n\n",
+        "data: [DONE]\n\n"
+    );
+    let events = collect(
+        body,
+        HashMap::from([(
+            "route".to_string(),
+            ChatToolTarget {
+                name: "route".to_string(),
+                namespace: None,
+            },
+        )]),
+    )
+    .await;
+    assert!(events.iter().all(Result::is_ok), "{events:?}");
+    let arguments = events.iter().find_map(|event| match event {
+        Ok(ResponseEvent::OutputItemDone(ResponseItem::FunctionCall { arguments, .. })) => {
+            Some(arguments.clone())
+        }
+        _ => None,
+    });
+    assert_eq!(arguments.as_deref(), Some("{\"x\":{\"x\":"));
 }
 
 #[tokio::test]
