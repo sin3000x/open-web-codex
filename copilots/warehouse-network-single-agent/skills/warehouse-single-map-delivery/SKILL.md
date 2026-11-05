@@ -7,7 +7,7 @@ metadata:
 
 # 单 Agent 地图与交付
 
-地图只展示规划工具已经确认的结果，不重新计算路线、成本、分配或达标率。
+地图只展示规划工具已经确认的结果，不重新计算路线、成本、分配或达标率。常见的“画出来”步骤在 `$warehouse-single-agent` 中；本文件补充报告、修改已有地图和行政区边界。
 
 - MCP server ID 使用工具返回的原始值；地图服务为 `map_utils`，规划服务为 `supply_chain`。`warehouse-network-maps` 是包 ID，不是 MCP server ID。
 - 已有覆盖资源仅在输入、分配结果和用户要求的时限都一致时复用；否则重新准备。不改写地图 spec，不自行补造达标率摘要。

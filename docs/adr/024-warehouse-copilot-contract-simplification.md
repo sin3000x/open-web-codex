@@ -40,7 +40,10 @@ Role、Skill、MCP 与 Tool 可用性由 Codex Runtime 在当前 Task 执行时�
 
 两个 Copilot 共保留八个 Skill：多 Agent 的 Supervisor、Data、Network Planning、Map Delivery，
 单 Agent的 Root、Data Preparation、Single Network Planning、Map Delivery。route、analysis 与
-optimization 合并为一个 Network Planning 方法。Workspace 输出目录、create-new、源身份、禁止覆盖
+optimization 合并为一个 Network Planning 方法。单 Agent Root Skill 每轮注入，直接承载数据问答、基线、
+单仓变化、达标选址和地图这几类常见问题的固定调用顺序与关键参数，常见问题不再需要读取其他 Skill；
+其余三个单 Agent Skill 只承载首次数据准备、真实导航/上传/指定成本/脚本核算以及报告、改图和边界
+这些少见分支。Workspace 输出目录、create-new、源身份、禁止覆盖
 和输入 schema 由 Tool 校验，不在多个 Skill 重复。Role TOML 的 MCP 权限和 manifest delivery 仍保持
 显式，不增加继承层。
 

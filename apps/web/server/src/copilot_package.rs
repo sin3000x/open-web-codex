@@ -1728,17 +1728,41 @@ mod tests {
         let instructions = role["developer_instructions"]
             .as_str()
             .expect("single-Agent developer instructions");
-        assert!(instructions.contains("prepared_input_relative_path"));
-        assert!(instructions.contains("`query_prepared_network_input` 在已准备数据上精确回答"));
-        assert!(instructions.contains("outputs/warehouse-network/calculations/"));
+        assert!(instructions.contains("照 `$warehouse-single-agent` 的固定步骤"));
         assert!(instructions.contains("只有用户明确要求脚本核算时"));
-        assert!(instructions.contains("同时保存可复用的 `.py` 脚本和 `.json` 结果"));
+        assert!(instructions.contains("`$warehouse-single-network-planning`"));
+        assert!(SINGLE_AGENT_PLANNING_SKILL.contains("只有用户明确要求时才做"));
+        assert!(SINGLE_AGENT_PLANNING_SKILL.contains("outputs/warehouse-network/calculations/"));
+        assert!(SINGLE_AGENT_PLANNING_SKILL.contains("可复用的 `.py` 脚本"));
+        assert!(SINGLE_AGENT_PLANNING_SKILL.contains("不读取原始文件"));
         assert!(
             role["plugins"]["map_utils"]["mcp_servers"]["map_utils"]["tools"]
                 .get("publish_workspace_geojson")
                 .is_none(),
             "single-Agent final GeoJSON export must inherit the server default prompt",
         );
+    }
+
+    #[test]
+    fn single_agent_root_skill_carries_fixed_recipes_for_common_questions() {
+        for anchor in [
+            "`query_prepared_network_input`",
+            "`warehouse_scope={\"kind\": \"existing_only\"}`",
+            "`warehouse_scope={\"kind\": \"all_warehouses\"}`",
+            "`cost_policy={\"kind\": \"observed_quote_mean\"}`",
+            "`opening_policy={\"kind\": \"minimum_feasible\"}`",
+            "`existing_warehouse_policy={\"mode\": \"keep_all_existing\"}`",
+            "用同一组路线和成本算出对比基准",
+            "`solve_p_median`，只调用一次",
+            "原样复制上一步返回的整个 `data_ref`",
+            "地图卡片成功后立即写最终回答，不再调用任何工具",
+            "`route_method=\"haversine\"`",
+        ] {
+            assert!(
+                SINGLE_AGENT_ROOT_SKILL.contains(anchor),
+                "single-Agent root recipe lost {anchor}"
+            );
+        }
     }
 
     #[test]
@@ -1831,7 +1855,7 @@ mod tests {
         }
         assert!(DATA_ROLE.contains("$warehouse-data"));
         assert!(NETWORK_ROLE.contains("仓网规划与地图 Skill"));
-        assert!(SINGLE_AGENT_ROOT_ROLE.contains("数据准备、仓网规划和地图 Skill"));
+        assert!(SINGLE_AGENT_ROOT_ROLE.contains("常见问题不需要读取其他 Skill 文件"));
     }
 
     #[test]
@@ -1906,17 +1930,17 @@ mod tests {
         assert!(ROOT_ROLE.contains("只使用业务语言"));
         assert!(ROOT_ROLE.contains("不描述内部协作、角色状态或工具过程"));
         assert!(!ROOT_ROLE.contains("$warehouse-supervisor"));
-        assert!(SINGLE_AGENT_ROOT_ROLE.contains("面向用户的回答"));
+        assert!(SINGLE_AGENT_ROOT_ROLE.contains("“最终回答”"));
         assert!(SINGLE_AGENT_ROOT_SKILL.contains("`$warehouse-data-preparation`"));
         assert!(SINGLE_AGENT_ROOT_SKILL.contains("`$warehouse-single-network-planning`"));
         assert!(SINGLE_AGENT_ROOT_SKILL.contains("`$warehouse-single-map-delivery`"));
-        assert!(SINGLE_AGENT_ROOT_SKILL.contains("`list_mcp_resources`"));
         for skill in [PLANNING_SKILL, SINGLE_AGENT_PLANNING_SKILL] {
             assert!(skill.contains("`route_method=\"provided\"`"));
             assert!(skill.contains("不得自行填写绕路系数、平均速度或导航费用"));
-            assert!(skill.contains("首次返回 `needs_input`"));
-            assert!(skill.contains("不得重调同一工具"));
         }
+        assert!(PLANNING_SKILL.contains("首次返回 `needs_input`"));
+        assert!(PLANNING_SKILL.contains("不得重调同一工具"));
+        assert!(SINGLE_AGENT_PLANNING_SKILL.contains("不要在用户回答前重复调用同一工具"));
         assert!(SINGLE_AGENT_PLANNING_SKILL.contains("`warehouse_quote_mean_calculation.v1`"));
         assert!(SINGLE_AGENT_PLANNING_SKILL.contains("`plan_cost_matrix`"));
     }

@@ -99,7 +99,9 @@ package = "warehouse-network-maps"
 单 Agent Role
 [`warehouse_single_agent.toml`](../../../copilots/warehouse-network-single-agent/agents/warehouse_single_agent.toml)
 同时启用四项 Skill、`supply_chain_data`、`supply_chain` 和 `map_utils`，并显式
-`multi_agent = false`。它可以独立完成一条仓网任务，但不创建 child Agent。
+`multi_agent = false`。它可以独立完成一条仓网任务，但不创建 child Agent。Root Skill
+`warehouse-single-agent` 按问题类型写明固定调用顺序和关键参数，常见问题只靠它完成；其余三项
+Skill 只在首次准备数据、少见的路线/成本补齐分支或报告与改图时读取。
 
 成功信号：业务计算仍只在共享 Tool；单 Agent 包只拥有方法、权限和装配。若只是为了省事把
 Tool 代码复制进包，当前步骤没有通过。
