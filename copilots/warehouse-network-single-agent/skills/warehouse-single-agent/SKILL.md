@@ -9,6 +9,19 @@ metadata:
 
 照下面的固定步骤做，不要自己设计流程。常见问题只需要本文件；只有本文写明的情况才去读其他 Skill。每一步都把上一步工具返回的 `resource_ref` 或 `data_ref` 原样传给下一步，不改写、不猜测。
 
+## 第 0 步：一次加载本次要用的全部工具
+
+先判断问题属于下面哪条流程。需要的工具不在当前可用工具里时，只调用一次 `tool_search`：`query` 里写下表中这条流程的全部工具名（用空格分隔），`limit=10`。不要一个工具搜一次。`request_user_input` 是内置工具，不需要搜索。
+
+| 流程 | `query` |
+| --- | --- |
+| A 数据问答 | `discover_workspace_sources resolve_prepared_network_input query_prepared_network_input` |
+| B 现状/基线 | `discover_workspace_sources resolve_prepared_network_input prepare_route_matrix plan_cost_matrix evaluate_network_baseline` |
+| C 单仓变化 | `discover_workspace_sources resolve_prepared_network_input query_prepared_network_input prepare_route_matrix plan_cost_matrix evaluate_network_baseline assess_facility_change` |
+| D 达标选址 | `discover_workspace_sources resolve_prepared_network_input prepare_route_matrix plan_cost_matrix evaluate_network_baseline solve_p_median` |
+
+用户还要地图时，在同一个 `query` 末尾加上 `prepare_network_coverage_map create_network_map_card`（只看位置时用 `prepare_network_distribution_map create_network_map_card`）。之后只有选项卡分支或其他 Skill 用到表外工具时，才再搜索一次。
+
 ## 第 1 步：拿到准备好的数据
 
 1. 调用 `discover_workspace_sources`。

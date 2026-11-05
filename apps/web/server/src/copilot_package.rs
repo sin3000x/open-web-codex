@@ -1757,6 +1757,9 @@ mod tests {
             "原样复制上一步返回的整个 `data_ref`",
             "地图卡片成功后立即写最终回答，不再调用任何工具",
             "`route_method=\"haversine\"`",
+            "只调用一次 `tool_search`",
+            "`limit=10`",
+            "`request_user_input` 是内置工具，不需要搜索",
         ] {
             assert!(
                 SINGLE_AGENT_ROOT_SKILL.contains(anchor),
