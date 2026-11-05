@@ -676,7 +676,16 @@ def prepare_network_input(
             )
         ),
     ],
-    country_code: Annotated[str, Field(pattern=r"^[A-Za-z]{2}$")],
+    country_code: Annotated[
+        str,
+        Field(
+            pattern=r"^[A-Za-z]{2}$",
+            description=(
+                "ISO 3166-1 alpha-2 code, two letters (Indonesia is ID, not IDN). Copy "
+                "country_code from the inspect_workspace_sources result when it is present."
+            ),
+        ),
+    ],
     output_relative_path: Annotated[
         str,
         Field(

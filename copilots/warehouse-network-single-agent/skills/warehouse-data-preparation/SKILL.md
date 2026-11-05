@@ -21,7 +21,7 @@ metadata:
 
 1. 用 `inspect_workspace_sources` 检查与本次目标有关的原始文件。
 2. 为每个需要的数据分别选定确切的 CSV 表、Excel sheet 或 JSON 数组。表头名称不同不是缺数据；含义和类型清楚时，直接写出字段对应关系。
-3. 把选定的表和字段对应关系组成 `source_selections`，调用 `prepare_network_input`。行政区目录只用于地理补全，不当作需求或仓库数据。
+3. 把选定的表和字段对应关系组成 `source_selections`，调用 `prepare_network_input`；`country_code` 照抄检查结果里的值，是两位字母代码（印尼是 `ID`，不是 `IDN`）。行政区目录只用于地理补全，不当作需求或仓库数据。
 4. 准备完成后，用返回的 `prepared_input_relative_path` 回到 `$warehouse-single-agent` 第 2 步，不要重复准备。
 
 ## 什么时候询问
