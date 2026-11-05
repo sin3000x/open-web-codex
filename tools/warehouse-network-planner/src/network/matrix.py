@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import math
+from collections.abc import Sequence
 from decimal import Decimal
 from typing import Literal
 
@@ -260,14 +261,31 @@ def build_route_matrix_with_reuse(
     *,
     warehouse_scope: WarehouseScope,
     input_identity: PlanningInputIdentity,
+    provided_route_facts: Sequence[ProvidedRouteFactRecord] = (),
 ) -> RouteMatrix:
-    """Reuse exact layered route facts and compute only missing expected pairs."""
+    """Keep uploaded route facts, reuse exact estimates and compute only the rest.
+
+    Haversine completes the gaps of the provided facts: an expected pair with an
+    uploaded fact keeps that fact, so choosing an estimate never overwrites
+    route data the user supplied.
+    """
 
     if detour_coefficient <= 0 or average_speed_kph <= 0:
         raise ValueError("route_parameters_must_be_positive")
     warehouses = resolve_warehouse_scope(warehouses, warehouse_scope)
     expected = _expected_route_pairs(demand_cities, warehouses)
     expected_set = set(expected)
+    provided_index: dict[tuple[str, str, NetworkLayer], ProvidedRouteFactRecord] = {}
+    for fact in provided_route_facts:
+        key = (fact.origin_id, fact.destination_id, fact.layer)
+        if key not in expected_set:
+            continue
+        if key in provided_index:
+            raise ValueError(
+                f"provided_route_fact_duplicate_pair:{fact.origin_id}:"
+                f"{fact.destination_id}:{fact.layer}"
+            )
+        provided_index[key] = fact
     existing_index: dict[tuple[str, str, NetworkLayer], list[RouteMatrixRow]] = {}
     ignored_prior_rows = 0
     for row in existing_rows:
@@ -284,6 +302,20 @@ def build_route_matrix_with_reuse(
     computed = 0
     stale = 0
     for origin, destination, layer in expected:
+        fact = provided_index.get((origin, destination, layer))
+        if fact is not None:
+            rows.append(
+                RouteMatrixRow(
+                    origin_id=origin,
+                    destination_id=destination,
+                    layer=layer,
+                    distance_km=fact.distance_km,
+                    duration_hours=fact.duration_hours,
+                    method="provided",
+                    tool_version=PROVIDED_INPUT_TOOL_VERSION,
+                )
+            )
+            continue
         origin_warehouse = warehouse_by_id[origin]
         destination_point = (
             demand_by_id[destination] if layer == "last_mile" else warehouse_by_id[destination]
@@ -349,6 +381,7 @@ def build_route_matrix_with_reuse(
         missing_routes=missing,
         stats=HaversineRouteMatrixStats(
             expected_pair_count=len(expected),
+            provided_pair_count=len(provided_index),
             reused_pair_count=reused,
             computed_pair_count=computed,
             stale_pair_count=stale,

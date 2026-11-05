@@ -245,6 +245,7 @@ def prepare_route_matrix(
             average_speed_kph,
             warehouse_scope=warehouse_scope,
             input_identity=input_identity,
+            provided_route_facts=prepared.provided_route_facts,
         )
     stats = matrix.stats
     if stats.missing_pair_count:
@@ -275,7 +276,7 @@ def prepare_route_matrix(
                         options=[
                             PlanningInputOption(
                                 label="Haversine 估算 (Recommended)",
-                                description="使用绕路系数 1.3、平均速度 40kph，并明确标注为估算。",
+                                description="只为缺少的路线按直线距离估算（绕路系数 1.3、平均速度 40kph），已有路线保持不变。",
                             ),
                             PlanningInputOption(
                                 label="真实导航",
@@ -298,10 +299,7 @@ def prepare_route_matrix(
     result = _runtime().publish(
         matrix.schema_version,
         matrix,
-        f"Prepared {route_method} route matrix for {warehouse_scope.kind}; "
-        f"{getattr(stats, 'reused_pair_count', 0)} reused, "
-        f"{getattr(stats, 'computed_pair_count', getattr(stats, 'provided_pair_count', 0))} "
-        f"materialized, and {stats.missing_pair_count} missing pairs.",
+        _route_matrix_summary(route_method, warehouse_scope, stats),
     )
     if result.structuredContent is None:
         raise McpResourceContractError("route_matrix_result_missing")
@@ -309,6 +307,22 @@ def prepare_route_matrix(
     result.structuredContent["warehouse_ids"] = matrix.warehouse_ids
     result.structuredContent["missing_pair_count"] = 0
     return result
+
+
+def _route_matrix_summary(route_method: str, warehouse_scope: WarehouseScope, stats) -> str:
+    if isinstance(stats, HaversineRouteMatrixStats):
+        return (
+            f"Prepared haversine route matrix for {warehouse_scope.kind}; "
+            f"{stats.provided_pair_count} pairs kept from provided routes, "
+            f"{stats.reused_pair_count} estimates reused, {stats.computed_pair_count} "
+            f"missing pairs estimated, and {stats.missing_pair_count} still missing."
+        )
+    return (
+        f"Prepared {route_method} route matrix for {warehouse_scope.kind}; "
+        f"{getattr(stats, 'reused_pair_count', 0)} reused, "
+        f"{getattr(stats, 'provided_pair_count', 0)} materialized, and "
+        f"{stats.missing_pair_count} missing pairs."
+    )
 
 
 def import_navigation_matrix(

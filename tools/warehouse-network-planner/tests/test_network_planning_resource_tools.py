@@ -298,6 +298,47 @@ def test_provided_candidate_route_gap_returns_typed_needs_input_without_resource
 
 
 
+
+def test_haversine_completion_keeps_provided_routes_and_estimates_only_gaps(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    workspace, _store = _runtime(tmp_path, monkeypatch)
+    ctx = _context(workspace)
+    prepared_path = _prepared_input(workspace)
+    scope = ExistingPlusCandidatesWarehouseScope(candidate_ids=["WH-CANDIDATE-BALIKPAPAN"])
+    gap = route_tools.prepare_route_matrix(prepared_path, "provided", ctx, warehouse_scope=scope)
+    assert gap.structuredContent is not None
+    missing_pair_count = gap.structuredContent["missing_pair_count"]
+
+    completed = route_tools.prepare_route_matrix(
+        prepared_path,
+        "haversine",
+        ctx,
+        warehouse_scope=scope,
+        detour_coefficient=1.3,
+        average_speed_kph=40,
+    )
+
+    matrix = tool_runtime._runtime().load_model(
+        _ref(completed), "route_matrix.v3", ComposableRouteMatrix
+    )
+    assert matrix.stats.missing_pair_count == 0
+    assert matrix.stats.computed_pair_count == missing_pair_count
+    assert matrix.stats.provided_pair_count == matrix.stats.expected_pair_count - missing_pair_count
+    estimated = {
+        (row.origin_id, row.destination_id, row.layer)
+        for row in matrix.rows
+        if row.method == "haversine"
+    }
+    assert len(estimated) == missing_pair_count
+    assert all(
+        "WH-CANDIDATE-BALIKPAPAN" in (origin_id, destination_id)
+        for origin_id, destination_id, _layer in estimated
+    )
+    assert "kept from provided routes" in completed.structuredContent["summary"]
+
+
 def test_cost_quote_gap_without_policy_returns_typed_needs_input_without_resource(
     tmp_path: Path,
     monkeypatch,

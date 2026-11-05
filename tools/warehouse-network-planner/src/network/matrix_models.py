@@ -97,6 +97,7 @@ class ProvidedRouteMatrixStats(MatrixModel):
 class HaversineRouteMatrixStats(MatrixModel):
     kind: Literal["haversine"] = "haversine"
     expected_pair_count: int = Field(ge=0)
+    provided_pair_count: int = Field(ge=0)
     reused_pair_count: int = Field(ge=0)
     computed_pair_count: int = Field(ge=0)
     stale_pair_count: int = Field(ge=0)
