@@ -32,7 +32,7 @@ pub async fn read(
     let value = adapter
         .read_thread(&context.workspace, &context.thread_id)
         .await
-        .map_err(runtime_error)?;
+        .map_err(|error| runtime_error("thread.read", run_id, &error))?;
     let thread = value
         .get("thread")
         .ok_or_else(|| bad_gateway("Runtime thread/read omitted thread"))?;
@@ -51,7 +51,7 @@ pub async fn list_turns(
     let turns = adapter
         .list_thread_turns(&context.workspace, &context.thread_id)
         .await
-        .map_err(runtime_error)?;
+        .map_err(|error| runtime_error("thread.list_turns", run_id, &error))?;
     let overlay = load_history_overlay(&state, run_id).await?;
     let mut projected = Vec::with_capacity(turns.len());
     for turn in &turns {
@@ -69,10 +69,13 @@ pub async fn archive(
     Extension(adapter): Extension<Arc<dyn CodexAdapter>>,
 ) -> ApiResult<serde_json::Value> {
     let context = authorized_thread(&state, &auth, run_id).await?;
-    adapter
-        .archive_thread(&context.workspace, &context.thread_id)
-        .await
-        .map_err(runtime_error)?;
+    archive_runtime_thread(
+        adapter.as_ref(),
+        &context.workspace,
+        &context.thread_id,
+        run_id,
+    )
+    .await?;
     let mut transaction = state.db.begin().await.map_err(database_error)?;
     sqlx::query("UPDATE tasks SET status = 'archived', updated_at = now() WHERE id = $1")
         .bind(context.task_id)
@@ -89,6 +92,18 @@ pub async fn archive(
     .await?;
     transaction.commit().await.map_err(database_error)?;
     Ok(Json(json!({ "status": "archived" })))
+}
+
+async fn archive_runtime_thread(
+    adapter: &dyn CodexAdapter,
+    workspace: &AuthorizedWorkspace,
+    thread_id: &str,
+    run_id: Uuid,
+) -> Result<(), ApiError> {
+    adapter
+        .archive_thread(workspace, thread_id)
+        .await
+        .map_err(|error| runtime_error("thread.archive", run_id, &error))
 }
 
 pub async fn set_name(
@@ -111,7 +126,7 @@ pub async fn set_name(
     adapter
         .set_thread_name(&context.workspace, &context.thread_id, name)
         .await
-        .map_err(runtime_error)?;
+        .map_err(|error| runtime_error("thread.set_name", run_id, &error))?;
     let mut transaction = state.db.begin().await.map_err(database_error)?;
     sqlx::query("UPDATE tasks SET title = $1, updated_at = now() WHERE id = $2")
         .bind(name)
@@ -612,11 +627,12 @@ fn not_found() -> ApiError {
     )
 }
 
-fn runtime_error(_: open_web_codex_adapter::AdapterError) -> ApiError {
-    (
-        StatusCode::BAD_GATEWAY,
-        Json(PlatformError::internal("Codex Thread operation failed")),
-    )
+fn runtime_error(
+    operation: &'static str,
+    run_id: Uuid,
+    error: &open_web_codex_adapter::AdapterError,
+) -> ApiError {
+    super::runtime_errors::runtime_api_error(operation, "Thread", Some(run_id), error)
 }
 
 fn database_error(_: sqlx::Error) -> ApiError {
@@ -628,10 +644,18 @@ fn database_error(_: sqlx::Error) -> ApiError {
 
 #[cfg(test)]
 mod tests {
-    use super::{project_turn, public_approval_status, ApprovalOverlay, ThreadHistoryOverlay};
+    use super::{
+        archive_runtime_thread, project_turn, public_approval_status, ApprovalOverlay,
+        ThreadHistoryOverlay,
+    };
+    use axum::http::StatusCode;
+    use open_web_codex_adapter::fake::FakeCodexAdapter;
+    use open_web_codex_adapter::{AuthorizedWorkspace, CodexAdapter};
+    use open_web_codex_platform_contracts::error::ErrorKind;
     use open_web_codex_platform_contracts::ThreadHistoryTurn;
     use serde_json::json;
     use std::collections::HashMap;
+    use uuid::Uuid;
 
     #[test]
     fn projects_authoritative_history_without_runtime_only_fields() {
@@ -656,6 +680,31 @@ mod tests {
         let encoded = value.to_string();
         assert!(!encoded.contains("/private/server/workspace"));
         assert!(!encoded.contains("secret"));
+    }
+
+    #[tokio::test]
+    async fn archive_surfaces_typed_runtime_rejection() {
+        let adapter = FakeCodexAdapter::new().with_demo_workspace().await;
+        let workspace = AuthorizedWorkspace {
+            id: "demo-workspace".to_string(),
+            root: std::path::PathBuf::from("/srv/runner/demo"),
+        };
+        let started = adapter
+            .start_thread(&workspace)
+            .await
+            .expect("start fake Thread");
+        archive_runtime_thread(&adapter, &workspace, &started.thread_id, Uuid::nil())
+            .await
+            .expect("archive persisted Thread");
+
+        let (status, body) =
+            archive_runtime_thread(&adapter, &workspace, "missing-thread", Uuid::nil())
+                .await
+                .expect_err("Thread without rollout is rejected");
+        assert_eq!(status, StatusCode::BAD_GATEWAY);
+        assert_eq!(body.0.kind, ErrorKind::CodexRejected);
+        assert_eq!(body.0.message, "Codex rejected the Thread request");
+        assert!(!body.0.message.contains("rollout"));
     }
 
     #[test]

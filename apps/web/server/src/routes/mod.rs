@@ -14,6 +14,7 @@ pub mod profile_content;
 pub mod projects;
 pub mod providers;
 pub mod runs;
+pub(crate) mod runtime_errors;
 pub mod sessions;
 pub mod tasks;
 pub mod terminals;

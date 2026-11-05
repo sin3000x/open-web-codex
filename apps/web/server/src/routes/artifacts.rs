@@ -80,7 +80,7 @@ pub async fn read(
         let response = adapter
             .read_mcp_resource(&workspace, &thread_id, &source_server, &source_uri)
             .await
-            .map_err(runtime_error)?;
+            .map_err(|error| runtime_error(run_id, &error))?;
         let bytes = resource_bytes(&response, &source_uri)?;
         if bytes.len() > MAX_MCP_RESOURCE_BYTES {
             return Err(payload_too_large());
@@ -187,8 +187,13 @@ fn bad_gateway(message: &str) -> ApiError {
     )
 }
 
-fn runtime_error(_: open_web_codex_adapter::AdapterError) -> ApiError {
-    bad_gateway("MCP Resource read failed")
+fn runtime_error(run_id: Uuid, error: &open_web_codex_adapter::AdapterError) -> ApiError {
+    super::runtime_errors::runtime_api_error(
+        "artifact.mcp_resource_read",
+        "MCP Resource",
+        Some(run_id),
+        error,
+    )
 }
 
 fn database_error(_: sqlx::Error) -> ApiError {
