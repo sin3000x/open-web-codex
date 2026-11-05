@@ -355,3 +355,58 @@ def test_network_validator_aggregates_repeated_unknown_assignment_errors() -> No
     errors = [issue for issue in batch.issues if issue.code == "assignment_demand_unknown"]
     assert len(errors) == 1
     assert "问题记录数：100" in errors[0].business_message
+
+
+def test_cross_dock_without_upstream_center_needs_input_at_preparation() -> None:
+    demand = ConfirmedSourceRows(
+        role=SourceRole.DEMAND,
+        rows=[{"city_id": "C-1", "city_name": "Jakarta", "demand_quantity": "10"}],
+        mappings=[
+            _mapping("city_id", TransformKind.NORMALIZE_IDENTIFIER),
+            _mapping("city_name", TransformKind.TRIM),
+            _mapping("demand_quantity", TransformKind.PARSE_INTEGER),
+        ],
+    )
+    warehouse_mappings = [
+        _mapping("warehouse_id", TransformKind.NORMALIZE_IDENTIFIER),
+        _mapping("warehouse_name", TransformKind.TRIM),
+        _mapping("warehouse_type", TransformKind.NORMALIZE_WAREHOUSE_TYPE),
+        _mapping("city_id", TransformKind.NORMALIZE_IDENTIFIER),
+        _mapping("city_name", TransformKind.TRIM),
+    ]
+    existing = ConfirmedSourceRows(
+        role=SourceRole.EXISTING_WAREHOUSE,
+        rows=[
+            {
+                "warehouse_id": "W-1",
+                "warehouse_name": "Jakarta",
+                "warehouse_type": "center",
+                "city_id": "C-1",
+                "city_name": "Jakarta",
+            }
+        ],
+        mappings=warehouse_mappings,
+    )
+    candidates = ConfirmedSourceRows(
+        role=SourceRole.CANDIDATE_WAREHOUSE,
+        rows=[
+            {
+                "warehouse_id": "W-CANDIDATE",
+                "warehouse_name": "Balikpapan",
+                "warehouse_type": "cross_docking",
+                "city_id": "C-1",
+                "city_name": "Jakarta",
+            }
+        ],
+        mappings=warehouse_mappings,
+    )
+
+    state, batch = normalize_confirmed_rows([demand, existing, candidates])
+
+    assert state == "needs_input"
+    errors = [
+        issue for issue in batch.issues if issue.code == "warehouse_upstream_center_required"
+    ]
+    assert len(errors) == 1
+    assert errors[0].severity == "error"
+    assert "上游中心仓" in errors[0].business_message

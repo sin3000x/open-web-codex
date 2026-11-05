@@ -85,6 +85,10 @@ class NetworkInputValidator:
             if row.warehouse_type == "center"
         }
         for row in batch.warehouses:
+            if row.warehouse_type == "cross_docking" and row.upstream_center_id is None:
+                repeated_errors[("warehouse_upstream_center_required", "upstream_center_id")] = (
+                    repeated_errors.get(("warehouse_upstream_center_required", "upstream_center_id"), 0) + 1
+                )
             if (
                 row.warehouse_type == "cross_docking"
                 and row.upstream_center_id is not None
@@ -127,6 +131,7 @@ class NetworkInputValidator:
             "assignment_demand_unknown": "当前覆盖中有需求城市不在需求列表中。",
             "assignment_warehouse_unknown": "当前覆盖中有服务仓不在已有仓列表中。",
             "warehouse_upstream_center_unknown": "当前覆盖中有前置仓引用了不存在的中心仓。",
+            "warehouse_upstream_center_required": "有越库仓没有填写上游中心仓，无法计算干线路线；请补充上游中心仓。",
         }
         return [
             DataQualityIssue(

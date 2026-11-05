@@ -167,6 +167,13 @@ def validate_prepared_freshness(
                 return False, "administrative_catalog_changed"
         except (OSError, ValueError):
             return False, "administrative_catalog_invalid"
+    # A file prepared before this rule was enforced must not be reused: every
+    # cross-dock needs an upstream center for its linehaul route.
+    if any(
+        warehouse.warehouse_type == "cross_docking" and warehouse.upstream_center_id is None
+        for warehouse in prepared.warehouses
+    ):
+        return False, "warehouse_upstream_center_required"
     return True, "fresh"
 
 
