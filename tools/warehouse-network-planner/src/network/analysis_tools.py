@@ -23,7 +23,6 @@ from supply_chain_planner.network.matrix import (
 )
 from supply_chain_planner.network.matrix_models import (
     CostMatrix,
-    ExistingOnlyWarehouseScope,
 )
 from supply_chain_planner.network.matrix_models import (
     RouteMatrix as ComposableRouteMatrix,
@@ -178,7 +177,8 @@ def evaluate_network_baseline(
 ) -> Annotated[CallToolResult, NetworkBaselineResourceToolResult]:
     """Evaluate an actual or optimized-existing baseline.
 
-    The default auto mode selects actual_current only when the prepared input
+    Pass the same route and cost matrices the follow-up analysis uses, in any
+    warehouse scope; only existing warehouses are evaluated. The default auto mode selects actual_current only when the prepared input
     contains current assignments; otherwise it selects the optimized existing
     footprint without making the model inspect or guess input contents.
     """
@@ -204,11 +204,12 @@ def evaluate_network_baseline(
     existing_ids = sorted(
         warehouse.warehouse_id for warehouse in prepared.warehouses if warehouse.is_existing
     )
-    existing_scope = ExistingOnlyWarehouseScope()
-    if routes.warehouse_scope != existing_scope or routes.warehouse_ids != existing_ids:
-        raise McpResourceContractError("baseline_route_scope_mismatch")
+    # Every warehouse scope contains all existing warehouses and a baseline reads
+    # only their lanes, so it reuses the exact matrices of the follow-up siting or
+    # facility-change run; baseline and plan then share identical lane facts.
     if costs is not None and (
-        costs.warehouse_scope != existing_scope or costs.warehouse_ids != existing_ids
+        costs.warehouse_scope != routes.warehouse_scope
+        or costs.warehouse_ids != routes.warehouse_ids
     ):
         raise McpResourceContractError("baseline_cost_scope_mismatch")
     route_validation = _validate_route_matrix_model(

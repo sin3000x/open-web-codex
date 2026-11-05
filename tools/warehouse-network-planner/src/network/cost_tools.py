@@ -13,6 +13,7 @@ from mcp.server.fastmcp import (
 )
 from mcp.types import (
     CallToolResult,
+    TextContent,
 )
 from open_web_codex_provider import (
     ResourceRef,
@@ -45,7 +46,11 @@ from supply_chain_planner.network.matrix_models import (
     RouteMatrix as ComposableRouteMatrix,
 )
 from supply_chain_planner.shared.models import (
+    CostMatrixNeedsInput,
     CostMatrixPlanningToolResult,
+    CostMatrixReady,
+    PlanningInputOption,
+    PlanningInputQuestion,
 )
 from supply_chain_planner.shared.planning_input import (
     require_matching_input,
@@ -128,7 +133,12 @@ def plan_cost_matrix(
     prior_cost_matrix_ref: ResourceRef | None = None,
     quote_mean_evidence_relative_path: Annotated[str | None, Field(max_length=1024)] = None,
 ) -> Annotated[CallToolResult, CostMatrixPlanningToolResult]:
-    """Build quote-first costs with explicit or full-quote-mean fallback policy."""
+    """Build quote-first costs; lanes without a quote use the selected fallback policy.
+
+    Without cost_policy, quote gaps return needs_input instead of a matrix.
+    Pass {"kind": "observed_quote_mean"} to fill gaps with the tool-computed
+    mean unit cost of all prepared quotes.
+    """
     prepared, input_identity = _load_ready_network(prepared_input_relative_path, ctx)
     warehouse_scope = canonical_warehouse_scope(prepared.warehouses, warehouse_scope)
     warehouses = resolve_warehouse_scope(prepared.warehouses, warehouse_scope)
@@ -230,6 +240,8 @@ def plan_cost_matrix(
         calculation_rule_evidence_path=quote_mean_evidence_relative_path,
     )
     stats = matrix.stats
+    if calculation_policy is None and stats.missing_pair_count:
+        return _cost_gap_needs_input(warehouse_scope, matrix)
     policy_summary = ""
     if calculation_rule_evidence is not None:
         policy_summary = "; observed quote means: " + ", ".join(
@@ -251,7 +263,8 @@ def plan_cost_matrix(
     if published.structuredContent is None:
         raise McpResourceContractError("cost_matrix_result_missing")
     resource_ref = ResourceRef.model_validate(published.structuredContent["resource_ref"])
-    result = CostMatrixPlanningToolResult(
+    result = CostMatrixReady(
+        state="ready",
         summary=summary,
         resource_ref=resource_ref,
         input_identity=input_identity,
@@ -266,6 +279,55 @@ def plan_cost_matrix(
     )
     published.structuredContent = result.model_dump(mode="json")
     return published
+
+
+def _cost_gap_needs_input(warehouse_scope: WarehouseScope, matrix: CostMatrix) -> CallToolResult:
+    stats = matrix.stats
+    result = CostMatrixPlanningToolResult(
+        root=CostMatrixNeedsInput(
+            state="needs_input",
+            summary=(
+                f"The {warehouse_scope.kind} cost scope has no quote for "
+                f"{stats.missing_pair_count} of {stats.expected_pair_count} lanes. "
+                "Choose one cost fallback before network evaluation."
+            ),
+            next_action="request_user_input",
+            retryable=False,
+            warehouse_scope=warehouse_scope,
+            warehouse_ids=matrix.warehouse_ids,
+            expected_pair_count=stats.expected_pair_count,
+            missing_pair_count=stats.missing_pair_count,
+            questions=[
+                PlanningInputQuestion(
+                    id="cost_completion",
+                    header="成本补齐",
+                    question=(
+                        f"当前分析范围有 {stats.missing_pair_count} 条线路没有报价，"
+                        "请选择补齐方式。"
+                    ),
+                    options=[
+                        PlanningInputOption(
+                            label="报价均值估算 (Recommended)",
+                            description="按全部现有报价算出各层平均单位成本补齐，并明确标注为估算。",
+                        ),
+                        PlanningInputOption(
+                            label="指定单位成本",
+                            description="由你给出各层每单位需求的成本和币种，再补齐缺失线路。",
+                        ),
+                        PlanningInputOption(
+                            label="上传报价",
+                            description="暂停计算，等待上传覆盖当前仓库范围的完整报价。",
+                        ),
+                    ],
+                )
+            ],
+        )
+    )
+    structured = result.model_dump(mode="json", by_alias=True)
+    return CallToolResult(
+        content=[TextContent(type="text", text=structured["summary"])],
+        structuredContent=structured,
+    )
 
 
 def _prior_route_facts_match(

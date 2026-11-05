@@ -253,8 +253,14 @@ def test_network_planning_tools_use_workspace_input_and_keep_compute_results_as_
     assert "prepared_input_relative_path" in tools["prepare_route_matrix"].inputSchema["properties"]
     assert "cost_policy" in tools["plan_cost_matrix"].inputSchema["properties"]
     assert "calculation_policy" not in tools["plan_cost_matrix"].inputSchema["properties"]
-    assert "calculation_rule_evidence" in tools["plan_cost_matrix"].outputSchema["properties"]
-    assert "calculation_rule_evidence_path" in tools["plan_cost_matrix"].outputSchema["properties"]
+    cost_output = tools["plan_cost_matrix"].outputSchema
+    assert {variant["$ref"].rsplit("/", 1)[-1] for variant in cost_output["oneOf"]} == {
+        "CostMatrixNeedsInput",
+        "CostMatrixReady",
+    }
+    cost_ready = cost_output["$defs"]["CostMatrixReady"]["properties"]
+    assert "calculation_rule_evidence" in cost_ready
+    assert "calculation_rule_evidence_path" in cost_ready
     assert "coverage" in tools["solve_p_median"].outputSchema["properties"]
     assert "opening_policy" in tools["solve_p_median"].inputSchema["properties"]
     assert "number_to_open" not in tools["solve_p_median"].inputSchema["properties"]
@@ -289,6 +295,56 @@ def test_provided_candidate_route_gap_returns_typed_needs_input_without_resource
     assert payload["questions"][0]["id"] == "route_completion"
     assert payload["questions"][0]["options"][0]["label"].endswith("(Recommended)")
     assert "resource_ref" not in payload
+
+
+
+def test_cost_quote_gap_without_policy_returns_typed_needs_input_without_resource(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    workspace, store = _runtime(tmp_path, monkeypatch)
+    ctx = _context(workspace)
+    prepared_path = _prepared_input(workspace)
+    routes = _ref(
+        route_tools.prepare_route_matrix(
+            prepared_path,
+            "haversine",
+            ctx,
+            warehouse_scope=AllWarehousesScope(),
+            detour_coefficient=1.2,
+            average_speed_kph=42,
+        )
+    )
+    published_before = len(list(store.root.rglob("*")))
+
+    result = cost_tools.plan_cost_matrix(
+        prepared_path,
+        AllWarehousesScope(),
+        ctx,
+        route_matrix_ref=routes,
+    )
+
+    assert result.structuredContent is not None
+    payload = result.structuredContent
+    assert payload["state"] == "needs_input"
+    assert payload["next_action"] == "request_user_input"
+    assert payload["retryable"] is False
+    assert 0 < payload["missing_pair_count"] < payload["expected_pair_count"]
+    assert payload["questions"][0]["id"] == "cost_completion"
+    assert payload["questions"][0]["options"][0]["label"].endswith("(Recommended)")
+    assert "resource_ref" not in payload
+    assert len(list(store.root.rglob("*"))) == published_before
+
+    completed = cost_tools.plan_cost_matrix(
+        prepared_path,
+        AllWarehousesScope(),
+        ctx,
+        cost_policy=ObservedQuoteMeanCostPolicy(),
+        route_matrix_ref=routes,
+    )
+    assert completed.structuredContent is not None
+    assert completed.structuredContent["state"] == "ready"
+    assert completed.structuredContent["missing_pair_count"] == 0
 
 
 def test_analysis_tools_reject_incomplete_route_resources_defensively(
@@ -713,7 +769,21 @@ def test_prepared_input_drives_baseline_optimization_map_and_report(
             cost_matrix_ref=baseline_costs,
         )
     )
-    with pytest.raises(ProviderContractError, match="baseline_route_scope_mismatch"):
+    siting_matrix_baseline = analysis_tools.evaluate_network_baseline(
+        prepared_path,
+        routes,
+        "min_cost",
+        [6, 12, 18],
+        ctx,
+        coverage_mode="actual_current",
+        cost_matrix_ref=costs,
+    )
+    assert siting_matrix_baseline.structuredContent is not None
+    baseline_view = tool_runtime._load_comparable_resource(baseline)
+    siting_view = tool_runtime._load_comparable_resource(_ref(siting_matrix_baseline))
+    assert siting_view.active_warehouse_ids == baseline_view.active_warehouse_ids
+    assert siting_view.assignment == baseline_view.assignment
+    with pytest.raises(ProviderContractError, match="baseline_cost_scope_mismatch"):
         analysis_tools.evaluate_network_baseline(
             prepared_path,
             routes,
@@ -721,7 +791,7 @@ def test_prepared_input_drives_baseline_optimization_map_and_report(
             [6, 12, 18],
             ctx,
             coverage_mode="actual_current",
-            cost_matrix_ref=costs,
+            cost_matrix_ref=baseline_costs,
         )
     facility_result = facility_tools.solve_p_median(
         prepared_path,
@@ -785,6 +855,18 @@ def test_prepared_input_drives_baseline_optimization_map_and_report(
             route_matrix_ref=exact_routes,
         )
     )
+    exact_scope_baseline = analysis_tools.evaluate_network_baseline(
+        prepared_path,
+        exact_routes,
+        "min_cost",
+        [6, 12, 18],
+        ctx,
+        coverage_mode="actual_current",
+        cost_matrix_ref=exact_costs,
+    )
+    exact_scope_view = tool_runtime._load_comparable_resource(_ref(exact_scope_baseline))
+    assert exact_scope_view.active_warehouse_ids == baseline_view.active_warehouse_ids
+    assert exact_scope_view.assignment == baseline_view.assignment
     missing_routes = _ref(
         route_tools.prepare_route_matrix(
             prepared_path,

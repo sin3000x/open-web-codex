@@ -637,9 +637,10 @@ class RouteMatrixPreparationToolResult(
     """Complete route matrix or one bounded request for a completion choice."""
 
 
-class CostMatrixPlanningToolResult(StrictModel):
+class CostMatrixReady(StrictModel):
     """Bounded cost-matrix result with auditable fallback-policy evidence."""
 
+    state: Literal["ready"]
     summary: str
     resource_ref: _ResourceRef
     input_identity: PlanningInputIdentity
@@ -651,6 +652,31 @@ class CostMatrixPlanningToolResult(StrictModel):
     computed_pair_count: int = Field(ge=0)
     missing_pair_count: int = Field(ge=0)
     warehouse_ids: list[str] = Field(min_length=1, max_length=256)
+
+
+class CostMatrixNeedsInput(StrictModel):
+    """Quote gaps with no fallback policy: ask once instead of publishing an unusable matrix."""
+
+    state: Literal["needs_input"]
+    summary: str
+    next_action: Literal["request_user_input"]
+    retryable: Literal[False]
+    warehouse_scope: WarehouseScope
+    warehouse_ids: list[str] = Field(min_length=1, max_length=256)
+    expected_pair_count: int = Field(gt=0)
+    missing_pair_count: int = Field(gt=0)
+    questions: list[PlanningInputQuestion] = Field(min_length=1, max_length=3)
+
+
+class CostMatrixPlanningToolResult(
+    RootModel[
+        Annotated[
+            CostMatrixReady | CostMatrixNeedsInput,
+            Field(discriminator="state"),
+        ]
+    ]
+):
+    """Complete cost matrix or one bounded request for a quote-gap fallback choice."""
 
 
 class PMedianSolutionToolResult(StrictModel):

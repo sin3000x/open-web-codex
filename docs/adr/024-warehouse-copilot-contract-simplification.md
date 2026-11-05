@@ -62,9 +62,14 @@ warehouse changes；非法身份、缺失 assignment 或不一致计算在 schem
 `warehouse_scope` 是 discriminated union：`existing_only`、带精确 `candidate_ids` 的
 `existing_plus_candidates`、`all_warehouses`。路线、导航和成本矩阵都持久化规范化后的精确
 `warehouse_ids`。同一仓集合只有一种范围表示：列出全部候选仓的 `existing_plus_candidates`
-在工具边界规范化为 `all_warehouses`，因此下游范围比较等价于仓集合比较。baseline 使用现有仓；
+在工具边界规范化为 `all_warehouses`，因此下游范围比较等价于仓集合比较。任何范围都包含全部现有仓，
+baseline 只评估现有仓，因此接受后续分析所用的同一组路线和成本矩阵（两者范围必须一致，否则返回
+`baseline_cost_scope_mismatch`），基线与方案使用完全相同的线路事实，不再为基线单独构建现有仓矩阵；
 单一设施变化使用现有仓加明确候选；只有全量选址使用全部仓，范围不符时 `solve_p_median` 返回
 `p_median_route_matrix_requires_all_warehouses_scope` 或 `p_median_cost_matrix_requires_all_warehouses_scope`。
+未指定成本口径而存在无报价线路时，`plan_cost_matrix` 不发布不可用的残缺成本矩阵，而是与路线缺口
+一样返回 typed `needs_input`（问题 `cost_completion`：报价均值估算、指定单位成本或上传报价）；
+显式传入 `observed_quote_mean` 或 `explicit` 时直接补齐。
 prior pair facts 只有在 prepared identity、方法、方法参数和精确 warehouse set 全部一致时才可复用。
 这条规则替代 ADR-023 中“输入身份不作为复用门”的旧决定；当前实现不保留双读或跨身份兼容。
 
