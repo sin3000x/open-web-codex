@@ -1403,8 +1403,9 @@ def prepare_network_geography(
         "have the most demand, or which candidates lie in a province; never answer such "
         "questions from inspection statistics. Each group carries its exact record count; "
         "measures add sums or extremes. roles and role_counts show which roles the "
-        "prepared file contains; a role it did not prepare is not evidence of zero. group_by returns groups and no rows; without "
-        "group_by it returns at most `limit` rows plus the exact matched_count. A changed "
+        "prepared file contains; a role it did not prepare is not evidence of zero. group_by returns groups and no rows; with group_by, order_by "
+        "must name the field of exactly one measure and sorts groups by that measure (e.g. "
+        "top provinces by summed demand_quantity); without group_by it returns at most `limit` rows plus the exact matched_count. A changed "
         "selected source returns prepared_input_stale instead of facts. Fields by dataset: "
         f"{field_catalog_description()}."
     ),

@@ -96,8 +96,16 @@ def query_prepared_input(
         _require_field(dataset, name)
     if order_by is not None:
         _require_field(dataset, order_by.field_name)
+    group_order_index: int | None = None
     if order_by is not None and group_by:
-        raise ValueError("query_order_by_requires_ungrouped_rows")
+        matching = [
+            index
+            for index, measure in enumerate(measures)
+            if measure.field_name == order_by.field_name
+        ]
+        if len(matching) != 1:
+            raise ValueError("query_group_order_by_requires_one_measure_on_field")
+        group_order_index = matching[0]
     for measure in measures:
         if _require_field(dataset, measure.field_name) != "number":
             raise ValueError(f"query_measure_requires_number_field: {measure.field_name}")
@@ -121,14 +129,17 @@ def query_prepared_input(
             key=lambda members: (-len(members), _sortable_key(members[0], group_by)),
         )
         group_count = len(ordered)
-        groups = [
+        all_groups = [
             PreparedQueryGroup(
                 key=_json_values(members[0], group_by),
                 count=len(members),
                 measures=[_measure(members, item) for item in measures],
             )
-            for members in ordered[:MAX_QUERY_GROUPS]
+            for members in ordered
         ]
+        if order_by is not None and group_order_index is not None:
+            all_groups = _ordered_groups(all_groups, group_order_index, order_by.descending)
+        groups = all_groups[:MAX_QUERY_GROUPS]
     else:
         selected_fields = list(select) or list(fields)
         rows = [
@@ -259,6 +270,18 @@ def _ordered(
     present = [record for record in records if getattr(record, name) is not None]
     missing = [record for record in records if getattr(record, name) is None]
     present.sort(key=lambda record: getattr(record, name), reverse=order_by.descending)
+    return present + missing
+
+
+def _ordered_groups(
+    groups: list[PreparedQueryGroup],
+    measure_index: int,
+    descending: bool,
+) -> list[PreparedQueryGroup]:
+    """Order groups by one measure value; groups without a value stay last."""
+    present = [group for group in groups if group.measures[measure_index].value is not None]
+    missing = [group for group in groups if group.measures[measure_index].value is None]
+    present.sort(key=lambda group: group.measures[measure_index].value, reverse=descending)
     return present + missing
 
 

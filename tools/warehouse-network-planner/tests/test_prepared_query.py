@@ -161,6 +161,45 @@ def test_measures_and_ordered_rows_use_exact_complete_values(prepared_workspace)
     assert payload["rows_truncated"] is True
 
 
+
+def test_groups_order_by_their_measure_for_top_n_questions(prepared_workspace) -> None:
+    _root, ctx = prepared_workspace
+    totals: dict[str, Decimal] = {}
+    for row in _fixture_rows("demand-cities.csv"):
+        totals[row["province_name"]] = totals.get(row["province_name"], Decimal(0)) + Decimal(
+            row["demand_quantity"]
+        )
+    expected = sorted(totals.items(), key=lambda item: item[1], reverse=True)
+
+    payload = _query(
+        ctx,
+        "demand_cities",
+        group_by=["province_name"],
+        measures=[PreparedQueryMeasure(op="sum", field_name="demand_quantity")],
+        order_by=PreparedQueryOrder(field_name="demand_quantity", descending=True),
+    )
+
+    ordered = [
+        (group["key"]["province_name"], Decimal(group["measures"][0]["value"]))
+        for group in payload["groups"]
+    ]
+    assert [value for _name, value in ordered] == [value for _name, value in expected]
+    assert sorted(ordered) == sorted(expected)
+    assert ordered[0] == expected[0]
+    assert payload["summary"].split("Groups: ", 1)[1].startswith(f"province_name={expected[0][0]}")
+    with pytest.raises(ValueError, match="query_group_order_by_requires_one_measure_on_field"):
+        _query(
+            ctx,
+            "demand_cities",
+            group_by=["province_name"],
+            measures=[
+                PreparedQueryMeasure(op="sum", field_name="demand_quantity"),
+                PreparedQueryMeasure(op="max", field_name="demand_quantity"),
+            ],
+            order_by=PreparedQueryOrder(field_name="demand_quantity", descending=True),
+        )
+
+
 def test_in_and_range_filters_coerce_numbers_exactly(prepared_workspace) -> None:
     _root, ctx = prepared_workspace
     demand = _fixture_rows("demand-cities.csv")
@@ -220,7 +259,7 @@ def test_in_and_range_filters_coerce_numbers_exactly(prepared_workspace) -> None
                 "group_by": ["warehouse_type"],
                 "order_by": PreparedQueryOrder(field_name="warehouse_id"),
             },
-            "query_order_by_requires_ungrouped_rows",
+            "query_group_order_by_requires_one_measure_on_field",
         ),
     ],
 )
