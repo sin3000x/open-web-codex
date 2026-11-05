@@ -838,7 +838,9 @@ def test_prepared_input_drives_baseline_optimization_map_and_report(
         cost_matrix_ref=exact_costs,
     )
     assert assessed.structuredContent is not None
-    with pytest.raises(ProviderContractError, match="p_median_cost_matrix_incomplete"):
+    with pytest.raises(
+        ProviderContractError, match="p_median_route_matrix_requires_all_warehouses_scope"
+    ):
         facility_tools.solve_p_median(
             prepared_path,
             exact_routes,

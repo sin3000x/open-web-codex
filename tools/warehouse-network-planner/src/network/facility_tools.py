@@ -441,13 +441,11 @@ def solve_p_median(
     if not route_validation.valid:
         raise McpResourceContractError("p_median_route_matrix_incomplete")
     all_warehouse_ids = sorted(warehouse.warehouse_id for warehouse in prepared.warehouses)
-    if (
-        routes.warehouse_scope.kind != "all_warehouses"
-        or costs.warehouse_scope.kind != "all_warehouses"
-        or routes.warehouse_ids != all_warehouse_ids
-        or costs.warehouse_ids != all_warehouse_ids
-        or costs.missing_routes
-    ):
+    if routes.warehouse_ids != all_warehouse_ids:
+        raise McpResourceContractError("p_median_route_matrix_requires_all_warehouses_scope")
+    if costs.warehouse_ids != all_warehouse_ids:
+        raise McpResourceContractError("p_median_cost_matrix_requires_all_warehouses_scope")
+    if costs.missing_routes:
         raise McpResourceContractError("p_median_cost_matrix_incomplete")
     constraints = [
         (constraint.target_hours, constraint.minimum_coverage)

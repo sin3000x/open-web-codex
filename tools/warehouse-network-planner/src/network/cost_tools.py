@@ -28,6 +28,7 @@ from supply_chain_planner.network.matrix import (
     build_cost_matrix as _build_composable_cost_matrix,
 )
 from supply_chain_planner.network.matrix import (
+    canonical_warehouse_scope,
     derive_observed_quote_mean_cost_policy,
     resolve_warehouse_scope,
 )
@@ -129,6 +130,7 @@ def plan_cost_matrix(
 ) -> Annotated[CallToolResult, CostMatrixPlanningToolResult]:
     """Build quote-first costs with explicit or full-quote-mean fallback policy."""
     prepared, input_identity = _load_ready_network(prepared_input_relative_path, ctx)
+    warehouse_scope = canonical_warehouse_scope(prepared.warehouses, warehouse_scope)
     warehouses = resolve_warehouse_scope(prepared.warehouses, warehouse_scope)
     warehouse_ids = [warehouse.warehouse_id for warehouse in warehouses]
     calculation_policy = None

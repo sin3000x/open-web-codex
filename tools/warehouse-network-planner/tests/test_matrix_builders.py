@@ -11,6 +11,7 @@ from supply_chain_planner.network.matrix import (
     build_haversine_route_matrix,
     build_provided_route_matrix,
     build_route_matrix_with_reuse,
+    canonical_warehouse_scope,
     plan_route_matrix,
     register_navigation_route_matrix,
     validate_route_matrix,
@@ -84,6 +85,20 @@ def test_existing_plus_candidates_scope_is_exact_and_canonical() -> None:
     assert matrix.warehouse_ids == ["candidate-c", "center-a", "cross-b"]
     with pytest.raises(ValueError, match="warehouse_scope_candidate_ids_duplicate"):
         ExistingPlusCandidatesWarehouseScope(candidate_ids=["candidate-c", "candidate-c"])
+
+
+
+def test_candidate_list_naming_every_candidate_is_canonical_all_warehouses() -> None:
+    case = network_case()
+    every_candidate = ExistingPlusCandidatesWarehouseScope(candidate_ids=["candidate-c"])
+    assert canonical_warehouse_scope(case.warehouses, every_candidate) == AllWarehousesScope()
+    for scope in (AllWarehousesScope(), ExistingOnlyWarehouseScope()):
+        assert canonical_warehouse_scope(case.warehouses, scope) == scope
+    with pytest.raises(ValueError, match="candidate_unknown"):
+        canonical_warehouse_scope(
+            case.warehouses,
+            ExistingPlusCandidatesWarehouseScope(candidate_ids=["missing"]),
+        )
 
 
 def test_existing_plus_candidates_rejects_existing_or_unknown_ids() -> None:

@@ -26,6 +26,7 @@ from supply_chain_planner.data.workspace_intake import (
 from supply_chain_planner.network.matrix import (
     build_navigation_matrix_request,
     build_route_matrix_with_reuse,
+    canonical_warehouse_scope,
     resolve_warehouse_scope,
 )
 from supply_chain_planner.network.matrix import (
@@ -89,6 +90,7 @@ def create_navigation_matrix_request(
         WorkspaceOutputKind.NAVIGATION_REQUEST,
     )
     prepared, input_identity = _load_ready_network(prepared_input_relative_path, ctx)
+    warehouse_scope = canonical_warehouse_scope(prepared.warehouses, warehouse_scope)
     request = build_navigation_matrix_request(
         prepared.demand_cities,
         prepared.warehouses,
@@ -191,6 +193,7 @@ def prepare_route_matrix(
 ) -> Annotated[CallToolResult, RouteMatrixPreparationToolResult]:
     """Prepare one provided or explicitly assumed haversine route matrix."""
     prepared, input_identity = _load_ready_network(prepared_input_relative_path, ctx)
+    warehouse_scope = canonical_warehouse_scope(prepared.warehouses, warehouse_scope)
     prior = (
         _runtime().load_model(
             prior_route_matrix_ref,

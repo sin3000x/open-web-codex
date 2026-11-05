@@ -14,6 +14,7 @@ from supply_chain_planner.network.matrix_models import (
     CostMatrixRow,
     CostMatrixStats,
     DemandUnitCostRule,
+    ExistingPlusCandidatesWarehouseScope,
     HaversineRouteMatrixStats,
     NavigationMatrixRequest,
     NavigationRouteMatrixStats,
@@ -73,6 +74,27 @@ def resolve_warehouse_scope(
     if not selected:
         raise ValueError("warehouse_scope_resolves_empty")
     return [warehouse_by_id[warehouse_id] for warehouse_id in sorted(selected)]
+
+
+def canonical_warehouse_scope(
+    warehouses: list[WarehouseRecord],
+    scope: WarehouseScope,
+) -> WarehouseScope:
+    """Return the single canonical scope for the warehouse set ``scope`` selects.
+
+    An explicit candidate list that names every non-existing warehouse selects the
+    same set as ``all_warehouses``; matrices record the canonical form so every
+    downstream scope comparison is a comparison of warehouse sets.
+    """
+    resolve_warehouse_scope(warehouses, scope)
+    if not isinstance(scope, ExistingPlusCandidatesWarehouseScope):
+        return scope
+    all_candidate_ids = {
+        warehouse.warehouse_id for warehouse in warehouses if not warehouse.is_existing
+    }
+    if set(scope.candidate_ids) == all_candidate_ids:
+        return AllWarehousesScope()
+    return scope
 
 
 def plan_route_matrix(
