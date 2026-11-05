@@ -57,6 +57,16 @@ def _load_cp_model():
     return cp_model
 
 
+def preload_solver() -> bool:
+    """Load the native solver ahead of a solve and report whether it is available.
+
+    The first load of freshly materialized OR-Tools native libraries can take
+    minutes on some hosts, so callers load it outside any solver time budget.
+    """
+
+    return _load_cp_model() is not None
+
+
 def _route_index(matrix: RouteMatrix):
     return {
         (row.origin_id, row.destination_id, row.layer): row

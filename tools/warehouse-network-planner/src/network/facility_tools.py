@@ -51,6 +51,7 @@ from supply_chain_planner.network.solver import (
     SolverUnavailable,
     compare_assignments,
     coverage_metrics,
+    preload_solver,
     service_metrics,
     solve_assignment,
     solve_p_median_stage,
@@ -477,6 +478,9 @@ def solve_p_median(
         )
         if maximum > candidate_count or maximum > 64:
             raise McpResourceContractError("p_median_opening_policy_bound_invalid")
+    # The time limit bounds the search only; loading the native solver must not
+    # consume the minimum-cost stage's budget.
+    preload_solver()
     started_at = time.monotonic()
     solver_stages: list[PMedianSolverStage] = []
     stage_outcomes: list[SolverStageOutcome] = []

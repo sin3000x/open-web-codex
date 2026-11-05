@@ -4,7 +4,12 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import logging
 import os
+import subprocess
+import sys
+import threading
+import time
 from pathlib import Path
 
 from mcp.server.fastmcp import FastMCP
@@ -51,10 +56,38 @@ def main() -> None:
     workspace_root = Path.cwd().resolve(strict=True)
     profile_state_root = Path(os.environ.get("CODEX_HOME", workspace_root / ".codex")).resolve()
     configure_runtime(workspace_root, profile_state_root)
+    threading.Thread(target=_warm_solver_libraries, name="solver-warmup", daemon=True).start()
     if args.transport == "stdio":
         asyncio.run(run_stdio())
     else:
         mcp.run(transport=args.transport)
+
+
+def _warm_solver_libraries() -> None:
+    """Pay the native solver's first-load cost outside this server process.
+
+    The first load of freshly materialized OR-Tools libraries can take minutes on
+    some hosts while holding the loading process's GIL. A short-lived child
+    process primes the host's library cache instead, so this server keeps
+    answering Tool calls and its own later solver load is fast.
+    """
+    started_at = time.monotonic()
+    try:
+        completed = subprocess.run(
+            [sys.executable, "-c", "from ortools.sat.python import cp_model"],
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            check=False,
+        )
+    except OSError as error:
+        logging.getLogger(__name__).warning("solver warm-up could not start: %s", error)
+        return
+    logging.getLogger(__name__).info(
+        "solver warm-up finished: exit_code=%s seconds=%.1f",
+        completed.returncode,
+        time.monotonic() - started_at,
+    )
 
 
 async def run_stdio() -> None:

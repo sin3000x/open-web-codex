@@ -1263,6 +1263,38 @@ def test_solver_stages_share_decreasing_remaining_budget(
     assert 0 < remaining[1] < remaining[0] <= 30
 
 
+
+def test_slow_solver_load_does_not_consume_the_stage_budget(
+    tmp_path: Path, monkeypatch
+) -> None:
+    _workspace, ctx, prepared_path, routes, costs = _pmedian_fixture(tmp_path, monkeypatch)
+    clock = [0.0]
+    monkeypatch.setattr(facility_tools.time, "monotonic", lambda: clock[0])
+
+    def slow_first_load() -> bool:
+        clock[0] += 100.0
+        return True
+
+    monkeypatch.setattr(facility_tools, "preload_solver", slow_first_load)
+    result = facility_tools.solve_p_median(
+        prepared_path,
+        routes,
+        costs,
+        MinimumFeasibleOpeningPolicy(maximum_number_to_open=3),
+        KeepAllExistingWarehousePolicy(),
+        [12],
+        30,
+        ctx,
+        service_constraints=[ServiceCoverageConstraint(target_hours=12, minimum_coverage=0.9)],
+    )
+    assert result.structuredContent is not None
+    assert [stage["status"] for stage in result.structuredContent["solver_stages"]] == [
+        "optimal",
+        "optimal",
+    ]
+    assert result.structuredContent["optimality"] == "proven"
+
+
 def test_budget_exhaustion_records_synthetic_stage2_timeout(
     tmp_path: Path, monkeypatch
 ) -> None:
