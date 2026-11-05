@@ -120,6 +120,9 @@ export default function Composer({ draft, onDraftChange, onSend, onStop, running
   const [providerDraft, setProviderDraft] = useState<ProviderDraft>(EMPTY_PROVIDER_DRAFT);
   const [contextDrafts, setContextDrafts] = useState<Record<string, string>>({});
   const [contextSaveState, setContextSaveState] = useState<"idle" | "saving" | "saved">("idle");
+  const [manualModelId, setManualModelId] = useState("");
+  const [manualModelContext, setManualModelContext] = useState(String(DEFAULT_MODEL_CONTEXT_WINDOW));
+  const [manualModelState, setManualModelState] = useState<"idle" | "saving">("idle");
   const [openProviderGroup, setOpenProviderGroup] = useState<ProviderGroupKey | null>("custom");
   const [providerPendingDelete, setProviderPendingDelete] = useState<ModelProviderSummary | null>(null);
   const [deleteProviderState, setDeleteProviderState] = useState<"idle" | "deleting">("idle");
@@ -238,6 +241,9 @@ export default function Composer({ draft, onDraftChange, onSend, onStop, running
   useEffect(() => {
     setContextDrafts({});
     setContextSaveState("idle");
+    setManualModelId("");
+    setManualModelContext(String(DEFAULT_MODEL_CONTEXT_WINDOW));
+    setManualModelState("idle");
   }, [currentProviderId]);
 
   const editableContextModels = currentProvider?.canEdit ? models : [];
@@ -274,6 +280,41 @@ export default function Composer({ draft, onDraftChange, onSend, onStop, running
       setContextSaveState("saved");
     } catch {
       setContextSaveState("idle");
+    }
+  };
+
+  const trimmedManualModelId = manualModelId.trim();
+  const manualModelContextValue = Number(manualModelContext);
+  const manualModelContextValid = manualModelContext.length > 0
+    && Number.isSafeInteger(manualModelContextValue)
+    && manualModelContextValue >= 1_024;
+  const manualModelExists = Boolean(trimmedManualModelId) && (
+    currentProvider?.models?.some((entry) => entry.modelId === trimmedManualModelId) ?? false
+  );
+  const manualModelIdValid = Boolean(trimmedManualModelId)
+    && !/[\s\p{Cc}]/u.test(trimmedManualModelId);
+  const canAddManualModel = Boolean(currentProvider?.canEdit && onWriteProvider)
+    && manualModelIdValid
+    && manualModelContextValid
+    && !manualModelExists
+    && manualModelState === "idle"
+    && !catalogLoading;
+  const addManualModel = async () => {
+    if (!currentProvider || !onWriteProvider || !canAddManualModel) return;
+    setManualModelState("saving");
+    try {
+      await onWriteProvider({
+        action: "addModel",
+        id: currentProvider.id,
+        modelId: trimmedManualModelId,
+        contextWindow: manualModelContextValue,
+      });
+      setManualModelId("");
+      setManualModelContext(String(DEFAULT_MODEL_CONTEXT_WINDOW));
+    } catch {
+      // The owning write handler reports the failure in the catalog error.
+    } finally {
+      setManualModelState("idle");
     }
   };
 
@@ -660,7 +701,11 @@ export default function Composer({ draft, onDraftChange, onSend, onStop, running
                     </button>
                   ) : null}
                 </div>
-                {models.length === 0 ? <p>{catalogLoading ? "Loading models…" : "No models returned by this provider"}</p> : models.map((model) => (
+                {models.length === 0 ? <p>{catalogLoading
+                  ? "Loading models…"
+                  : currentProvider?.canEdit
+                    ? "No models yet. Fetch the catalog or add a model id below."
+                    : "No models returned by this provider"}</p> : models.map((model) => (
                   <div className={`web-model-catalog-row web-model-catalog-model${selectedModelId === model.id ? " is-current" : ""}`} key={model.id}>
                     <button type="button" aria-pressed={selectedModelId === model.id} onClick={() => onSelectModel?.(model.id)}>
                     <span><strong>{model.displayName || model.model}</strong><small>{model.model}</small></span>
@@ -738,6 +783,66 @@ export default function Composer({ draft, onDraftChange, onSend, onStop, running
                         : contextSaveState === "saved"
                           ? "All context windows saved."
                           : "Edit any context windows, then save them together."}
+                  </div>
+                ) : null}
+                {currentProvider?.canEdit ? (
+                  <div
+                    className="web-model-add"
+                    role="group"
+                    aria-label={`Add model to ${currentProvider.name}`}
+                    onKeyDown={(event) => {
+                      // This group lives inside the composer form; Enter must add
+                      // the model instead of submitting the chat draft.
+                      if (event.key !== "Enter" || event.nativeEvent.isComposing) return;
+                      event.preventDefault();
+                      void addManualModel();
+                    }}
+                  >
+                    <label className="web-context-editor web-model-add-id">
+                      <span>Model id</span>
+                      <span className="web-context-field">
+                        <input
+                          aria-label="Model id to add"
+                          aria-invalid={Boolean(trimmedManualModelId) && (!manualModelIdValid || manualModelExists)}
+                          placeholder="e.g. deepseek-chat"
+                          autoComplete="off"
+                          spellCheck={false}
+                          value={manualModelId}
+                          disabled={manualModelState === "saving"}
+                          onChange={(event) => setManualModelId(event.target.value)}
+                        />
+                      </span>
+                    </label>
+                    <label className="web-context-editor">
+                      <span>Context</span>
+                      <span className="web-context-field">
+                        <input
+                          aria-label="Context window for the model to add"
+                          aria-invalid={!manualModelContextValid}
+                          inputMode="numeric"
+                          value={manualModelContext}
+                          disabled={manualModelState === "saving"}
+                          onChange={(event) => setManualModelContext(event.target.value.replace(/\D/g, ""))}
+                        />
+                        <small>tokens</small>
+                      </span>
+                    </label>
+                    <button
+                      className="web-context-save"
+                      type="button"
+                      disabled={!canAddManualModel}
+                      onClick={() => { void addManualModel(); }}
+                    >
+                      <Plus size={12} aria-hidden="true" />
+                      {manualModelState === "saving" ? "Adding…" : "Add model"}
+                    </button>
+                  </div>
+                ) : null}
+                {currentProvider?.canEdit && trimmedManualModelId && (manualModelExists || !manualModelIdValid) ? (
+                  <div className="web-context-save-note is-error">
+                    {manualModelExists
+                      ? "This model is already in the catalog."
+                      : "Model ids cannot contain spaces or control characters."}
                   </div>
                 ) : null}
               </div>

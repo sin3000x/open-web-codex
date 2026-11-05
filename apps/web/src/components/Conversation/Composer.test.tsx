@@ -583,6 +583,137 @@ describe("Web Composer provider credentials", () => {
     });
   });
 
+  it("adds a model by id when the Provider catalog is empty", async () => {
+    const onWriteProvider = vi.fn(async () => undefined);
+    render(
+      <Composer
+        draft=""
+        onDraftChange={vi.fn()}
+        onSend={vi.fn()}
+        onStop={vi.fn()}
+        running={false}
+        stopping={false}
+        busy={false}
+        disabled={false}
+        tokenUsage={null}
+        currentProviderId="gateway"
+        providers={[{
+          id: "gateway",
+          name: "Gateway",
+          kind: "custom",
+          supportsFunctionTools: false,
+          isCurrent: true,
+          modelCount: 0,
+          canEdit: true,
+          canFetchModels: true,
+          models: [],
+        }]}
+        models={[]}
+        onWriteProvider={onWriteProvider}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Gateway" }));
+    expect(screen.getByText("No models yet. Fetch the catalog or add a model id below.")).not.toBeNull();
+    const addButton = screen.getByRole("button", { name: "Add model" }) as HTMLButtonElement;
+    expect(addButton.disabled).toBe(true);
+
+    fireEvent.change(screen.getByLabelText("Model id to add"), { target: { value: "my model" } });
+    expect(screen.getByText("Model ids cannot contain spaces or control characters.")).not.toBeNull();
+    expect(addButton.disabled).toBe(true);
+
+    fireEvent.change(screen.getByLabelText("Model id to add"), { target: { value: " vendor/model-x " } });
+    fireEvent.change(screen.getByLabelText("Context window for the model to add"), {
+      target: { value: "200000" },
+    });
+    expect(addButton.disabled).toBe(false);
+    fireEvent.keyDown(screen.getByLabelText("Context window for the model to add"), { key: "Enter" });
+
+    await waitFor(() => {
+      expect(onWriteProvider).toHaveBeenCalledTimes(1);
+      expect(onWriteProvider).toHaveBeenCalledWith({
+        action: "addModel",
+        id: "gateway",
+        modelId: "vendor/model-x",
+        contextWindow: 200_000,
+      });
+    });
+    await waitFor(() => {
+      expect((screen.getByLabelText("Model id to add") as HTMLInputElement).value).toBe("");
+    });
+  });
+
+  it("rejects adding a model id that is already in the catalog", () => {
+    const onWriteProvider = vi.fn(async () => undefined);
+    render(
+      <Composer
+        draft=""
+        onDraftChange={vi.fn()}
+        onSend={vi.fn()}
+        onStop={vi.fn()}
+        running={false}
+        stopping={false}
+        busy={false}
+        disabled={false}
+        tokenUsage={null}
+        currentProviderId="deepseek"
+        selectedModelId="deepseek-flash"
+        providers={[{
+          id: "deepseek",
+          name: "DeepSeek",
+          kind: "custom",
+          supportsFunctionTools: false,
+          isCurrent: true,
+          modelCount: 1,
+          canEdit: true,
+          models: [{ modelId: "deepseek-flash", contextWindow: 64_000 }],
+        }]}
+        models={[{ id: "deepseek-flash", model: "deepseek-flash", displayName: "DeepSeek Flash" }]}
+        onWriteProvider={onWriteProvider}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "DeepSeek" }));
+    fireEvent.change(screen.getByLabelText("Model id to add"), { target: { value: "deepseek-flash" } });
+    expect(screen.getByText("This model is already in the catalog.")).not.toBeNull();
+    const addButton = screen.getByRole("button", { name: "Add model" }) as HTMLButtonElement;
+    expect(addButton.disabled).toBe(true);
+    fireEvent.click(addButton);
+    expect(onWriteProvider).not.toHaveBeenCalled();
+  });
+
+  it("does not offer manual model entry for a built-in Provider", () => {
+    render(
+      <Composer
+        draft=""
+        onDraftChange={vi.fn()}
+        onSend={vi.fn()}
+        onStop={vi.fn()}
+        running={false}
+        stopping={false}
+        busy={false}
+        disabled={false}
+        tokenUsage={null}
+        currentProviderId="openai"
+        providers={[{
+          id: "openai",
+          name: "OpenAI",
+          kind: "builtIn",
+          supportsFunctionTools: true,
+          isCurrent: true,
+          modelCount: 1,
+          canEdit: false,
+        }]}
+        models={[{ id: "gpt-5.1-codex", model: "gpt-5.1-codex", displayName: "GPT-5.1 Codex" }]}
+        onWriteProvider={vi.fn(async () => undefined)}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "OpenAI" }));
+    expect(screen.queryByLabelText("Model id to add")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Add model" })).toBeNull();
+  });
+
   it("uses 128000 as the actual context value when no value is configured", () => {
     render(
       <Composer

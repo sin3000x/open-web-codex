@@ -1370,6 +1370,24 @@ mod tests {
         assert_eq!(models[1], existing[1]);
     }
 
+    #[test]
+    fn model_metadata_update_adds_a_manually_named_model_without_a_fetched_catalog() {
+        let models = update_provider_models(&[], "vendor/model-x", 200_000, None);
+
+        assert_eq!(
+            models,
+            vec![ProviderModelSummary {
+                model_id: "vendor/model-x".to_string(),
+                model_name: Some("vendor/model-x".to_string()),
+                max_token_len: None,
+                max_output_tokens: None,
+                show_in_picker: true,
+                context_window: Some(200_000),
+                supports_search_tool: false,
+            }]
+        );
+    }
+
     #[tokio::test]
     async fn replace_models_writes_the_complete_catalog_atomically() {
         let initial = catalog("deepseek", json!([provider("deepseek", true, json!([]))]));

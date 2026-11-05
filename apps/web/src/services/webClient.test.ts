@@ -591,6 +591,47 @@ describe("WebApp direct Server client", () => {
     expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 
+  it("adds a manually named model through the Provider model endpoint without fetching", async () => {
+    const requests: Array<{ path: string; method: string; body: unknown }> = [];
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = new URL(String(input));
+      requests.push({
+        path: url.pathname,
+        method: init?.method ?? "GET",
+        body: init?.body ? JSON.parse(String(init.body)) : null,
+      });
+      return json({ currentProviderId: "gateway", data: [] });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const client = new CodexMonitorWebClient({ baseUrl: "http://server.test" });
+
+    await client.writeModelProvider({
+      action: "addModel",
+      id: "gateway",
+      modelId: "  vendor/model-x  ",
+      contextWindow: 200_000,
+    });
+
+    expect(requests).toEqual([{
+      path: "/api/providers/gateway/models/vendor%2Fmodel-x",
+      method: "PATCH",
+      body: { contextWindow: 200_000 },
+    }]);
+    await expect(client.writeModelProvider({
+      action: "addModel",
+      id: "gateway",
+      modelId: " ",
+      contextWindow: 200_000,
+    })).rejects.toThrow("Model id is required");
+    await expect(client.writeModelProvider({
+      action: "addModel",
+      id: "gateway",
+      modelId: "model-x",
+      contextWindow: 512,
+    })).rejects.toThrow("Context window must be at least 1024 tokens");
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
   it("writes a Profile Provider without a Workspace-scoped argument", async () => {
     const requests: Array<{ path: string; method: string; body: unknown }> = [];
     const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {

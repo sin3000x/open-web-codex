@@ -744,6 +744,17 @@ export class CodexMonitorWebClient {
       }
       return response;
     }
+    if (action === "addModel") {
+      const modelId = typeof input.modelId === "string" ? input.modelId.trim() : "";
+      const contextWindow = Number(input.contextWindow);
+      if (!modelId) throw new Error("Model id is required");
+      if (!Number.isSafeInteger(contextWindow) || contextWindow < 1_024) {
+        throw new Error("Context window must be at least 1024 tokens");
+      }
+      // The Provider model endpoint adds an unknown model id to the persisted
+      // catalog, so Providers without a model-list endpoint stay usable.
+      return await this.platform.updateProviderModel(id, modelId, contextWindow);
+    }
     if (action === "context") {
       return await this.platform.updateProviderModel(
         id,

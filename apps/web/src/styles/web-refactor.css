@@ -3786,6 +3786,10 @@ body:has(.web-app-shell) {
 .web-context-field small { color: #68758a; font-size: 9px; font-weight: 600; text-transform: lowercase; }
 .web-context-save-note { min-height: 18px; padding: 1px 4px 0; color: #748095; font-size: 10px; text-align: right; }
 .web-context-save-note.is-error { color: #ff9ba3; }
+.web-model-add { display: flex; align-items: end; gap: 8px; margin-top: 6px; padding: 8px 7px 2px; border-top: 1px solid rgb(255 255 255 / 6%); }
+.web-model-add-id { flex: 1 1 auto !important; min-width: 0; }
+.web-model-add-id .web-context-field input { width: 100%; }
+.web-model-add .web-context-save { display: inline-flex; align-items: center; justify-content: center; gap: 4px; height: 30px; }
 .web-selected-badge {
   display: inline-flex !important;
   align-items: center;
@@ -4165,6 +4169,7 @@ body:has(.web-app-shell) {
   .web-model-catalog-model { align-items: stretch; flex-direction: column; }
   .web-context-editor { align-self: stretch; }
   .web-context-field input { width: 100%; }
+  .web-model-add { align-items: stretch; flex-direction: column; }
 }
 
 .web-composer-activity {
