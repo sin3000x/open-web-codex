@@ -12,6 +12,8 @@ import X from "lucide-react/dist/esm/icons/x";
 import type { GitFileStatus } from "../../types";
 import { Markdown } from "../../features/messages/components/Markdown";
 import { getFileTypeIconUrl } from "../../utils/fileTypeIcons";
+import { languageFromPath } from "../../utils/syntax";
+import { CodePreview } from "./CodePreview";
 import { DelimitedTablePreview } from "./DelimitedTablePreview";
 import { delimiterForPath } from "./delimitedText";
 
@@ -73,7 +75,7 @@ export default function FileManager({ workspaceId, selectedPath, onSelectedPathC
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [treeOpen, setTreeOpen] = useState(true);
-  const [tableView, setTableView] = useState(true);
+  const [formattedView, setFormattedView] = useState(true);
   const [query, setQuery] = useState("");
   const [fileActionPath, setFileActionPath] = useState<string | null>(null);
   const [pendingDeletePath, setPendingDeletePath] = useState<string | null>(null);
@@ -304,6 +306,7 @@ export default function FileManager({ workspaceId, selectedPath, onSelectedPathC
   }, [expanded, files, query]);
   const markdownPreview = Boolean(selectedPath && MARKDOWN_FILE_PATTERN.test(selectedPath));
   const tableDelimiter = selectedPath ? delimiterForPath(selectedPath) : null;
+  const formattedViewLabel = tableDelimiter ? "Table" : languageFromPath(selectedPath) === "json" ? "Formatted" : null;
   const clampPanelWidth = (width: number) => Math.min(MAX_PANEL_WIDTH, Math.max(MIN_PANEL_WIDTH, width));
   return <>
     <aside className={`web-file-manager${embedded ? " is-embedded" : ""}`} aria-label="Workspace files">
@@ -470,12 +473,12 @@ export default function FileManager({ workspaceId, selectedPath, onSelectedPathC
         {selectedPath && <div className="web-file-preview-header">
           <span>{selectedPath}</span>
           {truncated && <em>Truncated</em>}
-          {tableDelimiter ? <div className="web-file-view-toggle" role="group" aria-label="Preview mode">
-            <button type="button" aria-pressed={tableView} onClick={() => setTableView(true)}>Table</button>
-            <button type="button" aria-pressed={!tableView} onClick={() => setTableView(false)}>Raw</button>
+          {formattedViewLabel ? <div className="web-file-view-toggle" role="group" aria-label="Preview mode">
+            <button type="button" aria-pressed={formattedView} onClick={() => setFormattedView(true)}>{formattedViewLabel}</button>
+            <button type="button" aria-pressed={!formattedView} onClick={() => setFormattedView(false)}>Raw</button>
           </div> : null}
         </div>}
-        {loading ? <div className="web-file-empty">Loading…</div> : error ? <div className="web-file-error">{error}</div> : selectedPath ? tableDelimiter && tableView ? (
+        {loading ? <div className="web-file-empty">Loading…</div> : error ? <div className="web-file-error">{error}</div> : selectedPath ? tableDelimiter && formattedView ? (
           <DelimitedTablePreview content={content} delimiter={tableDelimiter} truncated={truncated} />
         ) : markdownPreview ? (
           <Markdown
@@ -484,7 +487,7 @@ export default function FileManager({ workspaceId, selectedPath, onSelectedPathC
             showFilePath={false}
             onOpenFileLink={(location) => onSelectedPathChange(resolveMarkdownLink(selectedPath, location.path))}
           />
-        ) : <pre><code>{content}</code></pre> : <div className="web-file-empty">Select a file to preview</div>}
+        ) : <CodePreview path={selectedPath} content={content} truncated={truncated} formatted={formattedView} /> : <div className="web-file-empty">Select a file to preview</div>}
       </div>
     </aside>
     {pendingDeletePath ? createPortal(

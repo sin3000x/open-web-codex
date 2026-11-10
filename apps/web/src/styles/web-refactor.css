@@ -1426,7 +1426,30 @@ body:has(.web-app-shell) {
 .web-file-table .is-numeric { text-align: right; font-variant-numeric: tabular-nums; }
 .web-file-table .web-file-table-index { position: sticky; left: 0; z-index: 1; min-width: 32px; color: var(--file-table-index-text); font-weight: 400; text-align: right; }
 .web-file-table thead .web-file-table-index { z-index: 3; }
-.web-file-preview pre { min-width: max-content; margin: 0; padding: 12px; color: #c6ccd6; background: transparent; font-size: 10px; line-height: 1.55; }
+.web-file-preview {
+  --file-code-text: #d2d7df;
+  --file-code-gutter: #5d6676;
+  --file-code-punctuation: #8e98a8;
+  --file-code-property: #8fbcff;
+  --file-code-string: #9ae6b4;
+  --file-code-number: #ffca7a;
+  --file-code-keyword: #c3a6ff;
+  --file-code-function: #7fd1ff;
+  --file-code-comment: #6f7a8b;
+}
+.web-file-code-note { position: sticky; left: 0; width: max-content; max-width: 100%; padding: 8px 12px 0; color: var(--web-orange); font-size: 10px; }
+.web-file-code { display: flex; min-width: max-content; }
+.web-file-preview .web-file-code pre { min-width: 0; margin: 0; padding: 10px 12px; font-family: var(--font-code); font-size: 11px; line-height: 1.6; }
+.web-file-preview .web-file-code-gutter { position: sticky; left: 0; z-index: 1; flex: none; padding-right: 10px; border-right: 1px solid var(--file-table-line); color: var(--file-code-gutter); background: var(--file-table-bg); text-align: right; user-select: none; }
+.web-file-preview .web-file-code-body { flex: 1; color: var(--file-code-text); }
+.web-file-code-body :is(.token.punctuation, .token.operator) { color: var(--file-code-punctuation); }
+.web-file-code-body :is(.token.property, .token.tag, .token.attr-name, .token.constant, .token.symbol) { color: var(--file-code-property); }
+.web-file-code-body :is(.token.string, .token.char, .token.attr-value, .token.inserted, .token.url) { color: var(--file-code-string); }
+.web-file-code-body :is(.token.number, .token.boolean, .token.null) { color: var(--file-code-number); }
+.web-file-code-body :is(.token.keyword, .token.atrule, .token.builtin) { color: var(--file-code-keyword); }
+.web-file-code-body :is(.token.function, .token.class-name) { color: var(--file-code-function); }
+.web-file-code-body :is(.token.comment, .token.prolog, .token.doctype, .token.cdata) { color: var(--file-code-comment); font-style: italic; }
+.web-file-preview pre { min-width: max-content; margin: 0; padding: 12px; color: var(--file-code-text); background: transparent; font-size: 10px; line-height: 1.55; }
 .web-file-markdown {
   padding: 16px 18px 40px;
   color: #cbd1db;
@@ -5153,7 +5176,7 @@ body:has(.web-app-shell[data-theme="light"]) {
   background: #3569aa;
 }
 
-.web-app-shell[data-theme="light"] :is(.web-file-row, .web-file-preview-header, .web-file-preview pre, .web-file-markdown) {
+.web-app-shell[data-theme="light"] :is(.web-file-row, .web-file-preview-header, .web-file-markdown) {
   color: #465368;
 }
 
@@ -5171,6 +5194,15 @@ body:has(.web-app-shell[data-theme="light"]) {
   --file-toggle-line: #d5dde8;
   --file-toggle-active-bg: rgb(63 111 174 / 12%);
   --file-toggle-active-text: #173f73;
+  --file-code-text: #263247;
+  --file-code-gutter: #9aa4b2;
+  --file-code-punctuation: #6b778a;
+  --file-code-property: #2f5f9e;
+  --file-code-string: #1f7a4d;
+  --file-code-number: #a35a0f;
+  --file-code-keyword: #7a3fb8;
+  --file-code-function: #1c6f99;
+  --file-code-comment: #8792a2;
 }
 
 .web-app-shell[data-theme="light"] .web-file-row:hover { background: rgb(63 111 174 / 7%); }

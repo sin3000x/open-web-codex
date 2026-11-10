@@ -450,6 +450,30 @@ describe("FileManager", () => {
     expect(screen.getByText(/S1,"Jakarta, ID",1200/)).toBeTruthy();
   });
 
+  it("formats and highlights JSON files and switches to the raw text", async () => {
+    const { container } = render(
+      <FileManager
+        workspaceId="workspace-1"
+        selectedPath="config/areas.json"
+        onSelectedPathChange={vi.fn()}
+        onClose={vi.fn()}
+        panelWidth={360}
+        onPanelWidthChange={vi.fn()}
+        listFiles={vi.fn().mockResolvedValue(["config/areas.json"])}
+        readFile={vi.fn().mockResolvedValue({ content: '{"name":"Jakarta","count":3}', truncated: false })}
+        loadGitStatus={vi.fn().mockResolvedValue({ files: [] })}
+      />,
+    );
+
+    await waitFor(() => expect(container.querySelector(".web-file-code-body .token.property")).toBeTruthy());
+    expect(container.querySelector(".web-file-code-body")?.textContent).toBe('{\n  "name": "Jakarta",\n  "count": 3\n}');
+    expect(container.querySelector(".web-file-code-gutter")?.textContent).toBe("1\n2\n3\n4");
+    expect(screen.getByRole("button", { name: "Formatted" }).getAttribute("aria-pressed")).toBe("true");
+
+    fireEvent.click(screen.getByRole("button", { name: "Raw" }));
+    expect(container.querySelector(".web-file-code-body")?.textContent).toBe('{"name":"Jakarta","count":3}');
+  });
+
   it("ignores a stale preview error after switching workspaces", async () => {
     let rejectOldPreview: (reason: Error) => void = () => undefined;
     const oldPreview = new Promise<{ content: string; truncated: boolean }>((_, reject) => {
