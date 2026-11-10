@@ -97,6 +97,29 @@ impl PlatformError {
             provider_catalog_failure: None,
         }
     }
+    /// Codex answered, but rejected the request or returned an unusable result.
+    pub fn codex_rejected(message: impl Into<String>) -> Self {
+        Self {
+            kind: ErrorKind::CodexRejected,
+            message: message.into(),
+            request_id: None,
+            retry_after_ms: None,
+            provider_catalog_failure: None,
+        }
+    }
+
+    /// Codex could not be reached, was restarting, busy, timed out or lacks a
+    /// required capability.
+    pub fn codex_unavailable(message: impl Into<String>) -> Self {
+        Self {
+            kind: ErrorKind::CodexUnavailable,
+            message: message.into(),
+            request_id: None,
+            retry_after_ms: None,
+            provider_catalog_failure: None,
+        }
+    }
+
     pub fn unauthorized(message: impl Into<String>) -> Self {
         Self {
             kind: ErrorKind::Unauthorized,

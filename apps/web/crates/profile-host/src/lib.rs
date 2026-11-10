@@ -328,8 +328,18 @@ pub enum ProfileHostError {
     RuntimeBusy,
     #[error("Codex app-server request timed out: {method}")]
     RequestTimeout { method: String },
-    #[error("Codex app-server rejected {method}: {message}")]
-    Rpc { method: String, message: String },
+    /// The app-server answered `method` with a JSON-RPC error object. `code`
+    /// is the official JSON-RPC error code when the Runtime supplied one.
+    #[error("Codex app-server rejected {method} (code {code:?}): {message}")]
+    Rpc {
+        method: String,
+        code: Option<i64>,
+        message: String,
+    },
+    #[error("Codex app-server returned an invalid response to {method}: {message}")]
+    InvalidResponse { method: String, message: String },
+    #[error("failed to encode Codex app-server message: {0}")]
+    Encode(String),
     #[error("Codex app-server returned an invalid initialize response: {0}")]
     InvalidInitialize(String),
 }
@@ -626,13 +636,8 @@ impl ProfileHost {
         };
         let response = match receiver.await {
             Ok(Ok(response)) => response,
-            Ok(Err(message)) => {
-                return Err(ProfileHostError::Rpc {
-                    method: method.to_string(),
-                    message,
-                })
-            }
-            Err(_) => return Err(ProfileHostError::TransportClosed),
+            // Pending requests are only failed when the transport is drained.
+            Ok(Err(_)) | Err(_) => return Err(ProfileHostError::TransportClosed),
         };
         parse_rpc_result(method, response)
     }
@@ -646,13 +651,8 @@ impl ProfileHost {
 
         let response = match timeout(self.inner.request_timeout, receiver).await {
             Ok(Ok(Ok(response))) => response,
-            Ok(Ok(Err(message))) => {
-                return Err(ProfileHostError::Rpc {
-                    method: method.to_string(),
-                    message,
-                })
-            }
-            Ok(Err(_)) => return Err(ProfileHostError::TransportClosed),
+            // Pending requests are only failed when the transport is drained.
+            Ok(Ok(Err(_))) | Ok(Err(_)) => return Err(ProfileHostError::TransportClosed),
             Err(_) => {
                 self.inner.pending.lock().await.remove(&id);
                 return Err(ProfileHostError::RequestTimeout {
@@ -721,10 +721,8 @@ impl ProfileHost {
     }
 
     async fn write_message(&self, message: Value) -> Result<(), ProfileHostError> {
-        let mut line = serde_json::to_vec(&message).map_err(|error| ProfileHostError::Rpc {
-            method: "serialize".to_string(),
-            message: error.to_string(),
-        })?;
+        let mut line = serde_json::to_vec(&message)
+            .map_err(|error| ProfileHostError::Encode(error.to_string()))?;
         line.push(b'\n');
         let mut stdin = self.inner.stdin.lock().await;
         stdin
@@ -1306,13 +1304,14 @@ fn parse_rpc_result(method: &str, response: Value) -> Result<Value, ProfileHostE
     if let Some(error) = response.get("error") {
         return Err(ProfileHostError::Rpc {
             method: method.to_string(),
+            code: error.get("code").and_then(Value::as_i64),
             message: rpc_error_message(error),
         });
     }
     response
         .get("result")
         .cloned()
-        .ok_or_else(|| ProfileHostError::Rpc {
+        .ok_or_else(|| ProfileHostError::InvalidResponse {
             method: method.to_string(),
             message: "response contained neither result nor error".to_string(),
         })
@@ -1322,10 +1321,11 @@ fn parse_rpc_result(method: &str, response: Value) -> Result<Value, ProfileHostE
 mod tests {
     use super::{
         clear_runtime_work, dispatch_incoming, ensure_profile_home, ensure_profile_layout,
-        record_successful_runtime_request, runtime_request_lifecycle_effect, spawn_app_server,
-        validate_official_initialize_response, CodexFeature, ProfileHost, ProfileHostConfig,
-        ProfileHostError, ProfileHostInner, ProfileHostSnapshot, ProfileHostState, ProfileLock,
-        ProfileProcessCwd, PROCESS_HOME_DIRECTORY, RUNTIME_DIRECTORY,
+        parse_rpc_result, record_successful_runtime_request, runtime_request_lifecycle_effect,
+        spawn_app_server, validate_official_initialize_response, CodexFeature, ProfileHost,
+        ProfileHostConfig, ProfileHostError, ProfileHostInner, ProfileHostSnapshot,
+        ProfileHostState, ProfileLock, ProfileProcessCwd, PROCESS_HOME_DIRECTORY,
+        RUNTIME_DIRECTORY,
     };
     use serde_json::json;
     use std::collections::{HashMap, HashSet};
@@ -1946,5 +1946,29 @@ mod tests {
         drop(host);
         drop(inner);
         fs::remove_dir_all(path).expect("remove profile home");
+    }
+
+    #[test]
+    fn rpc_errors_preserve_the_official_json_rpc_code() {
+        let error = parse_rpc_result(
+            "thread/archive",
+            json!({
+                "id": 7,
+                "error": { "code": -32600, "message": "no rollout found for thread id t-1" }
+            }),
+        )
+        .expect_err("JSON-RPC error response");
+        assert!(matches!(
+            error,
+            ProfileHostError::Rpc { ref method, code: Some(-32600), ref message }
+                if method == "thread/archive" && message == "no rollout found for thread id t-1"
+        ));
+
+        let error = parse_rpc_result("thread/archive", json!({ "id": 8 }))
+            .expect_err("response without result");
+        assert!(matches!(
+            error,
+            ProfileHostError::InvalidResponse { ref method, .. } if method == "thread/archive"
+        ));
     }
 }

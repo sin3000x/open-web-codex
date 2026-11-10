@@ -589,7 +589,15 @@ impl CodexAdapter for FakeCodexAdapter {
             .threads
             .iter_mut()
             .find(|thread| thread.id == thread_id && thread.ws_id == workspace.id)
-            .ok_or_else(|| AdapterError::Rpc("fake Thread was not found".to_string()))?;
+            // Mirror the official app-server: a Thread without a persisted
+            // rollout is rejected as a JSON-RPC invalid request.
+            .ok_or_else(|| {
+                AdapterError::ProfileHost(open_web_codex_profile_host::ProfileHostError::Rpc {
+                    method: "thread/archive".to_string(),
+                    code: Some(-32600),
+                    message: format!("no rollout found for thread id {thread_id}"),
+                })
+            })?;
         thread.status = "archived".to_string();
         Ok(())
     }

@@ -17,6 +17,7 @@ pub mod provider_metrics;
 pub mod providers;
 pub mod runs;
 pub mod runtime_agents;
+pub(crate) mod runtime_errors;
 pub mod sessions;
 pub mod tasks;
 pub mod terminals;

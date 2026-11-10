@@ -65,10 +65,12 @@ pub async fn generate(
     let text = adapter
         .generate_text(&workspace, &prompt, request.model.as_deref())
         .await
-        .map_err(|_| {
-            (
-                StatusCode::BAD_GATEWAY,
-                Json(PlatformError::internal("Codex text generation failed")),
+        .map_err(|error| {
+            super::runtime_errors::runtime_api_error(
+                "text.generate",
+                "text generation",
+                super::runtime_errors::RuntimeErrorScope::Run(run_id),
+                &error,
             )
         })?;
     Ok(Json(GenerateTextResponse { text }))

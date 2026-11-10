@@ -78,7 +78,7 @@ pub async fn open(
         .execute(&state.db)
         .await
         .map_err(database_error)?;
-        return Err(adapter_error(error));
+        return Err(adapter_error("terminal.open", workspace_id, &error));
     }
     sqlx::query(
         "UPDATE terminal_sessions SET state = 'running', updated_at = now() \
@@ -114,7 +114,7 @@ pub async fn write(
     adapter
         .write_terminal(&workspace, &process_id, &request.data)
         .await
-        .map_err(adapter_error)?;
+        .map_err(|error| adapter_error("terminal.write", workspace_id, &error))?;
     touch(&state, auth.organization_id, workspace_id, &terminal_id).await?;
     Ok(Json(json!({ "status": "written" })))
 }
@@ -132,7 +132,7 @@ pub async fn resize(
     adapter
         .resize_terminal(&workspace, &process_id, request.cols, request.rows)
         .await
-        .map_err(adapter_error)?;
+        .map_err(|error| adapter_error("terminal.resize", workspace_id, &error))?;
     touch(&state, auth.organization_id, workspace_id, &terminal_id).await?;
     Ok(Json(json!({ "status": "resized" })))
 }
@@ -148,7 +148,7 @@ pub async fn close(
     adapter
         .close_terminal(&workspace, &process_id)
         .await
-        .map_err(adapter_error)?;
+        .map_err(|error| adapter_error("terminal.close", workspace_id, &error))?;
     sqlx::query(
         "UPDATE terminal_sessions SET state = 'closing', updated_at = now() \
          WHERE organization_id = $1 AND workspace_id = $2 AND terminal_id = $3 \
@@ -339,11 +339,15 @@ fn not_found() -> (StatusCode, Json<PlatformError>) {
 }
 
 fn adapter_error(
-    _error: open_web_codex_adapter::AdapterError,
+    operation: &'static str,
+    workspace_id: Uuid,
+    error: &open_web_codex_adapter::AdapterError,
 ) -> (StatusCode, Json<PlatformError>) {
-    (
-        StatusCode::BAD_GATEWAY,
-        Json(PlatformError::internal("Codex terminal operation failed")),
+    super::runtime_errors::runtime_api_error(
+        operation,
+        "terminal",
+        super::runtime_errors::RuntimeErrorScope::Workspace(workspace_id),
+        error,
     )
 }
 

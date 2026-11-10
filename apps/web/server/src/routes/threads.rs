@@ -42,7 +42,7 @@ pub async fn read(
             &context.thread_id,
         )
         .await
-        .map_err(runtime_error)?;
+        .map_err(|error| runtime_error("thread.read", run_id, &error))?;
     let thread = value
         .get("thread")
         .ok_or_else(|| bad_gateway("Runtime thread/read omitted thread"))?;
@@ -77,7 +77,7 @@ pub async fn read_inline_map_source(
             &source.uri,
         )
         .await
-        .map_err(runtime_error)?;
+        .map_err(|error| runtime_error("mcp_resource.read", run_id, &error))?;
     let bytes = mcp_resource_bytes(&response, &source.uri).map_err(bad_gateway)?;
     if bytes.len() > MAX_INLINE_MAP_SOURCE_BYTES {
         return Err(bad_gateway("Inline map source exceeds the size limit"));
@@ -217,7 +217,7 @@ pub async fn list_turns(
             &context.thread_id,
         )
         .await
-        .map_err(runtime_error)?;
+        .map_err(|error| runtime_error("thread.list_turns", run_id, &error))?;
     let overlay = load_history_overlay(&state, run_id).await?;
     let mut projected = Vec::with_capacity(turns.len());
     for turn in &turns {
@@ -246,7 +246,7 @@ pub async fn list_agent_turns(
             &context.thread_id,
         )
         .await
-        .map_err(runtime_error)?;
+        .map_err(|error| runtime_error("thread.list_agent_turns", run_id, &error))?;
     let overlay = load_history_overlay(&state, run_id).await?;
     let mut projected = Vec::with_capacity(turns.len());
     for turn in &turns {
@@ -321,10 +321,13 @@ pub async fn archive(
             .get::<Option<String>, _>("active_turn_id")
             .is_none();
     if !recovery_without_active_turn {
-        adapter
-            .archive_thread(&context.workspace, &context.thread_id)
-            .await
-            .map_err(runtime_error)?;
+        archive_runtime_thread(
+            adapter.as_ref(),
+            &context.workspace,
+            &context.thread_id,
+            run_id,
+        )
+        .await?;
     }
     let mut transaction = state.db.begin().await.map_err(database_error)?;
     sqlx::query("UPDATE tasks SET status = 'archived', updated_at = now() WHERE id = $1")
@@ -357,6 +360,18 @@ pub async fn archive(
     Ok(Json(json!({ "status": "archived" })))
 }
 
+async fn archive_runtime_thread(
+    adapter: &dyn CodexAdapter,
+    workspace: &AuthorizedWorkspace,
+    thread_id: &str,
+    run_id: Uuid,
+) -> Result<(), ApiError> {
+    adapter
+        .archive_thread(workspace, thread_id)
+        .await
+        .map_err(|error| runtime_error("thread.archive", run_id, &error))
+}
+
 pub async fn set_name(
     State(state): State<AppState>,
     auth: AuthenticatedUser,
@@ -382,7 +397,7 @@ pub async fn set_name(
             name,
         )
         .await
-        .map_err(runtime_error)?;
+        .map_err(|error| runtime_error("thread.set_name", run_id, &error))?;
     let mut transaction = state.db.begin().await.map_err(database_error)?;
     sqlx::query("UPDATE tasks SET title = $1, updated_at = now() WHERE id = $2")
         .bind(name)
@@ -631,11 +646,8 @@ fn project_turn(value: &serde_json::Value) -> Result<ThreadHistoryTurn, ApiError
         .unwrap_or("completed")
         .to_string();
     let started_at = object.get("startedAt").and_then(serde_json::Value::as_i64);
-    let elapsed_ms = in_progress_turn_elapsed_ms(
-        &status,
-        started_at,
-        chrono::Utc::now().timestamp_millis(),
-    );
+    let elapsed_ms =
+        in_progress_turn_elapsed_ms(&status, started_at, chrono::Utc::now().timestamp_millis());
     Ok(ThreadHistoryTurn {
         id: id.to_string(),
         status,
@@ -1076,11 +1088,16 @@ fn not_found() -> ApiError {
     )
 }
 
-fn runtime_error(error: open_web_codex_adapter::AdapterError) -> ApiError {
-    tracing::warn!(%error, "Codex Runtime Thread operation failed");
-    (
-        StatusCode::BAD_GATEWAY,
-        Json(PlatformError::internal("Codex Thread operation failed")),
+fn runtime_error(
+    operation: &'static str,
+    run_id: Uuid,
+    error: &open_web_codex_adapter::AdapterError,
+) -> ApiError {
+    super::runtime_errors::runtime_api_error(
+        operation,
+        "Thread",
+        super::runtime_errors::RuntimeErrorScope::Run(run_id),
+        error,
     )
 }
 
@@ -1094,12 +1111,43 @@ fn database_error(_: sqlx::Error) -> ApiError {
 #[cfg(test)]
 mod tests {
     use super::{
-        in_progress_turn_elapsed_ms, mcp_resource_bytes, project_turn, projected_token_usage,
-        public_approval_status, valid_geojson_root, ApprovalOverlay, ThreadHistoryOverlay,
+        archive_runtime_thread, in_progress_turn_elapsed_ms, mcp_resource_bytes, project_turn,
+        projected_token_usage, public_approval_status, valid_geojson_root, ApprovalOverlay,
+        ThreadHistoryOverlay,
     };
+    use axum::http::StatusCode;
+    use open_web_codex_adapter::fake::FakeCodexAdapter;
+    use open_web_codex_adapter::{AuthorizedWorkspace, CodexAdapter};
+    use open_web_codex_platform_contracts::error::ErrorKind;
     use open_web_codex_platform_contracts::ThreadHistoryTurn;
     use serde_json::json;
     use std::collections::HashMap;
+    use uuid::Uuid;
+
+    #[tokio::test]
+    async fn archive_surfaces_typed_runtime_rejection() {
+        let adapter = FakeCodexAdapter::new();
+        let workspace = AuthorizedWorkspace {
+            id: "demo-workspace".to_string(),
+            root: std::path::PathBuf::from("/srv/runner/demo"),
+        };
+        let started = adapter
+            .start_thread(&workspace, None)
+            .await
+            .expect("start fake Thread");
+        archive_runtime_thread(&adapter, &workspace, &started.thread_id, Uuid::nil())
+            .await
+            .expect("archive persisted Thread");
+
+        let (status, body) =
+            archive_runtime_thread(&adapter, &workspace, "missing-thread", Uuid::nil())
+                .await
+                .expect_err("Thread without rollout is rejected");
+        assert_eq!(status, StatusCode::BAD_GATEWAY);
+        assert_eq!(body.0.kind, ErrorKind::CodexRejected);
+        assert_eq!(body.0.message, "Codex rejected the Thread request");
+        assert!(!body.0.message.contains("rollout"));
+    }
 
     #[test]
     fn reports_server_relative_elapsed_time_only_for_in_progress_turns() {
@@ -1108,8 +1156,14 @@ mod tests {
             in_progress_turn_elapsed_ms("inProgress", Some(1_700_000_000), now_ms),
             Some(120_500)
         );
-        assert_eq!(in_progress_turn_elapsed_ms("completed", Some(1_700_000_000), now_ms), None);
-        assert_eq!(in_progress_turn_elapsed_ms("inProgress", None, now_ms), None);
+        assert_eq!(
+            in_progress_turn_elapsed_ms("completed", Some(1_700_000_000), now_ms),
+            None
+        );
+        assert_eq!(
+            in_progress_turn_elapsed_ms("inProgress", None, now_ms),
+            None
+        );
         assert_eq!(
             in_progress_turn_elapsed_ms("inProgress", Some(1_700_000_200), now_ms),
             Some(0)

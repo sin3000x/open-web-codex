@@ -4,7 +4,7 @@ use std::sync::Arc;
 use axum::extract::{Path as AxumPath, Query, State};
 use axum::http::StatusCode;
 use axum::{Extension, Json};
-use open_web_codex_adapter::{CodexAdapter, ProfileMutation, ProfileQuery};
+use open_web_codex_adapter::{CodexAdapter, ProfileMutation, ProfileQuery, RuntimeFailureClass};
 use open_web_codex_platform_contracts::error::PlatformError;
 use open_web_codex_platform_contracts::{
     AgentSummary, AgentsSettings, CreateAgentRequest, CreatePromptRequest, DeleteAgentQuery,
@@ -46,7 +46,7 @@ pub async fn set_experimental_feature(
             enabled: request.enabled,
         })
         .await
-        .map_err(runtime_write_error)?;
+        .map_err(|error| runtime_error("profile.feature.set", &error))?;
     Ok(Json(json!({ "status": "ok" })))
 }
 
@@ -82,16 +82,26 @@ pub async fn write_profile_file(
     }
     let previous = tokio::fs::read(&path).await.ok();
     atomic_write(&path, request.content.as_bytes()).await?;
-    if kind == "config" && adapter.query_profile(ProfileQuery::Config).await.is_err() {
-        match previous {
-            Some(previous) => {
-                let _ = atomic_write(&path, &previous).await;
+    if kind == "config" {
+        if let Err(error) = adapter.query_profile(ProfileQuery::Config).await {
+            let restored = match previous {
+                Some(previous) => atomic_write(&path, &previous).await.err(),
+                None => tokio::fs::remove_file(&path).await.err().map(io_error),
+            };
+            if restored.is_some() {
+                tracing::error!(
+                    operation = "profile.config.write",
+                    "failed to restore Codex configuration after Runtime validation failed"
+                );
             }
-            None => {
-                let _ = tokio::fs::remove_file(&path).await;
+            let api_error = runtime_error("profile.config.validate", &error);
+            // Only a Runtime answer about the new file is a validation verdict;
+            // transport or platform failures keep their typed status.
+            if error.class() == RuntimeFailureClass::Rejected {
+                return Err(bad_request("Codex rejected the updated configuration"));
             }
+            return Err(api_error);
         }
-        return Err(bad_request("Codex rejected the updated configuration"));
     }
     Ok(Json(json!({ "status": "ok" })))
 }
@@ -118,7 +128,7 @@ pub async fn get_config_model(
     let value = adapter
         .query_profile(ProfileQuery::Config)
         .await
-        .map_err(|_| runtime_read_error())?;
+        .map_err(|error| runtime_error("profile.config.read", &error))?;
     let model = value
         .pointer("/config/model")
         .cloned()
@@ -146,7 +156,7 @@ pub async fn set_agents_core(
             max_depth: request.max_depth,
         })
         .await
-        .map_err(runtime_write_error)?;
+        .map_err(|error| runtime_error("profile.agents.set_core", &error))?;
     agents_settings(adapter.as_ref(), profile_root(&profile)?)
         .await
         .map(Json)
@@ -180,7 +190,7 @@ pub async fn create_agent(
     };
     if let Err(error) = adapter.mutate_profile(mutation).await {
         let _ = tokio::fs::remove_file(&path).await;
-        return Err(runtime_write_error(error));
+        return Err(runtime_error("profile.agent.create", &error));
     }
     agents_settings(adapter.as_ref(), root).await.map(Json)
 }
@@ -255,7 +265,7 @@ pub async fn update_agent(
                 let _ = atomic_write(next_path, &previous).await;
             }
         }
-        return Err(runtime_write_error(error));
+        return Err(runtime_error("profile.agent.update", &error));
     }
     if rename_file {
         if let Some(original_path) = original_path {
@@ -291,7 +301,7 @@ pub async fn delete_agent(
     adapter
         .mutate_profile(ProfileMutation::RemoveAgentDefinition { name: name.clone() })
         .await
-        .map_err(runtime_write_error)?;
+        .map_err(|error| runtime_error("profile.agent.delete", &error))?;
     if query.delete_managed_file.unwrap_or(false) {
         let path = managed_path.expect("managed path was validated above");
         match tokio::fs::remove_file(path).await {
@@ -528,7 +538,7 @@ async fn agents_settings(
     let value = adapter
         .query_profile(ProfileQuery::Config)
         .await
-        .map_err(|_| runtime_read_error())?;
+        .map_err(|error| runtime_error("profile.config.read", &error))?;
     let config = value.get("config").and_then(Value::as_object);
     let features = config
         .and_then(|value| value.get("features"))
@@ -952,22 +962,15 @@ fn unavailable(message: &str) -> ApiError {
     )
 }
 
-fn runtime_read_error() -> ApiError {
-    (
-        StatusCode::BAD_GATEWAY,
-        Json(PlatformError::internal(
-            "Codex Profile configuration read failed",
-        )),
-    )
-}
-
-fn runtime_write_error(error: open_web_codex_adapter::AdapterError) -> ApiError {
-    tracing::error!(error = %error, "Codex Profile configuration update failed");
-    (
-        StatusCode::BAD_GATEWAY,
-        Json(PlatformError::internal(
-            "Codex Profile configuration update failed",
-        )),
+fn runtime_error(
+    operation: &'static str,
+    error: &open_web_codex_adapter::AdapterError,
+) -> ApiError {
+    super::runtime_errors::runtime_api_error(
+        operation,
+        "Profile configuration",
+        super::runtime_errors::RuntimeErrorScope::Profile,
+        error,
     )
 }
 

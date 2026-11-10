@@ -246,14 +246,10 @@ pub async fn start_login(
     Extension(profile): Extension<RuntimeProfileBinding>,
 ) -> ApiResult<ProfileLoginStartResponse> {
     authorize_profile(&state, &auth, &profile).await?;
-    let login = adapter.start_profile_login().await.map_err(|_| {
-        (
-            StatusCode::BAD_GATEWAY,
-            Json(PlatformError::internal(
-                "Codex Profile login could not be started",
-            )),
-        )
-    })?;
+    let login = adapter
+        .start_profile_login()
+        .await
+        .map_err(|error| profile_runtime_error("profile.login.start", &error))?;
     Ok(Json(ProfileLoginStartResponse {
         login_id: login.login_id,
         auth_url: login.auth_url,
@@ -267,14 +263,10 @@ pub async fn cancel_login(
     Extension(profile): Extension<RuntimeProfileBinding>,
 ) -> ApiResult<ProfileLoginCancelResponse> {
     authorize_profile(&state, &auth, &profile).await?;
-    let cancellation = adapter.cancel_profile_login().await.map_err(|_| {
-        (
-            StatusCode::BAD_GATEWAY,
-            Json(PlatformError::internal(
-                "Codex Profile login could not be canceled",
-            )),
-        )
-    })?;
+    let cancellation = adapter
+        .cancel_profile_login()
+        .await
+        .map_err(|error| profile_runtime_error("profile.login.cancel", &error))?;
     Ok(Json(ProfileLoginCancelResponse {
         canceled: cancellation.canceled,
         status: cancellation.status,
@@ -580,15 +572,25 @@ async fn query(
     adapter: Arc<dyn CodexAdapter>,
     request: ProfileQuery,
 ) -> ApiResult<ProfileProjection> {
-    let value = adapter.query_profile(request).await.map_err(|_| {
-        (
-            StatusCode::BAD_GATEWAY,
-            Json(PlatformError::internal("Codex Profile query failed")),
-        )
-    })?;
+    let value = adapter
+        .query_profile(request)
+        .await
+        .map_err(|error| profile_runtime_error("profile.query", &error))?;
     Ok(Json(ProfileProjection {
         data: sanitize_projection(value, None),
     }))
+}
+
+fn profile_runtime_error(
+    operation: &'static str,
+    error: &open_web_codex_adapter::AdapterError,
+) -> (StatusCode, Json<PlatformError>) {
+    super::runtime_errors::runtime_api_error(
+        operation,
+        "Profile",
+        super::runtime_errors::RuntimeErrorScope::Profile,
+        error,
+    )
 }
 
 struct RunContext {

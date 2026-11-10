@@ -30,6 +30,82 @@ pub enum AdapterError {
     Internal(String),
 }
 
+/// JSON-RPC error code the official app-server uses when it is overloaded.
+pub const APP_SERVER_OVERLOADED_ERROR_CODE: i64 = -32001;
+
+/// Typed failure class of an adapter call. Callers use it to choose a stable
+/// platform error without inspecting Runtime message text.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RuntimeFailureClass {
+    /// The app-server answered the request with a JSON-RPC error.
+    Rejected,
+    /// The app-server could not be reached, was restarting, busy or too slow.
+    Unavailable,
+    /// The running app-server lacks a capability the operation requires.
+    Unsupported,
+    /// The app-server response, or the requested binding, violated the typed
+    /// adapter contract.
+    ContractViolation,
+    /// The platform could not prepare or issue the request.
+    Platform,
+}
+
+impl RuntimeFailureClass {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Rejected => "rejected",
+            Self::Unavailable => "unavailable",
+            Self::Unsupported => "unsupported",
+            Self::ContractViolation => "contract_violation",
+            Self::Platform => "platform",
+        }
+    }
+}
+
+impl AdapterError {
+    /// Typed failure class derived from the error variant and, for Runtime
+    /// rejections, the official JSON-RPC error code.
+    pub fn class(&self) -> RuntimeFailureClass {
+        use open_web_codex_profile_host::ProfileHostError as Host;
+        match self {
+            Self::Unreachable(_) => RuntimeFailureClass::Unavailable,
+            Self::Rpc(_) => RuntimeFailureClass::ContractViolation,
+            Self::CapabilityUnavailable(_) => RuntimeFailureClass::Unsupported,
+            Self::NotImplemented(_) | Self::Internal(_) => RuntimeFailureClass::Platform,
+            Self::ProfileHost(error) => match error {
+                Host::Rpc {
+                    code: Some(APP_SERVER_OVERLOADED_ERROR_CODE),
+                    ..
+                } => RuntimeFailureClass::Unavailable,
+                Host::Rpc { .. } => RuntimeFailureClass::Rejected,
+                Host::AlreadyRunning { .. }
+                | Host::Spawn(_)
+                | Host::TransportClosed
+                | Host::StaleRuntimeRequest
+                | Host::RuntimeBusy
+                | Host::RequestTimeout { .. } => RuntimeFailureClass::Unavailable,
+                Host::InvalidResponse { .. } | Host::InvalidInitialize(_) => {
+                    RuntimeFailureClass::ContractViolation
+                }
+                Host::InvalidConfig(_)
+                | Host::ProfileIo(_)
+                | Host::StartupFiles(_)
+                | Host::Encode(_) => RuntimeFailureClass::Platform,
+            },
+        }
+    }
+
+    /// Official JSON-RPC error code when the app-server rejected the request.
+    pub fn rpc_code(&self) -> Option<i64> {
+        match self {
+            Self::ProfileHost(open_web_codex_profile_host::ProfileHostError::Rpc {
+                code, ..
+            }) => *code,
+            _ => None,
+        }
+    }
+}
+
 /// Health status returned by the adapter.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct HealthStatus {
@@ -389,4 +465,121 @@ pub trait CodexAdapter: Send + Sync {
         &self,
         sender: tokio::sync::mpsc::UnboundedSender<Vec<u8>>,
     ) -> Result<(), AdapterError>;
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{AdapterError, RuntimeFailureClass};
+    use open_web_codex_profile_host::ProfileHostError;
+
+    fn rejected(code: Option<i64>) -> AdapterError {
+        AdapterError::ProfileHost(ProfileHostError::Rpc {
+            method: "thread/archive".to_string(),
+            code,
+            message: "no rollout found for thread id t-1".to_string(),
+        })
+    }
+
+    #[test]
+    fn classifies_runtime_rejections_by_json_rpc_code() {
+        assert_eq!(
+            rejected(Some(-32600)).class(),
+            RuntimeFailureClass::Rejected
+        );
+        assert_eq!(rejected(Some(-32600)).rpc_code(), Some(-32600));
+        assert_eq!(
+            rejected(Some(-32603)).class(),
+            RuntimeFailureClass::Rejected
+        );
+        assert_eq!(rejected(None).class(), RuntimeFailureClass::Rejected);
+        assert_eq!(
+            rejected(Some(-32001)).class(),
+            RuntimeFailureClass::Unavailable
+        );
+    }
+
+    #[test]
+    fn classifies_every_adapter_error_kind() {
+        let io = || std::io::Error::other("io");
+        let cases = [
+            (
+                AdapterError::Unreachable("down".into()),
+                RuntimeFailureClass::Unavailable,
+            ),
+            (
+                AdapterError::Rpc("omitted id".into()),
+                RuntimeFailureClass::ContractViolation,
+            ),
+            (
+                AdapterError::CapabilityUnavailable("thread/archive".into()),
+                RuntimeFailureClass::Unsupported,
+            ),
+            (
+                AdapterError::NotImplemented("x".into()),
+                RuntimeFailureClass::Platform,
+            ),
+            (
+                AdapterError::Internal("x".into()),
+                RuntimeFailureClass::Platform,
+            ),
+            (
+                ProfileHostError::TransportClosed.into(),
+                RuntimeFailureClass::Unavailable,
+            ),
+            (
+                ProfileHostError::RuntimeBusy.into(),
+                RuntimeFailureClass::Unavailable,
+            ),
+            (
+                ProfileHostError::StaleRuntimeRequest.into(),
+                RuntimeFailureClass::Unavailable,
+            ),
+            (
+                ProfileHostError::RequestTimeout {
+                    method: "thread/read".into(),
+                }
+                .into(),
+                RuntimeFailureClass::Unavailable,
+            ),
+            (
+                ProfileHostError::AlreadyRunning {
+                    profile_id: "p".into(),
+                }
+                .into(),
+                RuntimeFailureClass::Unavailable,
+            ),
+            (
+                ProfileHostError::Spawn(io()).into(),
+                RuntimeFailureClass::Unavailable,
+            ),
+            (
+                ProfileHostError::InvalidResponse {
+                    method: "thread/read".into(),
+                    message: "empty".into(),
+                }
+                .into(),
+                RuntimeFailureClass::ContractViolation,
+            ),
+            (
+                ProfileHostError::InvalidInitialize("x".into()).into(),
+                RuntimeFailureClass::ContractViolation,
+            ),
+            (
+                ProfileHostError::InvalidConfig("x".into()).into(),
+                RuntimeFailureClass::Platform,
+            ),
+            (
+                ProfileHostError::ProfileIo(io()).into(),
+                RuntimeFailureClass::Platform,
+            ),
+            (
+                ProfileHostError::Encode("x".into()).into(),
+                RuntimeFailureClass::Platform,
+            ),
+        ];
+        for (error, expected) in cases {
+            assert_eq!(error.class(), expected, "{error}");
+            assert_eq!(error.rpc_code(), None, "{error}");
+        }
+    }
 }

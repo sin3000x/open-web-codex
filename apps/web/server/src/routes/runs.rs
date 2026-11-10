@@ -166,7 +166,7 @@ pub async fn interrupt_run(
             &request.turn_id,
         )
         .await
-        .map_err(adapter_control_error)?;
+        .map_err(|error| adapter_control_error("turn.interrupt", id, &error))?;
     sqlx::query(
         "UPDATE runs SET active_turn_id = NULL, updated_at = now() \
          WHERE id = $1 AND organization_id = $2 AND active_turn_id = $3",
@@ -213,7 +213,7 @@ pub async fn steer_run(
             &request.images,
         )
         .await
-        .map_err(adapter_control_error)?;
+        .map_err(|error| adapter_control_error("turn.steer", id, &error))?;
     Ok(Json(
         serde_json::json!({ "status": "steered", "result": result }),
     ))
@@ -241,7 +241,7 @@ pub async fn compact_run_thread(
             &context.thread_id,
         )
         .await
-        .map_err(adapter_control_error)?;
+        .map_err(|error| adapter_control_error("thread.compact", id, &error))?;
     Ok(Json(serde_json::json!({ "status": "compacting" })))
 }
 
@@ -282,7 +282,7 @@ pub async fn start_review(
             target,
         )
         .await
-        .map_err(adapter_control_error)?;
+        .map_err(|error| adapter_control_error("review.start", id, &error))?;
     if let Some(turn_id) = result
         .pointer("/turn/id")
         .and_then(serde_json::Value::as_str)
@@ -442,11 +442,15 @@ fn review_target(
 }
 
 fn adapter_control_error(
-    _error: open_web_codex_adapter::AdapterError,
+    operation: &'static str,
+    run_id: Uuid,
+    error: &open_web_codex_adapter::AdapterError,
 ) -> (StatusCode, Json<PlatformError>) {
-    (
-        StatusCode::BAD_GATEWAY,
-        Json(PlatformError::internal("Codex Turn control failed")),
+    super::runtime_errors::runtime_api_error(
+        operation,
+        "Turn control",
+        super::runtime_errors::RuntimeErrorScope::Run(run_id),
+        error,
     )
 }
 
