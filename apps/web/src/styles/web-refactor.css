@@ -1392,9 +1392,39 @@ body:has(.web-app-shell) {
 .web-file-status.is-deleted { color: #f07979; }
 
 .web-file-preview { min-height: 0; overflow: auto; background: #0b0f16; }
-.web-file-preview-header { min-height: 36px; color: #c6ccd6; font-family: var(--font-code); font-size: 10px; }
+.web-file-preview-header { position: sticky; left: 0; min-height: 36px; color: #c6ccd6; font-family: var(--font-code); font-size: 10px; }
 .web-file-preview-header span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .web-file-preview-header em { color: var(--web-orange); font-style: normal; }
+.web-file-preview {
+  --file-table-text: #d2d7df;
+  --file-table-head-text: #edf1f6;
+  --file-table-index-text: #6f7888;
+  --file-table-bg: #0b0f16;
+  --file-table-stripe: #0e131b;
+  --file-table-hover: #16202d;
+  --file-table-head-bg: #151b24;
+  --file-table-line: #1f2630;
+  --file-table-head-line: #34404f;
+  --file-toggle-bg: #080c12;
+  --file-toggle-line: #29313d;
+  --file-toggle-active-bg: #1d2633;
+  --file-toggle-active-text: #f0f3f7;
+}
+.web-file-preview-header .web-file-view-toggle { display: inline-flex; flex: none; margin-left: auto; padding: 2px; border: 1px solid var(--file-toggle-line); border-radius: 6px; background: var(--file-toggle-bg); }
+.web-file-view-toggle button { padding: 2px 8px; border: 0; border-radius: 4px; color: var(--web-muted); background: transparent; font: inherit; cursor: pointer; }
+.web-file-view-toggle button:hover { color: var(--file-toggle-active-text); }
+.web-file-view-toggle button[aria-pressed="true"] { color: var(--file-toggle-active-text); background: var(--file-toggle-active-bg); }
+.web-file-table-preview { min-width: max-content; }
+.web-file-table-summary, .web-file-table-note { position: sticky; left: 0; width: max-content; padding: 8px 12px; color: var(--web-muted); font-size: 10px; }
+.web-file-table-note { color: var(--web-orange); }
+.web-file-table { border-collapse: separate; border-spacing: 0; color: var(--file-table-text); font-family: var(--font-code); font-size: 10.5px; line-height: 1.45; }
+.web-file-table :where(th, td) { max-width: 280px; padding: 5px 10px; overflow: hidden; border-right: 1px solid var(--file-table-line); border-bottom: 1px solid var(--file-table-line); background: var(--file-table-bg); text-align: left; text-overflow: ellipsis; white-space: nowrap; }
+.web-file-table thead th { position: sticky; top: 0; z-index: 2; border-bottom-color: var(--file-table-head-line); color: var(--file-table-head-text); background: var(--file-table-head-bg); font-weight: 650; }
+.web-file-table tbody tr:nth-child(even) :where(td, th) { background: var(--file-table-stripe); }
+.web-file-table tbody tr:hover :where(td, th) { background: var(--file-table-hover); }
+.web-file-table .is-numeric { text-align: right; font-variant-numeric: tabular-nums; }
+.web-file-table .web-file-table-index { position: sticky; left: 0; z-index: 1; min-width: 32px; color: var(--file-table-index-text); font-weight: 400; text-align: right; }
+.web-file-table thead .web-file-table-index { z-index: 3; }
 .web-file-preview pre { min-width: max-content; margin: 0; padding: 12px; color: #c6ccd6; background: transparent; font-size: 10px; line-height: 1.55; }
 .web-file-markdown {
   padding: 16px 18px 40px;
@@ -5124,6 +5154,22 @@ body:has(.web-app-shell[data-theme="light"]) {
 
 .web-app-shell[data-theme="light"] :is(.web-file-row, .web-file-preview-header, .web-file-preview pre, .web-file-markdown) {
   color: #465368;
+}
+
+.web-app-shell[data-theme="light"] .web-file-preview {
+  --file-table-text: #263247;
+  --file-table-head-text: #172033;
+  --file-table-index-text: #8792a2;
+  --file-table-bg: #ffffff;
+  --file-table-stripe: #f5f8fc;
+  --file-table-hover: #e8eff8;
+  --file-table-head-bg: #eaf0f7;
+  --file-table-line: #e1e7ef;
+  --file-table-head-line: #cbd5e2;
+  --file-toggle-bg: #ffffff;
+  --file-toggle-line: #d5dde8;
+  --file-toggle-active-bg: rgb(63 111 174 / 12%);
+  --file-toggle-active-text: #173f73;
 }
 
 .web-app-shell[data-theme="light"] .web-file-row:hover { background: rgb(63 111 174 / 7%); }

@@ -12,6 +12,8 @@ import X from "lucide-react/dist/esm/icons/x";
 import type { GitFileStatus } from "../../types";
 import { Markdown } from "../../features/messages/components/Markdown";
 import { getFileTypeIconUrl } from "../../utils/fileTypeIcons";
+import { DelimitedTablePreview } from "./DelimitedTablePreview";
+import { delimiterForPath } from "./delimitedText";
 
 type Props = {
   workspaceId: string | null;
@@ -71,6 +73,7 @@ export default function FileManager({ workspaceId, selectedPath, onSelectedPathC
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [treeOpen, setTreeOpen] = useState(true);
+  const [tableView, setTableView] = useState(true);
   const [query, setQuery] = useState("");
   const [fileActionPath, setFileActionPath] = useState<string | null>(null);
   const [pendingDeletePath, setPendingDeletePath] = useState<string | null>(null);
@@ -300,6 +303,7 @@ export default function FileManager({ workspaceId, selectedPath, onSelectedPathC
     }).map((path): Row => ({ path, name: path.split("/").pop() ?? path, depth: path.split("/").length - 1, folder: folders.has(path) }));
   }, [expanded, files, query]);
   const markdownPreview = Boolean(selectedPath && MARKDOWN_FILE_PATTERN.test(selectedPath));
+  const tableDelimiter = selectedPath ? delimiterForPath(selectedPath) : null;
   const clampPanelWidth = (width: number) => Math.min(MAX_PANEL_WIDTH, Math.max(MIN_PANEL_WIDTH, width));
   return <>
     <aside className={`web-file-manager${embedded ? " is-embedded" : ""}`} aria-label="Workspace files">
@@ -463,8 +467,17 @@ export default function FileManager({ workspaceId, selectedPath, onSelectedPathC
         </> : null}
       </section>
       <div className="web-file-preview">
-        {selectedPath && <div className="web-file-preview-header"><span>{selectedPath}</span>{truncated && <em>Truncated</em>}</div>}
-        {loading ? <div className="web-file-empty">Loading…</div> : error ? <div className="web-file-error">{error}</div> : selectedPath ? markdownPreview ? (
+        {selectedPath && <div className="web-file-preview-header">
+          <span>{selectedPath}</span>
+          {truncated && <em>Truncated</em>}
+          {tableDelimiter ? <div className="web-file-view-toggle" role="group" aria-label="Preview mode">
+            <button type="button" aria-pressed={tableView} onClick={() => setTableView(true)}>Table</button>
+            <button type="button" aria-pressed={!tableView} onClick={() => setTableView(false)}>Raw</button>
+          </div> : null}
+        </div>}
+        {loading ? <div className="web-file-empty">Loading…</div> : error ? <div className="web-file-error">{error}</div> : selectedPath ? tableDelimiter && tableView ? (
+          <DelimitedTablePreview content={content} delimiter={tableDelimiter} truncated={truncated} />
+        ) : markdownPreview ? (
           <Markdown
             className="web-file-markdown"
             value={content}

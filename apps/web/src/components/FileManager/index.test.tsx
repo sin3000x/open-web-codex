@@ -420,6 +420,36 @@ describe("FileManager", () => {
     expect(onSelectedPathChange).toHaveBeenCalledWith("src/config.ts");
   });
 
+  it("renders CSV files as a table and switches to the raw text", async () => {
+    render(
+      <FileManager
+        workspaceId="workspace-1"
+        selectedPath="data/sites.csv"
+        onSelectedPathChange={vi.fn()}
+        onClose={vi.fn()}
+        panelWidth={360}
+        onPanelWidthChange={vi.fn()}
+        listFiles={vi.fn().mockResolvedValue(["data/sites.csv"])}
+        readFile={vi.fn().mockResolvedValue({
+          content: 'site,city,demand\nS1,"Jakarta, ID",1200\nS2,Bandung,85.5\n',
+          truncated: false,
+        })}
+        loadGitStatus={vi.fn().mockResolvedValue({ files: [] })}
+      />,
+    );
+
+    const table = await screen.findByRole("table");
+    expect(screen.getByRole("columnheader", { name: "city" })).toBeTruthy();
+    expect(screen.getByRole("cell", { name: "Jakarta, ID" })).toBeTruthy();
+    expect(screen.getByRole("cell", { name: "1200" }).className).toBe("is-numeric");
+    expect(screen.getByRole("cell", { name: "Bandung" }).className).toBe("");
+    expect(screen.getByText(/2 rows · 3 columns/)).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "Raw" }));
+    expect(table.isConnected).toBe(false);
+    expect(screen.getByText(/S1,"Jakarta, ID",1200/)).toBeTruthy();
+  });
+
   it("ignores a stale preview error after switching workspaces", async () => {
     let rejectOldPreview: (reason: Error) => void = () => undefined;
     const oldPreview = new Promise<{ content: string; truncated: boolean }>((_, reject) => {
