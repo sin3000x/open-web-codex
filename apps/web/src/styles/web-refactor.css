@@ -1243,7 +1243,8 @@ body:has(.web-app-shell) {
 }
 
 .web-file-tree-section.is-open {
-  grid-template-rows: 36px 38px minmax(96px, min(38vh, 420px));
+  grid-template-rows: 36px auto;
+  grid-auto-rows: auto;
 }
 
 .web-file-tree-heading {
@@ -1283,7 +1284,7 @@ body:has(.web-app-shell) {
 .web-file-filter input { min-width: 0; width: 100%; height: 28px; border: 0; outline: 0; color: var(--web-text); background: transparent; font: inherit; font-size: 11px; }
 .web-file-filter input::placeholder { color: var(--web-faint); }
 
-.web-file-manager-tree { position: relative; min-height: 0; overflow: auto; padding: 5px 7px 8px; }
+.web-file-manager-tree { position: relative; min-height: 96px; max-height: min(32vh, 320px); overflow: auto; padding: 5px 7px 8px; }
 .web-file-drop-caption {
   display: flex;
   align-items: center;
