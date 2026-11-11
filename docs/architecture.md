@@ -318,6 +318,11 @@ neutral directory 作为 app-server process cwd，初启与 restart 共用该目
 `tsconfig` 只编译这一张图及其测试。`PlatformClient` 仍以一个完整 class 进入生产 bundle，
 未使用的 legacy methods 和 endpoint 字符串不会被 tree-shake，形成浏览器 API 第二表面；
 这一事实不能作为第二产品入口或兼容合同继续扩展。
+
+Platform Server 的 `browser_assets` 模块交付构建产物：`assets/` 只含 Vite 内容哈希文件，成功响应
+标记为一年 `immutable`，缺失文件返回 404 而不回退到 HTML；HTML 壳与 SPA 路由回退使用
+`no-cache`；未带哈希的 public 文件（含 `material-icons/`）仅靠校验器缓存。可压缩的静态响应
+按 `Accept-Encoding` 以 gzip 传输。
 历史 `check-main-ui-parity` 字节级第二 UI truth 及其手工 SHA/overlay CI gate 已删除；Web 交付
 使用类型检查、组件/合同测试、生产构建与真实浏览器验收。`check:no-desktop` 继续作为
 browser-only 边界门。

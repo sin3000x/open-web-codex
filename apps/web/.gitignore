@@ -34,7 +34,7 @@ CodexMonitor.zip
 .agents/
 .claude/
 .cursor/
-public/assets/material-icons/
+public/material-icons/
 
 # Nix
 result

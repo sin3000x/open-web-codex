@@ -11,7 +11,7 @@ const sourceDir = join(
   "generated",
   "icons",
 );
-const targetDir = join(projectRoot, "public", "assets", "material-icons");
+const targetDir = join(projectRoot, "public", "material-icons");
 
 if (!existsSync(sourceDir)) {
   console.warn("[sync:material-icons] source icons directory not found:", sourceDir);

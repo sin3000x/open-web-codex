@@ -1,6 +1,6 @@
 import { getIconUrlForFilePath } from "vscode-material-icons";
 
-const MATERIAL_ICONS_BASE_URL = "/assets/material-icons";
+const MATERIAL_ICONS_BASE_URL = "/material-icons";
 const iconUrlCache = new Map<string, string>();
 
 export function getFileTypeIconUrl(path: string): string {

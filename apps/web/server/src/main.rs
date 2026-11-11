@@ -1,3 +1,4 @@
+mod browser_assets;
 mod copilot_installation;
 mod copilot_package;
 #[cfg(test)]
@@ -31,7 +32,6 @@ use open_web_codex_run_orchestrator::RunOrchestrator;
 use open_web_codex_secret_store::{MasterKey, PostgresSecretStore, SecretCipher};
 use rand::{distributions::Alphanumeric, Rng};
 use sqlx::Row;
-use tower_http::services::{ServeDir, ServeFile};
 use tower_http::trace::TraceLayer;
 use tracing_subscriber::EnvFilter;
 
@@ -479,8 +479,7 @@ async fn main() -> anyhow::Result<()> {
         ),
     );
     if cli.web_dist.is_dir() {
-        let index = cli.web_dist.join("index.html");
-        app = app.fallback_service(ServeDir::new(&cli.web_dist).fallback(ServeFile::new(index)));
+        app = app.fallback_service(browser_assets::service(&cli.web_dist));
         tracing::info!(web_dist = %cli.web_dist.display(), "serving browser application");
     } else {
         tracing::warn!(web_dist = %cli.web_dist.display(), "browser assets not found; serving API only");
