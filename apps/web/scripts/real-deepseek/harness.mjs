@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 
-// Opt-in real Provider gate for warehouse-network-copilot.
+// Opt-in real Provider gate for warehouse-network-single-agent.
 //
 // This script deliberately does not emulate a model, Agent, Skill, MCP server,
 // Workspace, algorithm, or map.  It only adds a local forwarding proxy so the
@@ -15,18 +15,9 @@ import path from "node:path";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
 import {
-  multiAgentTaskPrompt,
-  singleAgentTaskPrompt,
-  toolCapabilityTaskPrompt,
-} from "./scenarios.mjs";
-import {
-  facilityChangeMatches,
-  hasStandaloneMapEmbedInFinalRootMessage,
-  validateBusinessEvidence,
-} from "./multi-agent.mjs";
-import {
   hasNoChildCollaboration,
   isMinimumFeasibleSolution,
+  taskPrompt as singleAgentTaskPrompt,
   validateGeneratedFiles,
   validateQuoteMeanEvidence,
 } from "./single-agent.mjs";
@@ -43,13 +34,7 @@ const fixtureManifestPath = path.join(
 );
 const baseUrl = (process.env.E2E_BASE_URL ?? "http://127.0.0.1:4810").replace(/\/$/, "");
 const apiBase = baseUrl + "/api";
-const entry = process.env.E2E_REAL_DEEPSEEK_ENTRY ?? "multi-business";
-const isSingleAgentScenario = entry === "single-business";
-const isToolCapabilityGate = entry === "tool-capability";
-const scenario = isSingleAgentScenario ? "single-agent" : "multi-agent";
-const copilotPackageId = isSingleAgentScenario
-  ? "warehouse-network-single-agent"
-  : "warehouse-network-copilot";
+const copilotPackageId = "warehouse-network-single-agent";
 const providerSourceId = process.env.E2E_REAL_DEEPSEEK_SOURCE_PROVIDER_ID ?? "deepseek-e2e";
 const model = process.env.E2E_REAL_DEEPSEEK_MODEL ?? "deepseek-v4-flash";
 const toolChoiceMode =
@@ -67,7 +52,6 @@ const password =
 const secrets = [password].filter(Boolean);
 const stamp = new Date().toISOString().replace(/[-:.TZ]/g, "").slice(0, 14);
 const serviceTargetHours = 12;
-const balikpapanCandidateWarehouseId = "WH-CANDIDATE-BALIKPAPAN";
 const results = [];
 const state = {
   token: undefined,
@@ -488,34 +472,6 @@ function safeStructuredSummary(value) {
   return Object.keys(summary).length > 0 ? summary : undefined;
 }
 
-function facilityChangeEvidence(event) {
-  const structured = eventData(event)?.result?.structuredContent;
-  if (!structured || typeof structured !== "object" || Array.isArray(structured)) {
-    return undefined;
-  }
-  const addedWarehouseIds = Array.isArray(structured.added_warehouse_ids)
-    ? structured.added_warehouse_ids.filter((id) => typeof id === "string").slice(0, 8)
-    : [];
-  const removedWarehouseIds = Array.isArray(structured.removed_warehouse_ids)
-    ? structured.removed_warehouse_ids.filter((id) => typeof id === "string").slice(0, 8)
-    : [];
-  const coverageAtTarget = Array.isArray(structured.coverage)
-    ? structured.coverage.find((metric) => metric?.target_hours === serviceTargetHours)
-    : undefined;
-  const delta = coverageAtTarget?.delta;
-  return {
-    added_warehouse_ids: addedWarehouseIds,
-    removed_warehouse_ids: removedWarehouseIds,
-    target_hours: coverageAtTarget?.target_hours,
-    city_coverage_rate_delta:
-      typeof delta?.city_coverage_rate === "number" ? delta.city_coverage_rate : undefined,
-    demand_weighted_coverage_rate_delta:
-      typeof delta?.demand_weighted_coverage_rate === "number"
-        ? delta.demand_weighted_coverage_rate
-        : undefined,
-  };
-}
-
 function safeEventItem(event) {
   const data = eventData(event);
   const error = data.error ?? data.result?.error;
@@ -527,9 +483,6 @@ function safeEventItem(event) {
         : undefined;
   const errorMessage =
     typeof error === "object" ? error.message ?? error.detail : undefined;
-  const facilityChange = eventTool(event) === "assess_facility_change"
-    ? facilityChangeEvidence(event)
-    : undefined;
   return {
     thread_id: event.thread_id,
     turn_id: event.turn_id,
@@ -540,7 +493,6 @@ function safeEventItem(event) {
     error_code: typeof errorCode === "string" ? errorCode : undefined,
     error_message: boundedAssistantSummary(errorMessage),
     result_summary: safeStructuredSummary(data.result),
-    facility_change: facilityChange,
   };
 }
 
@@ -790,183 +742,35 @@ async function runSelfTests() {
     )?.event_type,
     "codex.turn.completed",
   );
-  assert.match(multiAgentTaskPrompt, /Balikpapan/);
-  assert.match(multiAgentTaskPrompt, /地图/);
-  assert.doesNotMatch(multiAgentTaskPrompt, /agent_type|spawn_agent|mcp|Resource|outputs\//i);
   assert.match(singleAgentTaskPrompt, /用脚本/);
   assert.match(singleAgentTaskPrompt, /haversine/);
   assert.doesNotMatch(
     singleAgentTaskPrompt,
-    /opening_policy|warehouse_quote_mean_calculation|plan_cost_matrix|outputs\//i,
+    /number_to_open|warehouse_quote_mean_calculation|find_sites_for_service_target|outputs\//i,
   );
-  assert.match(toolCapabilityTaskPrompt, /tool_search.*spawn_agent/s);
-  assert.doesNotMatch(toolCapabilityTaskPrompt, /outputs\//i);
   assert.equal(
     isMinimumFeasibleSolution(
       {
+        state: "ready",
         status: "optimal",
-        opening_policy: { kind: "minimum_feasible" },
         selected_number_to_open: 1,
         minimum_number_to_open_proven: true,
         solver_stages: [
           { kind: "minimum_openings", status: "optimal", optimality: "proven" },
           { kind: "minimum_cost", status: "optimal", optimality: "proven" },
         ],
-        coverage: [{
-          target_hours: serviceTargetHours,
-          demand_weighted_coverage_rate: 0.9,
-        }],
+        solution: {
+          coverage: [{
+            target_hours: serviceTargetHours,
+            demand_weighted_coverage_rate: 0.9,
+          }],
+        },
       },
       serviceTargetHours,
     ),
     true,
   );
   assert.equal(hasNoChildCollaboration({ collaboration: [], nativeToolNames: [] }), true);
-  const facilityChangeSelfTest = facilityChangeMatches({
-    event: {
-      payload: {
-        data: {
-          tool: "assess_facility_change",
-          arguments: {
-            before_ref: { resource_schema: "network_baseline.v2" },
-            scenario: {
-              add_warehouse_ids: [balikpapanCandidateWarehouseId],
-              objective: "min_time",
-              service_targets: [serviceTargetHours],
-            },
-          },
-          result: {
-            structuredContent: {
-              added_warehouse_ids: [balikpapanCandidateWarehouseId],
-              removed_warehouse_ids: [],
-              coverage: [{
-                target_hours: serviceTargetHours,
-                delta: {
-                  city_coverage_rate: 0.02,
-                  demand_weighted_coverage_rate: 0.03,
-                },
-              }],
-            },
-          },
-        },
-      },
-    },
-    eventData,
-    facilityChangeEvidence,
-    candidateWarehouseId: balikpapanCandidateWarehouseId,
-    serviceTargetHours,
-  });
-  assert.equal(facilityChangeSelfTest.valid, true);
-  const currentBaseline = {
-    resource_ref: { resource_schema: "network_baseline.v2" },
-  };
-  const currentCoverage = {
-    target_hours: serviceTargetHours,
-    city_coverage_rate: 0.66,
-    demand_weighted_coverage_rate: 0.815,
-  };
-  const validMultiEvidence = validateBusinessEvidence({
-    dataHandoff: {
-      outcome: "ready",
-      operation: "created",
-      prepared_input_relative_path: "outputs/warehouse-network/prepared/input.json",
-      input_identity: { content_sha256: "a".repeat(64) },
-      role_counts: { demand: 1, existing_warehouse: 1 },
-      warnings: [],
-      warning_count: 0,
-      warnings_truncated: false,
-      candidate_warehouse_count: 12,
-    },
-    baseline: currentBaseline,
-    baselineCoverage: currentCoverage,
-    roles: new Set(["data_agent", "network_agent"]),
-    facilityChangeValid: true,
-    mapProducerCompleted: true,
-    rootFinalMapEmbed: true,
-    generatedWorkspaceFiles: ["outputs/warehouse-network/prepared/input.json"],
-  });
-  assert.equal(validMultiEvidence.valid, true);
-  const legacyBaselineValidation = validateBusinessEvidence({
-    dataHandoff: {
-      outcome: "ready",
-      operation: "created",
-      prepared_input_relative_path: "outputs/warehouse-network/prepared/input.json",
-      input_identity: { content_sha256: "a".repeat(64) },
-      role_counts: { demand: 1, existing_warehouse: 1 },
-      warnings: [],
-      warning_count: 0,
-      warnings_truncated: false,
-      candidate_warehouse_count: 12,
-    },
-    baseline: {
-      schema_version: "network_baseline.v2",
-      coverage: [currentCoverage],
-    },
-    baselineCoverage: currentCoverage,
-    roles: new Set(["data_agent", "network_agent"]),
-    facilityChangeValid: true,
-    mapProducerCompleted: true,
-    rootFinalMapEmbed: true,
-    generatedWorkspaceFiles: ["outputs/warehouse-network/prepared/input.json"],
-  });
-  assert.equal(legacyBaselineValidation.code, "multi_agent_typed_baseline_invalid");
-  const missingMapEmbedValidation = validateBusinessEvidence({
-    dataHandoff: validMultiEvidence.valid
-      ? {
-          outcome: "ready",
-          operation: "created",
-          prepared_input_relative_path: "outputs/warehouse-network/prepared/input.json",
-          input_identity: { content_sha256: "a".repeat(64) },
-          role_counts: { demand: 1, existing_warehouse: 1 },
-          warnings: [],
-          warning_count: 0,
-          warnings_truncated: false,
-          candidate_warehouse_count: 12,
-        }
-      : undefined,
-    baseline: currentBaseline,
-    baselineCoverage: currentCoverage,
-    roles: new Set(["data_agent", "network_agent"]),
-    facilityChangeValid: true,
-    mapProducerCompleted: true,
-    rootFinalMapEmbed: false,
-    generatedWorkspaceFiles: ["outputs/warehouse-network/prepared/input.json"],
-  });
-  assert.equal(missingMapEmbedValidation.code, "map_embed_not_forwarded");
-  assert.equal(
-    hasStandaloneMapEmbedInFinalRootMessage(
-      [
-        {
-          thread_id: "root",
-          payload: { itemType: "agentMessage", data: { text: "map child" } },
-        },
-        {
-          thread_id: "root",
-          payload: {
-            itemType: "agentMessage",
-            data: { text: "done\n\n::codex-inline-vis{artifact=\"map-1\"}" },
-          },
-        },
-      ],
-      "root",
-    ),
-    true,
-  );
-  assert.equal(
-    hasStandaloneMapEmbedInFinalRootMessage(
-      [
-        {
-          thread_id: "root",
-          payload: {
-            itemType: "agentMessage",
-            data: { text: "地图已生成 ::codex-inline-vis{artifact=\"map-1\"}" },
-          },
-        },
-      ],
-      "root",
-    ),
-    false,
-  );
   let paginationCalls = [];
   const pagedProjection = await readEventProjection({
     taskId: "self-pagination",
@@ -986,7 +790,7 @@ async function runSelfTests() {
           turn_id: "turn-self",
           payload: {
             data: {
-              tool: "solve_p_median",
+              tool: "find_sites_for_service_target",
               status: "completed",
               result: { structuredContent: { status: "optimal" } },
             },
@@ -1029,7 +833,7 @@ async function runSelfTests() {
               turn_id: "turn-self",
               payload: {
                 data: {
-                  tool: "plan_cost_matrix",
+                  tool: "evaluate_baseline",
                   status: "completed",
                   result: {
                     structuredContent: {
@@ -1045,7 +849,7 @@ async function runSelfTests() {
               turn_id: "turn-self",
               payload: {
                 data: {
-                  tool: "solve_p_median",
+                  tool: "find_sites_for_service_target",
                   status: "completed",
                   result: { structuredContent: { status: "optimal" } },
                 },
@@ -1056,8 +860,8 @@ async function runSelfTests() {
       });
     },
     predicate: (events) =>
-      hasCompletedStructuredTool(events, "plan_cost_matrix") &&
-      hasCompletedStructuredTool(events, "solve_p_median"),
+      hasCompletedStructuredTool(events, "evaluate_baseline") &&
+      hasCompletedStructuredTool(events, "find_sites_for_service_target"),
     timeoutMs: 5_000,
     stableMs: 2_000,
     pollMs: 1,
@@ -1100,7 +904,7 @@ async function runSelfTests() {
       pages: 1,
       truncated: false,
     }),
-    predicate: (events) => hasCompletedStructuredTool(events, "solve_p_median"),
+    predicate: (events) => hasCompletedStructuredTool(events, "find_sites_for_service_target"),
     timeoutMs: 5_000,
     stableMs: 2_000,
     pollMs: 1,
@@ -1113,8 +917,6 @@ async function runSelfTests() {
   assert.equal(stableMissing.terminal_seen, true);
   log("[PASS] real DeepSeek per-model capability self-test");
   log("[PASS] real DeepSeek current-turn tool-choice self-test");
-  log("[PASS] real DeepSeek Balikpapan facility-change self-test");
-  log("[PASS] real DeepSeek baseline DTO-shape self-test");
   log("[PASS] real DeepSeek projection convergence self-test");
 }
 
@@ -1237,14 +1039,6 @@ async function ensureCopilotActive() {
     });
   }
   return target;
-}
-
-async function enableMultiAgent() {
-  const settings = await api("/profile/agents/settings", {
-    method: "PUT",
-    body: { multiAgentEnabled: true, maxThreads: 4, maxDepth: 3 },
-  });
-  assert.equal(settings.multiAgentEnabled ?? settings.multi_agent_enabled, true);
 }
 
 async function configureModelToolSearch(providerIdValue) {
@@ -1531,12 +1325,8 @@ async function createTaskAndRun(providerIdValue, title) {
   }
 }
 
-async function send(taskId, minimal = false) {
-  const text = minimal
-    ? toolCapabilityTaskPrompt
-    : isSingleAgentScenario
-      ? singleAgentTaskPrompt
-      : multiAgentTaskPrompt;
+async function send(taskId) {
+  const text = singleAgentTaskPrompt;
   return api("/tasks/" + taskId + "/messages", {
     method: "POST",
     body: {
@@ -1653,15 +1443,6 @@ function hasCompletedStructuredTool(events, toolName) {
       eventData(event)?.status === "completed" &&
       String(eventTool(event)).includes(toolName) &&
       eventData(event)?.result?.structuredContent !== undefined,
-  );
-}
-
-function hasCompletedSpawnAgent(events) {
-  return events.some(
-    (event) =>
-      event.event_type === "codex.item.completed" &&
-      eventData(event)?.status === "completed" &&
-      /spawnAgent|spawn_agent|multi_agent_v1/.test(String(eventTool(event))),
   );
 }
 
@@ -1983,377 +1764,6 @@ async function cleanupCase(record) {
 
 let taskProviderId;
 
-async function runToolSearchGate(provider) {
-  const record = await createTaskAndRun(provider.id, "Real DeepSeek D2 tool-search " + stamp);
-  try {
-    const roundStart = state.proxy.rounds.length;
-    const response = await send(record.task.id, true);
-    assert(response.turn_id);
-    const firstRound = await eventually(
-      async () => state.proxy.rounds.find(
-        (round) => round.round > roundStart && round.wire_api === "chat",
-      ),
-      "D2 first real Chat request",
-      300_000,
-      250,
-    );
-    const firstEvidence = {
-      round: firstRound.round,
-      tools_present: firstRound.tools_present,
-      tool_count: firstRound.tool_count,
-      tool_choice: firstRound.tool_choice,
-      original_tool_choice: firstRound.original_tool_choice,
-      effective_tool_choice: firstRound.effective_tool_choice,
-      tool_choice_overridden: firstRound.tool_choice_overridden,
-      current_turn_has_structured_tool_activity:
-        firstRound.current_turn_has_structured_tool_activity,
-      visible_tool_names: firstRound.visible_tool_names,
-      structured_tool_calls: firstRound.structured_tool_calls,
-      wire_tool_names: firstRound.wire_tool_names,
-      model_supports_native_tool_search:
-        firstRound.visible_tool_names.includes("tool_search"),
-    };
-    const firstSnapshot = await taskEventsSnapshot(record.task.id).catch(() => ({ events: [] }));
-    const firstEvents = firstSnapshot.events;
-    log("[D2 ROUND 1] " + JSON.stringify(firstEvidence));
-    if (!firstEvidence.tools_present || !firstEvidence.model_supports_native_tool_search) {
-      throw new NativeRuntimeBlocker("model_tool_search_capability_not_applied", {
-        provider_id: provider.id,
-        model,
-        evidence: firstEvidence,
-        canonical_items: eventSummary(firstEvents).filter(
-          (event) => event.turn_id === response.turn_id,
-        ),
-      });
-    }
-    if (!firstEvidence.structured_tool_calls) {
-      throw new NativeRuntimeBlocker("provider_tool_call_not_produced", {
-        provider_id: provider.id,
-        model,
-        stage: "tool_search",
-        evidence: firstEvidence,
-        canonical_items: eventSummary(firstEvents).filter(
-          (event) => event.turn_id === response.turn_id,
-        ),
-      });
-    }
-    if (!firstEvidence.wire_tool_names.includes("tool_search")) {
-      throw new NativeRuntimeBlocker("provider_tool_search_not_called", {
-        provider_id: provider.id,
-        model,
-        evidence: firstEvidence,
-        canonical_items: eventSummary(firstEvents).filter(
-          (event) => event.turn_id === response.turn_id,
-        ),
-      });
-    }
-
-    const secondRound = await eventually(
-      async () =>
-        state.proxy.rounds.find(
-          (round) => round.wire_api === "chat" && round.round > firstRound.round,
-        ),
-      "D2 spawn_agent follow-up request",
-      120_000,
-      250,
-    ).catch(() => undefined);
-    if (!secondRound) {
-      const snapshot = await taskEventsSnapshot(record.task.id).catch(() => ({ events: [] }));
-      const events = snapshot.events;
-      throw new NativeRuntimeBlocker("provider_spawn_agent_call_not_produced", {
-        provider_id: provider.id,
-        model,
-        evidence: firstEvidence,
-        canonical_items: eventSummary(events).filter(
-          (event) => event.turn_id === response.turn_id,
-        ),
-      });
-    }
-    const secondEvidence = {
-      round: secondRound.round,
-      tools_present: secondRound.tools_present,
-      tool_count: secondRound.tool_count,
-      tool_choice: secondRound.tool_choice,
-      original_tool_choice: secondRound.original_tool_choice,
-      effective_tool_choice: secondRound.effective_tool_choice,
-      tool_choice_overridden: secondRound.tool_choice_overridden,
-      current_turn_has_structured_tool_activity:
-        secondRound.current_turn_has_structured_tool_activity,
-      visible_tool_names: secondRound.visible_tool_names,
-      structured_tool_calls: secondRound.structured_tool_calls,
-      wire_tool_names: secondRound.wire_tool_names,
-    };
-    log("[D2 ROUND 2] " + JSON.stringify(secondEvidence));
-    await waitForTurn(record.task.id, response.turn_id);
-    const projection = await awaitProjectionConvergence(record.task.id, {
-      label: "D2 canonical spawnAgent projection",
-      turnId: response.turn_id,
-      predicate: (current) => hasCompletedSpawnAgent(current),
-    });
-    const events = projection.events;
-    const nativeNames = nativeToolNames(events);
-    log(
-      "[D2 CANONICAL] " +
-        JSON.stringify({
-          native_tool_names: nativeNames,
-          items: eventSummary(events).filter((event) => event.turn_id === response.turn_id),
-        }),
-    );
-    logTimeline("D2 ACTOR TIMELINE", await diagnosticTimeline(record));
-    if (!secondEvidence.structured_tool_calls) {
-      throw new NativeRuntimeBlocker("provider_tool_call_not_produced", {
-        provider_id: provider.id,
-        model,
-        stage: "spawn_agent",
-        evidence: secondEvidence,
-        native_tool_names: nativeNames,
-      });
-    }
-    if (!hasCompletedSpawnAgent(events)) {
-      throw new NativeRuntimeBlocker("provider_spawn_agent_call_not_produced", {
-        provider_id: provider.id,
-        model,
-        evidence: secondEvidence,
-        native_tool_names: nativeNames,
-      });
-    }
-    return {
-      status: "passed",
-      provider_id: provider.id,
-      model,
-      run_id: record.run?.id,
-      round_count: state.proxy.rounds.length,
-      native_tool_names: nativeNames,
-    };
-  } catch (error) {
-    throw await attachTimeline(error, record);
-  } finally {
-    await cleanupCase(record);
-  }
-}
-
-async function runGate(provider) {
-  const record = await createTaskAndRun(provider.id, "Real DeepSeek 12h network " + stamp);
-  const roundStart = state.proxy.rounds.length;
-  try {
-    const response = await send(record.task.id);
-    assert(response.turn_id);
-    const firstRound = await eventually(
-      async () => state.proxy.rounds.find(
-        (round) => round.round > roundStart && round.wire_api === "chat",
-      ),
-      "first real Chat request",
-      180_000,
-      250,
-    );
-    const minimalEvidence = {
-      round: firstRound.round,
-      tools_present: firstRound.tools_present,
-      tool_count: firstRound.tool_count,
-      tool_choice: firstRound.tool_choice,
-      original_tool_choice: firstRound.original_tool_choice,
-      effective_tool_choice: firstRound.effective_tool_choice,
-      tool_choice_overridden: firstRound.tool_choice_overridden,
-      current_turn_has_structured_tool_activity:
-        firstRound.current_turn_has_structured_tool_activity,
-      visible_tool_names: firstRound.visible_tool_names,
-      structured_tool_calls: firstRound.structured_tool_calls,
-      wire_tool_names: firstRound.wire_tool_names,
-      model_supports_native_tool_search:
-        firstRound.visible_tool_names.includes("tool_search"),
-    };
-    log("[ROUND 1] " + JSON.stringify(minimalEvidence));
-
-    await waitForTurn(record.task.id, response.turn_id, {
-      timeoutMs: 600_000,
-      runId: record.run.id,
-      autoAnswerUserInput: true,
-    });
-    const projection = await awaitProjectionConvergence(record.task.id, {
-      label: "multi-agent typed business projection",
-      turnId: response.turn_id,
-      predicate: (current) =>
-        [
-          "prepare_network_input",
-          "evaluate_network_baseline",
-          "assess_facility_change",
-          "create_network_map_card",
-        ].every((toolName) => hasCompletedStructuredTool(current, toolName)),
-    });
-    const events = projection.events;
-    const allEvents = projection.events;
-    const nativeNames = nativeToolNames(allEvents);
-    const userInputInteractions = state.userInputInteractions.filter(
-      (interaction) => interaction.run_id === record.run.id,
-    );
-    if (
-      userInputInteractions.length < 1 ||
-      !userInputInteractions.some((interaction) =>
-        interaction.question_ids.includes("route_completion"),
-      )
-    ) {
-      throw new NativeRuntimeBlocker("route_gap_user_input_not_projected", {
-        provider_id: provider.id,
-        model,
-        interactions: userInputInteractions,
-      });
-    }
-    const rounds = state.proxy.rounds
-      .filter((round) => round.round > roundStart)
-      .slice(-40)
-      .map((round) => ({
-        round: round.round,
-        tools_present: round.tools_present,
-        visible_tool_count: round.tool_count,
-        tool_choice: round.tool_choice,
-        original_tool_choice: round.original_tool_choice,
-        effective_tool_choice: round.effective_tool_choice,
-        tool_choice_overridden: round.tool_choice_overridden,
-        current_turn_has_structured_tool_activity:
-          round.current_turn_has_structured_tool_activity,
-        structured_tool_calls: round.structured_tool_calls,
-        wire_tool_names: round.wire_tool_names,
-        invalid_wire_tool_names: round.invalid_wire_tool_names,
-        http_status: round.http_status,
-        response_terminal: round.response_terminal,
-      }));
-    assertProviderTransportSafety(
-      state.proxy.rounds.filter((round) => round.round > roundStart),
-      provider.id,
-    );
-    log("[ROUNDS] " + JSON.stringify(rounds));
-    log(
-      "[CANONICAL] " +
-        JSON.stringify({
-          native_tool_names: nativeNames,
-          terminal_events: eventSummary(events)
-            .filter((event) => /completed|failed|cancelled|error/i.test(event.event_type ?? ""))
-            .slice(-80),
-        }),
-    );
-    const dataHandoffEvent = allEvents.find(
-      (event) =>
-        /(prepare_network_input|resolve_prepared_network_input)/.test(String(eventTool(event))) &&
-        event.event_type === "codex.item.completed" &&
-        eventData(event)?.status === "completed" &&
-        ["ready", "prepared_ready"].includes(
-          eventData(event)?.result?.structuredContent?.outcome,
-        ),
-    );
-    const dataHandoff = dataHandoffEvent
-      ? eventData(dataHandoffEvent)?.result?.structuredContent
-      : undefined;
-    const baselineEvent = allEvents.find(
-      (event) =>
-        /evaluate_network_baseline/.test(String(eventTool(event))) &&
-        event.event_type === "codex.item.completed" &&
-        eventData(event)?.status === "completed",
-    );
-    const baseline = baselineEvent
-      ? eventData(baselineEvent)?.result?.structuredContent
-      : undefined;
-    const baselineCoverage = Array.isArray(baseline?.coverage_metrics)
-      ? baseline.coverage_metrics.find((entry) => entry?.target_hours === serviceTargetHours)
-      : undefined;
-    const agents = await api("/runs/" + encodeURIComponent(record.run.id) + "/agents");
-    const roles = new Set(
-      (Array.isArray(agents) ? agents : []).map(
-        (agent) => agent.agentRole ?? agent.agent_role,
-      ),
-    );
-    const facilityChange = allEvents.find(
-      (event) =>
-        eventTool(event) === "assess_facility_change" &&
-        event.event_type === "codex.item.completed" &&
-        eventData(event)?.status === "completed",
-    );
-    const facilityChangeResult = facilityChangeMatches({
-      event: facilityChange,
-      eventData,
-      facilityChangeEvidence,
-      candidateWarehouseId: balikpapanCandidateWarehouseId,
-      serviceTargetHours,
-    });
-    const timeline = await diagnosticTimeline(record);
-    logTimeline("ACTOR TIMELINE", timeline);
-    const mapProducerEvent = allEvents.find(
-      (event) =>
-        /create_network_map_card/.test(String(eventTool(event))) &&
-        event.event_type === "codex.item.completed" &&
-        eventData(event)?.status === "completed",
-    );
-    const rootFinalMapEmbed = hasStandaloneMapEmbedInFinalRootMessage(
-      allEvents,
-      record.run.codex_thread_id,
-    );
-    const workspaceFiles = await api(
-      "/workspaces/" + encodeURIComponent(record.workspace.id) + "/files",
-    );
-    const generatedWorkspaceFiles = workspaceFiles.filter(
-      (relativePath) => !relativePath.startsWith("mock_data/"),
-    );
-    const businessValidation = validateBusinessEvidence({
-      dataHandoff,
-      baseline,
-      baselineCoverage,
-      roles,
-      facilityChangeValid: facilityChangeResult.valid,
-      facilityChangeDetails: facilityChangeResult.evidence,
-      mapProducerCompleted:
-        mapProducerEvent?.event_type === "codex.item.completed" &&
-        eventData(mapProducerEvent)?.status === "completed",
-      rootFinalMapEmbed,
-      generatedWorkspaceFiles,
-    });
-    if (!businessValidation.valid) {
-      throw new NativeRuntimeBlocker(businessValidation.code, {
-        provider_id: provider.id,
-        native_tool_names: nativeNames,
-        data_handoff: safeStructuredSummary(dataHandoff),
-        baseline: safeStructuredSummary(baseline),
-        ...(businessValidation.details ?? {}),
-      });
-    }
-    return {
-      status: "passed",
-      provider_id: provider.id,
-      model,
-      run_id: record.run?.id,
-      map_producer_item_id: mapProducerEvent.item_id,
-      map_producer_thread_id: mapProducerEvent.thread_id,
-      map_producer_turn_id: mapProducerEvent.turn_id,
-      map_producer_status: mapProducerEvent.payload?.data?.status,
-      root_final_map_embed: rootFinalMapEmbed,
-      user_input_count: userInputInteractions.length,
-      round_count: rounds.length,
-      native_tool_names: nativeNames,
-    };
-  } catch (error) {
-    const invalidRound = invalidWireToolRound(
-      state.proxy.rounds.filter((round) => round.round > roundStart),
-    );
-    const classified = invalidRound && error?.code !== "provider_tool_call_not_visible"
-      ? new NativeRuntimeBlocker("provider_tool_call_not_visible", {
-          provider_id: provider.id,
-          model,
-          stage: "current_turn",
-          round: {
-            round: invalidRound.round,
-            visible_tool_count: invalidRound.tool_count,
-            visible_tool_names: invalidRound.visible_tool_names,
-            wire_tool_names: invalidRound.wire_tool_names,
-            invalid_wire_tool_names: invalidRound.invalid_wire_tool_names,
-            original_tool_choice: invalidRound.original_tool_choice,
-            effective_tool_choice: invalidRound.effective_tool_choice,
-          },
-        })
-      : error;
-    throw await attachTimeline(classified, record);
-  } finally {
-    await cleanupCase(record);
-  }
-}
-
 async function runSingleAgentGate(provider) {
   const record = await createTaskAndRun(
     provider.id,
@@ -2377,8 +1787,7 @@ async function runSingleAgentGate(provider) {
       label: "single-agent typed business projection",
       turnId: response.turn_id,
       predicate: (current) =>
-        hasCompletedStructuredTool(current, "plan_cost_matrix") &&
-        hasCompletedStructuredTool(current, "solve_p_median"),
+        hasCompletedStructuredTool(current, "find_sites_for_service_target"),
     });
     const allEvents = projection.events;
     const rounds = state.proxy.rounds
@@ -2413,36 +1822,18 @@ async function runSingleAgentGate(provider) {
       });
     }
 
-    const costEvent = allEvents.find(
-      (event) =>
-        /plan_cost_matrix/.test(String(eventTool(event))) &&
-        event.event_type === "codex.item.completed" &&
-        eventData(event)?.status === "completed",
-    );
-    const costResult = costEvent ? eventData(costEvent)?.result?.structuredContent : undefined;
-    if (
-      !costEvent ||
-      costResult?.calculation_rule_source !== "observed_quote_mean" ||
-      costResult?.calculation_rule_evidence_path === undefined ||
-      eventData(costEvent)?.arguments?.cost_policy?.kind !== "observed_quote_mean"
-    ) {
-      throw new NativeRuntimeBlocker("single_agent_typed_mean_cost_not_completed", {
-        provider_id: provider.id,
-        cost_result: safeStructuredSummary(costResult),
-        native_tool_names: nativeNames,
-      });
-    }
-
     const solveEvents = allEvents.filter(
       (event) =>
-        /solve_p_median/.test(String(eventTool(event))) &&
+        /find_sites_for_service_target/.test(String(eventTool(event))) &&
         event.event_type === "codex.item.completed" &&
         eventData(event)?.status === "completed",
     );
-    const successfulSolve = solveEvents.find((event) => {
-      const result = eventData(event)?.result?.structuredContent;
-      return isMinimumFeasibleSolution(result, serviceTargetHours);
-    });
+    const successfulSolve = solveEvents.find((event) =>
+      isMinimumFeasibleSolution(
+        eventData(event)?.result?.structuredContent,
+        serviceTargetHours,
+      ),
+    );
     const solveResult = successfulSolve
       ? eventData(successfulSolve)?.result?.structuredContent
       : undefined;
@@ -2452,16 +1843,31 @@ async function runSingleAgentGate(provider) {
         solve_results: solveEvents.map((event) => {
           const result = eventData(event)?.result?.structuredContent;
           return {
+            state: result?.state,
             status: result?.status,
-            opened_candidate_ids: result?.opened_candidate_ids,
-            coverage: result?.coverage,
+            opened_candidates: result?.opened_candidates,
+            coverage: result?.solution?.coverage,
           };
         }),
         native_tool_names: nativeNames,
       });
     }
+    // The analysis Tool builds costs internally; its basis carries the bound
+    // quote-mean evidence that the user-requested script must match.
+    const costResult = solveResult.basis;
+    if (
+      costResult?.cost_source !== "observed_quote_mean" ||
+      costResult?.cost_rule_evidence_path == null ||
+      eventData(successfulSolve)?.arguments?.cost_policy?.kind !== "observed_quote_mean"
+    ) {
+      throw new NativeRuntimeBlocker("single_agent_typed_mean_cost_not_completed", {
+        provider_id: provider.id,
+        cost_result: safeStructuredSummary(costResult),
+        native_tool_names: nativeNames,
+      });
+    }
     const solution = solveResult;
-    const targetCoverage = solution.coverage.find(
+    const targetCoverage = solution.solution.coverage.find(
       (metric) => metric.target_hours === serviceTargetHours,
     );
 
@@ -2484,7 +1890,7 @@ async function runSingleAgentGate(provider) {
         ...(outputValidation.details ?? {}),
       });
     }
-    const calculationJsonPath = costResult.calculation_rule_evidence_path;
+    const calculationJsonPath = costResult.cost_rule_evidence_path;
     if (
       typeof calculationJsonPath !== "string" ||
       !calculationFiles.includes(calculationJsonPath) ||
@@ -2538,7 +1944,7 @@ async function runSingleAgentGate(provider) {
       run_id: record.run?.id,
       round_count: rounds.length,
       native_tool_names: nativeNames,
-      opened_candidate_ids: solution.opened_candidate_ids,
+      opened_candidate_ids: solution.opened_candidates.map((item) => item.warehouse_id),
       demand_weighted_12h_coverage_rate:
         targetCoverage.demand_weighted_coverage_rate,
       calculation_files: calculationFiles,
@@ -2566,19 +1972,12 @@ async function main() {
       supported: ["observe", "force_first_tool"],
     });
   }
-  if (!new Set(["multi-business", "single-business", "tool-capability"]).has(entry)) {
-    throw new NativeRuntimeBlocker("invalid_real_deepseek_entry", {
-      entry,
-      supported: ["multi-business", "single-business", "tool-capability"],
-    });
-  }
   state.manifest = await readFixtureManifest();
   state.proxy = await new DeepSeekProbeProxy(toolChoiceMode).start();
   let provider;
   try {
     const version = await ensureAuthenticated();
     await ensureCopilotActive();
-    if (!isSingleAgentScenario) await enableMultiAgent();
     provider = await configureTemporaryProvider();
     taskProviderId = provider.id;
     state.proxy.bindExactProviderModel(provider.id, model);
@@ -2599,32 +1998,13 @@ async function main() {
         provider.id,
     );
     const started = Date.now();
+    const name = "real DeepSeek single-agent 90pct gate";
     try {
-      if (isToolCapabilityGate) {
-        const minimal = await runToolSearchGate(provider);
-        results.push({
-          name: "real DeepSeek D2 native tool gate",
-          ...minimal,
-          durationMs: Date.now() - started,
-        });
-        log("[PASS] real DeepSeek D2 native tool gate");
-      } else {
-        const details = isSingleAgentScenario
-          ? await runSingleAgentGate(provider)
-          : await runGate(provider);
-        const name = isSingleAgentScenario
-          ? "real DeepSeek single-agent 90pct gate"
-          : "real DeepSeek multi-agent gate";
-        results.push({ name, ...details, durationMs: Date.now() - started });
-        log("[PASS] " + name);
-      }
+      const details = await runSingleAgentGate(provider);
+      results.push({ name, ...details, durationMs: Date.now() - started });
+      log("[PASS] " + name);
     } catch (error) {
       if (error instanceof NativeRuntimeBlocker) {
-        const name = isToolCapabilityGate
-          ? "real DeepSeek D2 native tool gate"
-          : isSingleAgentScenario
-            ? "real DeepSeek single-agent 90pct gate"
-            : "real DeepSeek multi-agent gate";
         results.push({
           name,
           status: "typed_failure",
@@ -2632,7 +2012,6 @@ async function main() {
           details: error.details,
           durationMs: Date.now() - started,
         });
-        throw error;
       }
       throw error;
     }

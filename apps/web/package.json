@@ -19,9 +19,7 @@
     "smoke:codex-app-server": "node scripts/codex-app-server-smoke.mjs",
     "test:codex-harness": "node scripts/test-codex-app-server-harness.mjs",
     "test:e2e:real-platform": "node scripts/real-platform-e2e.mjs",
-    "test:e2e:real-deepseek": "node scripts/real-deepseek-e2e.mjs",
-    "test:e2e:real-deepseek-single-agent": "node scripts/real-deepseek-single-agent-e2e.mjs",
-    "test:e2e:real-deepseek-tool-capability": "node scripts/real-deepseek-tool-capability-e2e.mjs"
+    "test:e2e:real-deepseek-single-agent": "node scripts/real-deepseek-single-agent-e2e.mjs"
   },
   "dependencies": {
     "lucide-react": "^0.562.0",

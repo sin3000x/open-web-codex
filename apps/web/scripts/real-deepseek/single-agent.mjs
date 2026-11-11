@@ -8,12 +8,13 @@ export const taskPrompt = [
 ].join("\n");
 
 export function isMinimumFeasibleSolution(result, serviceTargetHours) {
-  const metric = Array.isArray(result?.coverage)
-    ? result.coverage.find((entry) => entry?.target_hours === serviceTargetHours)
+  const coverage = result?.solution?.coverage;
+  const metric = Array.isArray(coverage)
+    ? coverage.find((entry) => entry?.target_hours === serviceTargetHours)
     : undefined;
   return (
+    result?.state === "ready" &&
     ["optimal", "feasible"].includes(result?.status) &&
-    result?.opening_policy?.kind === "minimum_feasible" &&
     Number.isInteger(result?.selected_number_to_open) &&
     typeof result?.minimum_number_to_open_proven === "boolean" &&
     Array.isArray(result?.solver_stages) &&
@@ -100,8 +101,8 @@ export function validateQuoteMeanEvidence({
     }) &&
     calculationFiles.includes(calculationJsonPath) &&
     calculationJsonPath.endsWith(".json") &&
-    costResult?.calculation_rule_evidence_path === calculationJsonPath &&
-    JSON.stringify(canonicalJson(costResult?.calculation_rule_evidence)) ===
+    costResult?.cost_rule_evidence_path === calculationJsonPath &&
+    JSON.stringify(canonicalJson(costResult?.cost_rule_evidence)) ===
       JSON.stringify(canonicalJson(calculation));
   return valid
     ? { valid: true }
