@@ -1,9 +1,9 @@
 #!/usr/bin/env node
 
-// Deterministic native Runtime acceptance gate for warehouse-network-copilot.
-// The model server below only returns structured Chat tool calls. Agent/Role,
-// Skill, MCP, Workspace, domain computation, Resource and map delivery all run
-// through the real Platform and Codex Runtime.
+// Deterministic native Runtime acceptance gate for warehouse-network-single-agent.
+// The model server below only returns structured Chat tool calls. Root Skill,
+// MCP, Workspace, domain computation, Resource and map delivery all run through
+// the real Platform and Codex Runtime.
 
 import assert from "node:assert/strict";
 import { createHash, randomUUID } from "node:crypto";
@@ -31,7 +31,7 @@ const apiBase = baseUrl + "/api";
 const providerId = process.env.E2E_PROVIDER_ID ?? "deterministic-chat-e2e";
 const model = process.env.E2E_MODEL ?? "gpt-5.4";
 const copilotPackageId =
-  process.env.E2E_COPILOT_PACKAGE_ID ?? "warehouse-network-copilot";
+  process.env.E2E_COPILOT_PACKAGE_ID ?? "warehouse-network-single-agent";
 const username = process.env.E2E_ADMIN_USERNAME ?? "deterministic-e2e";
 const email =
   process.env.E2E_ADMIN_EMAIL ?? "deterministic-e2e@open-web-codex.local";
@@ -288,9 +288,8 @@ async function send(taskId, marker) {
       text: [
         "E2E_ROOT_MARKER=" + marker,
         "根据已上传的 mock_data 文件，计算 12 小时时效达标率并展示地图。",
-        "必须走真实 native multi-agent 协同：先 spawn data_agent 清理 raw data，",
-        "再由 network_agent 使用 Workspace prepared input 计算路线、12h baseline，",
-        "最后生成包含点线面和图例的 map card。不要模拟业务结果，不要使用 shell 代替 MCP。",
+        "先准备数据，再评估 12h 现状基线，最后生成包含点线面和图例的 map card。",
+        "不要模拟业务结果，不要使用 shell 代替 MCP。",
       ].join("\n"),
       model,
       model_provider: providerId,
@@ -301,31 +300,6 @@ async function send(taskId, marker) {
       collaboration_mode: null,
     },
   });
-}
-
-function findFirstKey(value, keys) {
-  const parsed = parseStructuredText(value);
-  if (parsed !== undefined) {
-    return findFirstKey(parsed, keys);
-  }
-  if (!value || typeof value !== "object") return undefined;
-  if (!Array.isArray(value)) {
-    for (const key of keys) {
-      if (Object.prototype.hasOwnProperty.call(value, key)) {
-        return value[key];
-      }
-    }
-    for (const child of Object.values(value)) {
-      const found = findFirstKey(child, keys);
-      if (found !== undefined) return found;
-    }
-  } else {
-    for (const child of value) {
-      const found = findFirstKey(child, keys);
-      if (found !== undefined) return found;
-    }
-  }
-  return undefined;
 }
 
 function findLatestKey(value, keys, predicate) {
@@ -439,31 +413,6 @@ function findPreparedPath(body) {
     /prepared_input_relative_path[=:]\\?"?([A-Za-z0-9_./-]+)/,
   );
   return match?.[1];
-}
-
-function findAgentId(body) {
-  const value = findFirstKey(body, ["agent_id", "agentId"]);
-  return typeof value === "string" ? value : undefined;
-}
-
-function findLatestAgentId(value) {
-  const parsed = parseStructuredText(value);
-  if (parsed !== undefined) return findLatestAgentId(parsed);
-  if (!value || typeof value !== "object") return undefined;
-  if (Array.isArray(value)) {
-    for (const child of [...value].reverse()) {
-      const found = findLatestAgentId(child);
-      if (found) return found;
-    }
-    return undefined;
-  }
-  if (typeof value.agent_id === "string") return value.agent_id;
-  if (typeof value.agentId === "string") return value.agentId;
-  for (const child of Object.values(value).reverse()) {
-    const found = findLatestAgentId(child);
-    if (found) return found;
-  }
-  return undefined;
 }
 
 function findMapEmbed(body) {
@@ -696,48 +645,23 @@ class DeterministicModelServer {
       return;
     }
     const body = bodyText ? JSON.parse(bodyText) : {};
-    const markerMatch =
-      bodyText.match(/OWC_DETERMINISTIC_E2E:([A-Za-z0-9_-]+)/) ??
-      bodyText.match(/E2E_AGENT=(?:data_agent|network_agent):([A-Za-z0-9_-]+)/);
+    const markerMatch = bodyText.match(/OWC_DETERMINISTIC_E2E:([A-Za-z0-9_-]+)/);
     const runId = markerMatch?.[1] ?? "unknown";
-    const reversedUserMessages = Array.isArray(body.messages)
-      ? [...body.messages].reverse().filter((message) => message?.role === "user")
-      : [];
-    const latestUserText =
-      reversedUserMessages.find((message) =>
-        /E2E_AGENT=(?:data_agent|network_agent):/.test(
-          typeof message?.content === "string"
-            ? message.content
-            : JSON.stringify(message?.content ?? ""),
-        ),
-      )?.content ?? reversedUserMessages[0]?.content;
-    const latestUserTextString =
-      typeof latestUserText === "string"
-        ? latestUserText
-        : JSON.stringify(latestUserText ?? "");
-    const role = latestUserTextString.includes("E2E_AGENT=data_agent:" + runId)
-      ? "data"
-      : latestUserTextString.includes("E2E_AGENT=network_agent:" + runId)
-        ? "network"
-        : "root";
     const text = JSON.stringify(body);
-    const isChat = request.url?.includes("/chat/completions") ?? false;
     const toolSearchOutput = chatToolSearchOutput(body);
     if (toolSearchOutput) {
-      this.toolSearchOutputs.push({ runId, role, count: toolSearchOutput.length });
+      this.toolSearchOutputs.push({ runId, count: toolSearchOutput.length });
     }
     this.requests.push({
       path: request.url,
       runId,
-      role,
       body,
       visibleTools: visibleToolNames(body),
     });
-    const plan = this.responseFor(body, text, runId, role, isChat, toolSearchOutput);
+    const plan = this.responseFor(body, text, runId, toolSearchOutput);
     if (plan.spec) {
       this.calls.push({
         runId,
-        role,
         namespace: plan.spec.namespace,
         name: plan.spec.name,
         id: plan.spec.id,
@@ -764,45 +688,19 @@ class DeterministicModelServer {
     response.end(ssePayload(plan.events));
   }
 
-  responseFor(body, text, runId, role, isChat, toolSearchOutput) {
-    // This Copilot explicitly declares native Multi-Agent V1. Chat flattens
-    // that namespace, and the deferred schema is intentionally absent from
-    // the request `tools` list, so infer neither version from wire JSON.
-    const v2 = !isChat && !text.includes('"multi_agent_v1"');
+  responseFor(body, text, runId, toolSearchOutput) {
     const id = (suffix) => "e2e:" + runId + ":" + suffix;
     const has = (suffix) =>
       hasCall(text, id(suffix)) ||
-      this.calls.some(
-        (call) => call.runId === runId && call.role === role && call.id === id(suffix),
-      );
+      this.calls.some((call) => call.runId === runId && call.id === id(suffix));
+    const call = (suffix, namespace, name, args) => ({
+      responseId: id("response:" + suffix),
+      spec: functionSpec(id(suffix), namespace, name, args),
+      events: [],
+    });
     const toolSearch = (suffix, query) => ({
       responseId: id("response:" + suffix),
       spec: toolSearchSpec(id(suffix), query),
-      events: [],
-    });
-    const mcp = (suffix, name, args) => ({
-      responseId: id("response:" + suffix),
-      spec: functionSpec(id(suffix), "mcp__supply_chain_data", name, args),
-      events: [],
-    });
-    const network = (suffix, name, args) => ({
-      responseId: id("response:" + suffix),
-      spec: functionSpec(id(suffix), "mcp__supply_chain", name, args),
-      events: [],
-    });
-    const map = (suffix, name, args) => ({
-      responseId: id("response:" + suffix),
-      spec: functionSpec(id(suffix), "mcp__map_utils", name, args),
-      events: [],
-    });
-    const collaboration = (suffix, name, args) => ({
-      responseId: id("response:" + suffix),
-      spec: functionSpec(
-        id(suffix),
-        v2 ? undefined : "multi_agent_v1",
-        name,
-        args,
-      ),
       events: [],
     });
     const message = (suffix, value) => ({
@@ -811,216 +709,89 @@ class DeterministicModelServer {
       events: [{ text: value }],
     });
 
-    if (role === "data") {
-      if (!has("data:search")) {
-        return toolSearch("data:search", "inspect workspace sources");
-      }
-      if (toolSearchOutput?.length === 0) {
-        return message(
-          "data:blocked",
-          "E2E_TYPED_BLOCKER=data_mcp_tools_not_discovered Data Role tool_search returned no callable Data MCP tools.",
-        );
-      }
-      if (!has("data:inspect")) {
-        return mcp("data:inspect", "inspect_workspace_sources", {
-          relative_paths: [
-            "mock_data/administrative-areas.json",
-            "mock_data/candidate-warehouses.csv",
-            "mock_data/demand-cities.csv",
-            "mock_data/existing-warehouses.csv",
-            "mock_data/population-snapshot.csv",
-            "mock_data/route-quotes.csv",
-          ],
-          country_code: "ID",
-        });
-      }
-      if (!has("data:prepare")) {
-        const inspectionIdentity = findLatestKey(
-          body,
-          ["inspection_identity"],
-          (value) =>
-            value?.schemaVersion === "workspace_source_inspection.v2" &&
-            typeof value?.content_sha256 === "string" &&
-            Number.isInteger(value?.source_count),
-        );
-        const inspectedRelativePaths = findLatestKey(
-          body,
-          ["inspected_relative_paths"],
-          (value) =>
-            Array.isArray(value) && value.length > 0 && value.every((item) => typeof item === "string"),
-        );
-        if (!inspectionIdentity || !inspectedRelativePaths) {
-          throw new Error("deterministic model could not find inline source inspection identity");
-        }
-        return mcp("data:prepare", "prepare_network_input", {
-          inspection_identity: inspectionIdentity,
-          inspected_relative_paths: inspectedRelativePaths,
-          source_selections: sourceSelections(),
-          country_code: "ID",
-          output_relative_path: preparedOutputPath,
-          administrative_catalog_relative_path: "mock_data/administrative-areas.json",
-        });
-      }
-      const preparedPath = findPreparedPath(body) ?? preparedOutputPath;
-      const identity =
-        findLatestKey(
-          body,
-          ["input_identity"],
-          (value) =>
-            (value?.schema_version === "prepared_network_input.v2" ||
-              value?.schemaVersion === "prepared_network_input.v2") &&
-            typeof value?.content_sha256 === "string",
-        ) ?? {};
+    if (!has("search-data")) {
+      return toolSearch("search-data", "inspect_workspace_sources prepare_network_input");
+    }
+    if (toolSearchOutput?.length === 0) {
       return message(
-        "data:done",
-        "E2E data_agent completed native cleanup. prepared_input_relative_path=" +
-          preparedPath +
-          " input_identity=" +
-          JSON.stringify(identity),
+        "blocked",
+        "E2E_TYPED_BLOCKER=mcp_tools_not_discovered tool_search returned no callable MCP tools.",
       );
     }
-
-    if (role === "network") {
-      const preparedPath = findPreparedPath(body) ?? preparedOutputPath;
-      if (!has("network:search-tools")) {
-        return toolSearch(
-          "network:search-tools",
-          "prepare route matrix cost matrix evaluate 12 hour baseline coverage map",
-        );
-      }
-      if (!has("network:route")) {
-        return network("network:route", "prepare_route_matrix", {
-          prepared_input_relative_path: preparedPath,
-          route_method: "provided",
-          warehouse_scope: { kind: "existing_only" },
-        });
-      }
-      const routeRef = findResourceRef(body, "route_matrix.v3");
-      if (!routeRef) throw new Error("deterministic model could not find route_matrix.v3");
-      if (!has("network:baseline")) {
-        return network("network:baseline", "evaluate_network_baseline", {
-          prepared_input_relative_path: preparedPath,
-          route_matrix_ref: routeRef,
-          objective: "min_time",
-          service_targets: [12],
-        });
-      }
-      const baselineRef = findResourceRef(body, "network_baseline.v2");
-      if (!baselineRef) throw new Error("deterministic model could not find network_baseline.v2");
-      if (!has("network:coverage")) {
-        return network("network:coverage", "prepare_network_coverage_map", {
-          prepared_input_relative_path: preparedPath,
-          assignment_result_ref: baselineRef,
-          service_target_hours: 12,
-        });
-      }
-      if (!has("network:search-map")) {
-        return toolSearch("network:search-map", "create warehouse network map card with points lines legend");
-      }
-      const dataRef = findDataRef(body);
-      if (!dataRef) throw new Error("deterministic model could not find coverage GeoJSON data_ref");
-      if (!has("network:map")) {
-        return map("network:map", "create_network_map_card", {
-          title: "12 小时仓网覆盖地图",
-          network_data_ref: dataRef,
-        });
-      }
-      const embed = findMapEmbed(body);
-      return message(
-        "network:done",
-        "network_agent completed route and coverage delivery: 12h service coverage is ready. " +
-          "\n\n" + (embed || "::codex-inline-vis{artifact=\"deterministic-map\"}"),
-      );
-    }
-
-    if (!has("root:search")) {
-      return toolSearch("root:search", "spawn data_agent and network_agent for warehouse planning");
-    }
-    if (!has("root:spawn-data")) {
-      const task = [
-        "E2E_AGENT=data_agent:" + runId,
-        "清理并核验 Workspace mock_data 文件，使用 native tool_search 后调用 Data MCP，",
-        "返回精确 prepared_input_relative_path 与 input_identity。",
-      ].join(" ");
-      return collaboration("root:spawn-data", "spawn_agent", {
-        agent_type: "data_agent",
-        ...(v2
-          ? { message: task, task_name: "data_agent" }
-          : {
-              items: [
-                {
-                  type: "skill",
-                  name: "warehouse-data",
-                  path: exactSkillPath(text, "warehouse-data"),
-                },
-                { type: "text", text: task },
-              ],
-              fork_context: false,
-            }),
+    if (!has("inspect")) {
+      return call("inspect", "mcp__supply_chain_data", "inspect_workspace_sources", {
+        relative_paths: [
+          "mock_data/administrative-areas.json",
+          "mock_data/candidate-warehouses.csv",
+          "mock_data/demand-cities.csv",
+          "mock_data/existing-warehouses.csv",
+          "mock_data/population-snapshot.csv",
+          "mock_data/route-quotes.csv",
+        ],
+        country_code: "ID",
       });
     }
-    if (!has("root:search-after-child")) {
+    if (!has("prepare")) {
+      const inspectionIdentity = findLatestKey(
+        body,
+        ["inspection_identity"],
+        (value) =>
+          value?.schemaVersion === "workspace_source_inspection.v2" &&
+          typeof value?.content_sha256 === "string" &&
+          Number.isInteger(value?.source_count),
+      );
+      const inspectedRelativePaths = findLatestKey(
+        body,
+        ["inspected_relative_paths"],
+        (value) =>
+          Array.isArray(value) && value.length > 0 && value.every((item) => typeof item === "string"),
+      );
+      if (!inspectionIdentity || !inspectedRelativePaths) {
+        throw new Error("deterministic model could not find inline source inspection identity");
+      }
+      return call("prepare", "mcp__supply_chain_data", "prepare_network_input", {
+        inspection_identity: inspectionIdentity,
+        inspected_relative_paths: inspectedRelativePaths,
+        source_selections: sourceSelections(),
+        country_code: "ID",
+        output_relative_path: preparedOutputPath,
+        administrative_catalog_relative_path: "mock_data/administrative-areas.json",
+      });
+    }
+    if (!has("search-analysis")) {
       return toolSearch(
-        "root:search-after-child",
-        "wait agent child completion and continue warehouse planning",
+        "search-analysis",
+        "evaluate_baseline prepare_network_coverage_map create_network_map_card",
       );
     }
-    if (!has("root:wait-data")) {
-      const target = findAgentId(body);
-      if (!target) throw new Error("deterministic model could not find data agent id");
-      return collaboration("root:wait-data", "wait_agent", v2 ? { timeout_ms: 300_000 } : {
-        targets: [target],
-        timeout_ms: 300_000,
+    // No prepared path is passed: the analysis Tool resolves the single fresh
+    // prepared input itself and builds routes and costs internally.
+    if (!has("baseline")) {
+      return call("baseline", "mcp__supply_chain", "evaluate_baseline", {
+        service_targets: [12],
       });
     }
-    if (text.includes("E2E_TYPED_BLOCKER=data_mcp_tools_not_discovered")) {
-      return message(
-        "root:data-blocked",
-        "E2E_TYPED_BLOCKER=data_mcp_tools_not_discovered Data Role could not discover its configured MCP tools.",
-      );
-    }
-    if (!has("root:spawn-network")) {
-      const preparedPath = findPreparedPath(body);
-      if (!preparedPath) throw new Error("deterministic model could not find prepared input path");
-      const task = [
-        "E2E_AGENT=network_agent:" + runId,
-        "Use this exact prepared_input_relative_path unchanged: " + preparedPath,
-        "Continue with native tool_search, route matrix, 12h baseline and map delivery.",
-      ].join(" ");
-      return collaboration("root:spawn-network", "spawn_agent", {
-        agent_type: "network_agent",
-        ...(v2
-          ? { message: task, task_name: "network_agent" }
-          : {
-              items: [
-                {
-                  type: "skill",
-                  name: "warehouse-network-planning",
-                  path: exactSkillPath(text, "warehouse-network-planning"),
-                },
-                {
-                  type: "skill",
-                  name: "warehouse-map-delivery",
-                  path: exactSkillPath(text, "warehouse-map-delivery"),
-                },
-                { type: "text", text: task },
-              ],
-              fork_context: false,
-            }),
+    const baselineRef = findResourceRef(body, "network_baseline.v2");
+    if (!baselineRef) throw new Error("deterministic model could not find network_baseline.v2");
+    if (!has("coverage")) {
+      return call("coverage", "mcp__supply_chain", "prepare_network_coverage_map", {
+        prepared_input_relative_path: findPreparedPath(body) ?? preparedOutputPath,
+        assignment_result_ref: baselineRef,
+        service_target_hours: 12,
       });
     }
-    if (!has("root:wait-network")) {
-      const target = findLatestAgentId(body);
-      if (!target) throw new Error("deterministic model could not find network agent id");
-      return collaboration("root:wait-network", "wait_agent", v2 ? { timeout_ms: 300_000 } : {
-        targets: [target],
-        timeout_ms: 300_000,
+    const dataRef = findDataRef(body);
+    if (!dataRef) throw new Error("deterministic model could not find coverage GeoJSON data_ref");
+    if (!has("map")) {
+      return call("map", "mcp__map_utils", "create_network_map_card", {
+        title: "12 小时仓网覆盖地图",
+        network_data_ref: dataRef,
       });
     }
     const embed = findMapEmbed(body);
     return message(
-      "root:done",
-      "已完成真实 multi-agent 仓网规划。12h 时效达标率已计算，地图已生成。" +
+      "done",
+      "已完成仓网现状评估。12h 时效达标率已计算，地图已生成。" +
         "\n\n" + (embed || "::codex-inline-vis{artifact=\"deterministic-map\"}"),
     );
   }
@@ -1049,22 +820,6 @@ function sourceSelections() {
       role: "route_quote",
     },
   ];
-}
-
-function exactSkillPath(text, skillName) {
-  const escaped = skillName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  const match = text.match(
-    new RegExp(`(?:r\\d+|/[^"\\\\]*)/${escaped}/SKILL\\.md`),
-  );
-  if (!match) throw new Error("deterministic model could not find Skill path for " + skillName);
-  const skillPath = match[0];
-  const alias = skillPath.split("/", 1)[0];
-  if (!/^r\d+$/.test(alias)) return skillPath;
-  const rootMatch = text.match(
-    new RegExp("- `" + alias + "` = `([^`]+)`"),
-  );
-  if (!rootMatch) throw new Error("deterministic model could not expand Skill root " + alias);
-  return rootMatch[1].replace(/\/$/, "") + skillPath.slice(alias.length);
 }
 
 async function ensureAuthenticated() {
@@ -1117,7 +872,7 @@ async function ensureCopilotActive() {
         const target = installationId(next, copilotPackageId);
         return target?.active === false ? next : undefined;
       },
-      "stale warehouse-network-copilot deactivation",
+      "stale Copilot package deactivation",
       120_000,
       1_000,
     );
@@ -1175,19 +930,6 @@ async function configureModelToolSearch() {
     (entry) => entry.modelId === model,
   );
   assert.equal(configuredModel?.supportsSearchTool, true);
-}
-
-async function enableMultiAgent() {
-  const settings = await api("/profile/agents/settings", {
-    method: "PUT",
-    body: {
-      multiAgentEnabled: true,
-      maxThreads: 4,
-      maxDepth: 3,
-    },
-  });
-  assert.equal(settings.multiAgentEnabled, true);
-  return settings;
 }
 
 async function cleanupRun(runId) {
@@ -1306,196 +1048,38 @@ async function runCase(index) {
       (request) => request.runId === runId,
     );
     const modelCalls = state.modelServer.calls.filter((call) => call.runId === runId);
-    const dataRequestText = JSON.stringify(
-      modelRequests.find((request) => request.role === "data")?.body ?? {},
-    );
-    const networkRequestText = JSON.stringify(
-      modelRequests.find((request) => request.role === "network")?.body ?? {},
-    );
-    const dataSkillContract = {
-      injected: dataRequestText.includes("<name>warehouse-data</name>"),
-      preparedReady: dataRequestText.includes("prepared_ready"),
-      sourceSelections: dataRequestText.includes("source_selections"),
-      sourceChanged: dataRequestText.includes("source_changed"),
-    };
-    if (!Object.values(dataSkillContract).every(Boolean)) {
-      throw new NativeRuntimeBlocker("child_skill_body_not_injected", {
-        role: "data_agent",
-        data_skill_contract: dataSkillContract,
-        spawn_input: modelCalls
-          .filter((call) => call.role === "root" && call.name === "spawn_agent")
-          .map((call) => ({
-            has_message: typeof call.arguments?.message === "string",
-            item_types: Array.isArray(call.arguments?.items)
-              ? call.arguments.items.map((item) => item?.type)
-              : [],
-            skill_names: Array.isArray(call.arguments?.items)
-              ? call.arguments.items
-                  .filter((item) => item?.type === "skill")
-                  .map((item) => item.name)
-              : [],
-          })),
-        request_messages: (modelRequests.find((request) => request.role === "data")?.body
-          ?.messages ?? [])
-          .slice(-12)
-          .map((message) => ({
-            role: message?.role,
-            content: String(message?.content ?? "").replace(/\s+/g, " ").slice(0, 180),
-          })),
-        request_inputs: (modelRequests.find((request) => request.role === "data")?.body
-          ?.input ?? [])
-          .slice(-20)
-          .map((item) => ({
-            type: item?.type,
-            role: item?.role,
-            content: JSON.stringify(item?.content ?? item?.text ?? "")
-              .replace(/\s+/g, " ")
-              .slice(0, 220),
-          })),
-        request_keys: Object.keys(
-          modelRequests.find((request) => request.role === "data")?.body ?? {},
-        ),
-        request_path: modelRequests.find((request) => request.role === "data")?.path,
-        request_roles: modelRequests.map((request) => ({
-          role: request.role,
-          path: request.path,
-        })),
-        canonical_items: events
-          .filter((event) => /item|thread|turn/i.test(event.event_type ?? ""))
-          .slice(-30)
-          .map((event) => ({
-            event_type: event.event_type,
-            item_type: itemType(event),
-            tool: eventTool(event),
-            status: event.payload?.data?.status,
-            message: String(
-              event.payload?.data?.error?.message ??
-                event.payload?.data?.message ??
-                "",
-            )
-              .replace(/\s+/g, " ")
-              .slice(0, 200),
-          })),
-        runtime_errors: events
-          .filter(
-            (event) =>
-              event.event_type === "codex.unknown" ||
-              /error|failed/i.test(event.event_type ?? ""),
-          )
-          .slice(-20)
-          .map((event) => ({
-            event_type: event.event_type,
-            source_type: event.payload?.data?.sourceType,
-            code: event.payload?.data?.code,
-            message: String(
-              event.payload?.data?.message ??
-                event.payload?.data?.error?.message ??
-                "",
-            )
-              .replace(/\s+/g, " ")
-              .slice(0, 300),
-          })),
-        skill_warnings: events
-          .filter((event) =>
-            /skill/i.test(JSON.stringify(event.payload?.data ?? event.payload ?? {})),
-          )
-          .slice(-10)
-          .map((event) => ({
-            event_type: event.event_type,
-            summary: String(event.payload?.data?.message ?? event.payload?.message ?? "")
-              .replace(/\s+/g, " ")
-              .slice(0, 240),
-          })),
+    const rootRequestText = JSON.stringify(modelRequests[0]?.body ?? {});
+    if (!rootRequestText.includes("<name>warehouse-single-agent</name>")) {
+      throw new NativeRuntimeBlocker("root_skill_body_not_injected", {
+        request_keys: Object.keys(modelRequests[0]?.body ?? {}),
+        request_path: modelRequests[0]?.path,
       });
     }
-    const networkSkillContract = {
-      injected: networkRequestText.includes("<name>warehouse-network-planning</name>"),
-      minimumFeasible: networkRequestText.includes("minimum_feasible"),
-    };
-    const mapSkillContract = {
-      injected: networkRequestText.includes("<name>warehouse-map-delivery</name>"),
-      createNetworkMap: networkRequestText.includes("create_network_map_card"),
-      mapSpec: networkRequestText.includes("map_spec_ref"),
-    };
-    if (
-      !Object.values(networkSkillContract).every(Boolean) ||
-      !Object.values(mapSkillContract).every(Boolean)
-    ) {
-      throw new NativeRuntimeBlocker("child_skill_body_not_injected", {
-        role: "network_agent",
-        network_skill_contract: networkSkillContract,
-        map_skill_contract: mapSkillContract,
-        request_text_length: networkRequestText.length,
-        call_sequence: modelCalls.map((call) => ({
-          role: call.role,
-          name: call.name,
-          id: call.id,
-        })),
-        request_roles: modelRequests.map((request) => request.role),
-        data_request_lengths: modelRequests
-          .filter((request) => request.role === "data")
-          .map((request) => JSON.stringify(request.body).length),
-        last_data_tail: (
-          modelRequests.filter((request) => request.role === "data").at(-1)?.body?.messages ?? []
-        )
-          .slice(-4)
-          .map((message) => ({
-            role: message?.role,
-            content_length: String(message?.content ?? "").length,
-            content_head: String(message?.content ?? "")
-              .replace(/\s+/g, " ")
-              .slice(0, 180),
-            content_tail: String(message?.content ?? "")
-              .replace(/\s+/g, " ")
-              .slice(-240),
-          })),
-        root_tail: (
-          modelRequests.filter((request) => request.role === "root").at(-1)?.body?.messages ?? []
-        )
-          .slice(-12)
-          .map((message) => ({
-            role: message?.role,
-            content: String(message?.content ?? "")
-              .replace(/\s+/g, " ")
-              .slice(0, 240),
-          })),
-        terminal_events: events
-          .filter((event) => /completed|failed|cancelled|interrupted|error/i.test(event.event_type ?? ""))
-          .slice(-20)
-          .map((event) => ({
-            event_type: event.event_type,
-            item_type: itemType(event),
-            tool: eventTool(event),
-            status: event.payload?.data?.status,
-            code: event.payload?.data?.code ?? event.payload?.data?.error?.code,
-            message: String(
-              event.payload?.data?.error?.message ?? event.payload?.data?.message ?? "",
-            )
-              .replace(/\s+/g, " ")
-              .slice(0, 300),
-          })),
-      });
-    }
-    const spawnCalls = modelCalls.filter((call) => call.name === "spawn_agent");
-    const expectedSingleCalls = [
+    for (const toolName of [
+      "inspect_workspace_sources",
       "prepare_network_input",
-      "prepare_route_matrix",
-      "evaluate_network_baseline",
+      "evaluate_baseline",
       "prepare_network_coverage_map",
       "create_network_map_card",
-    ];
-    for (const toolName of expectedSingleCalls) {
+    ]) {
       assert.equal(
         modelCalls.filter((call) => call.name === toolName).length,
         1,
         toolName + " must be called exactly once in the golden path",
       );
     }
+    assert.deepEqual(
+      modelCalls.find((call) => call.name === "evaluate_baseline").arguments,
+      { service_targets: [12] },
+      "the baseline question must need no route, cost or prepared-input arguments",
+    );
     for (const forbiddenTool of [
       "prepare_network_geography",
       "read_mcp_resource",
       "list_mcp_resources",
       "list_mcp_resource_templates",
+      "spawn_agent",
+      "wait_agent",
     ]) {
       assert.equal(
         modelCalls.filter((call) => call.name === forbiddenTool).length,
@@ -1503,22 +1087,6 @@ async function runCase(index) {
         forbiddenTool + " is not part of the golden path",
       );
     }
-    assert.equal(spawnCalls.length, 2, "golden path must spawn exactly Data and Network");
-    assert.deepEqual(
-      spawnCalls.map((call) =>
-        (call.arguments?.items ?? [])
-          .filter((item) => item?.type === "skill")
-          .map((item) => item.name),
-      ),
-      [
-        ["warehouse-data"],
-        [
-          "warehouse-network-planning",
-          "warehouse-map-delivery",
-        ],
-      ],
-      "child spawn must use exact structured Skill selections",
-    );
     const failedMcpItems = events.filter(
       (event) =>
         itemType(event) === "mcpToolCall" &&
@@ -1528,83 +1096,61 @@ async function runCase(index) {
         ),
     );
     assert.deepEqual(failedMcpItems, [], "golden path must not contain failed MCP Items");
-    const projectedCollaboration = events.some(
-      (event) =>
-        itemType(event) === "collabAgentToolCall" &&
-        /spawn|wait/i.test(String(eventTool(event))),
+    const emptySearch = state.modelServer.toolSearchOutputs.find(
+      (output) => output.runId === runId && output.count === 0,
     );
-    if (spawnCalls.length > 1 && !projectedCollaboration) {
-      throw new NativeRuntimeBlocker("chat_deferred_tool_target_unresolved", {
-        expected_tool: "multi_agent_v1.spawn_agent",
-        prompt_tools_after_search: modelRequests[1]?.visibleTools ?? [],
-        model_calls: modelCalls,
-        runtime_events: events
-          .filter((event) => event.event_type === "codex.unknown" || event.event_type === "codex.item.completed")
-          .map((event) => event.payload?.data ?? event.payload),
-      });
-    }
-    const emptyDataSearch = state.modelServer.toolSearchOutputs.find(
-      (output) => output.runId === runId && output.role === "data" && output.count === 0,
-    );
-    if (emptyDataSearch || eventText.includes("E2E_TYPED_BLOCKER=data_mcp_tools_not_discovered")) {
-      throw new NativeRuntimeBlocker("child_mcp_tools_not_discovered", {
-        role: "data_agent",
-        tool_search_output: emptyDataSearch ?? { count: 0 },
+    if (emptySearch || eventText.includes("E2E_TYPED_BLOCKER=mcp_tools_not_discovered")) {
+      throw new NativeRuntimeBlocker("mcp_tools_not_discovered", {
+        tool_search_output: emptySearch ?? { count: 0 },
         model_calls: modelCalls,
       });
     }
     assert(/12\s*h|12\s*小时|12-hour/i.test(eventText), "12h result was not reported");
-    if (!events.some(
-      (event) =>
-        itemType(event) === "collabAgentToolCall" &&
-        /spawn|wait/i.test(String(eventTool(event))),
-    )) {
-      throw new NativeRuntimeBlocker("native_collaboration_item_not_projected", {
-        model_calls: modelCalls,
-        spawn_call_count: spawnCalls.length,
-        visible_tools_after_search: modelRequests[1]?.visibleTools ?? [],
-        canonical_items: events
-          .filter((event) => event.event_type === "codex.item.completed")
-          .map((event) => ({
-            item_type: itemType(event),
-            tool: eventTool(event),
-            turn_id: event.turn_id,
-          })),
-      });
-    }
     assert(
-      /data_agent/.test(eventText) && /network_agent/.test(eventText),
-      "data_agent/network_agent Role provenance was not projected",
+      !events.some((event) => itemType(event) === "collabAgentToolCall"),
+      "a single-Agent Copilot must not project collaboration Items",
     );
-    if (!events.some(
-      (event) =>
-        itemType(event) === "mcpToolCall" &&
-        /inspect_workspace_sources|prepare_network_input|prepare_route_matrix|evaluate_network_baseline|create_network_map_card/.test(
-          String(eventTool(event)),
-        ),
-    )) {
-      throw new NativeRuntimeBlocker("domain_mcp_items_not_projected", {
-        model_calls: modelCalls,
-        projected_items: events
-          .filter((event) => event.event_type === "codex.item.completed")
-          .map((event) => ({ item_type: itemType(event), tool: eventTool(event) })),
-      });
+    const completedMcpTools = new Set(
+      events
+        .filter(
+          (event) =>
+            itemType(event) === "mcpToolCall" &&
+            event.event_type === "codex.item.completed" &&
+            event.thread_id === response.thread_id &&
+            event.payload?.data?.status === "completed",
+        )
+        .map((event) => String(eventTool(event))),
+    );
+    for (const toolName of [
+      "inspect_workspace_sources",
+      "prepare_network_input",
+      "evaluate_baseline",
+      "prepare_network_coverage_map",
+      "create_network_map_card",
+    ]) {
+      if (![...completedMcpTools].some((name) => name.includes(toolName))) {
+        throw new NativeRuntimeBlocker("domain_mcp_items_not_projected", {
+          missing_tool: toolName,
+          projected_items: events
+            .filter((event) => event.event_type === "codex.item.completed")
+            .map((event) => ({ item_type: itemType(event), tool: eventTool(event) })),
+        });
+      }
     }
     const refs = await api("/tasks/" + record.task.id + "/resource-refs");
     const schemas = new Set(refs.map((ref) => ref.resourceSchema));
-    for (const schema of [
-      "route_matrix.v3",
-      "network_baseline.v2",
-      "network_coverage_geojson.v2",
-    ]) {
+    for (const schema of ["network_baseline.v2", "network_coverage_geojson.v2"]) {
       assert(schemas.has(schema), "missing Resource provenance for " + schema);
     }
+    for (const internalSchema of ["route_matrix.v3", "cost_matrix.v3"]) {
+      assert(
+        !schemas.has(internalSchema),
+        internalSchema + " is an internal step and must not be linked from a Tool Item",
+      );
+    }
     assert(
-      eventText.includes("prepared_input_relative_path=" + preparedOutputPath) &&
-        eventText.includes('"content_sha256":"') &&
-        eventText.includes('"candidate_warehouse_count":12') &&
-        eventText.includes("WH-CANDIDATE-BALIKPAPAN"),
-      "prepared Workspace input identity or candidate catalog was not reported",
+      eventText.includes(preparedOutputPath) && eventText.includes("content_sha256"),
+      "prepared Workspace input identity was not reported",
     );
     const mapEvent = events.find(
       (event) =>
@@ -1629,69 +1175,33 @@ async function runCase(index) {
       "prepared Workspace file was not persisted",
     );
     if (!rootFinalMessageHasStandaloneMapEmbed(events, response.thread_id)) {
-      throw new NativeRuntimeBlocker("root_map_embed_not_forwarded", {
+      throw new NativeRuntimeBlocker("root_map_embed_not_delivered", {
         root_thread_id: response.thread_id,
         map_producer_projected: true,
       });
     }
     const agents = await api("/runs/" + record.run.id + "/agents");
-    assert(agents.length >= 3, "Runtime agent projection did not include root and two children");
-    const roleByThread = new Map(
-      agents.map((agent) => [
-        agent.thread_id,
-        agent.agent_role,
-      ]),
-    );
     assert(
-      [...roleByThread.values()].includes("data_agent") &&
-        [...roleByThread.values()].includes("network_agent"),
-      "Runtime agent projection missing Role identities",
-    );
-    const executions = await api("/runs/" + record.run.id + "/agent-executions");
-    assert(
-      executions.some(
-        (execution) => roleByThread.get(execution.thread_id) === "data_agent",
-      ) &&
-        executions.some(
-          (execution) =>
-            roleByThread.get(execution.thread_id) === "network_agent",
-        ),
-      "Runtime agent execution provenance missing child Roles",
+      agents.every((agent) => agent.thread_id === response.thread_id),
+      "a single-Agent Run must not project child Agents",
     );
     const runtimeStatus = await eventually(
       async () => {
         const status = await api("/profile/copilots");
         const target = installationId(status, copilotPackageId);
         return target?.state === "configured" &&
-          target.runtimeDiscoveredSkillIds.includes("warehouse-supervisor")
+          target.runtimeDiscoveredSkillIds.includes("warehouse-single-agent")
           ? target
           : undefined;
       },
-      "warehouse-network-copilot Skill discovery",
+      "single-Agent Copilot Skill discovery",
       120_000,
       1_000,
     );
     assert.equal(runtimeStatus.state, "configured");
     assert(
-      runtimeStatus.runtimeDiscoveredSkillIds.includes(
-        "warehouse-supervisor",
-      ),
-    );
-    const childMcpCompleted = events.some(
-      (event) =>
-        itemType(event) === "mcpToolCall" &&
-        event.event_type === "codex.item.completed" &&
-        event.thread_id !== response.thread_id &&
-        event.payload?.data?.status === "completed",
-    );
-    assert(childMcpCompleted, "child MCP completion must be proven by a native MCP item");
-    const calls = state.modelServer.calls.filter((call) => call.runId === runId);
-    assert(calls.some((call) => call.name === "tool_search"), "fixture did not issue native tool_search");
-    assert(
-      calls.some((call) => /spawn_agent/.test(call.name)) &&
-        calls.some((call) => /prepare_route_matrix/.test(call.name)) &&
-        calls.some((call) => /create_network_map_card/.test(call.name)),
-      "fixture did not issue the canonical multi-agent/domain/map call chain",
+      modelCalls.some((call) => call.name === "tool_search"),
+      "fixture did not issue native tool_search",
     );
     return {
       runId,
@@ -1714,19 +1224,18 @@ async function main() {
     await ensureCopilotActive();
     await configureProvider();
     await configureModelToolSearch();
-    await enableMultiAgent();
     log("server=" + version + " fixture_files=" + state.manifest.files.length);
     for (const index of [1, 2]) {
       const started = Date.now();
-      log("[RUN] deterministic multi-agent gate " + index);
+      log("[RUN] deterministic single-agent gate " + index);
       const details = await runCase(index);
       results.push({
-        name: "deterministic multi-agent gate " + index,
+        name: "deterministic single-agent gate " + index,
         status: "passed",
         durationMs: Date.now() - started,
         details,
       });
-      log("[PASS] deterministic multi-agent gate " + index);
+      log("[PASS] deterministic single-agent gate " + index);
     }
   } finally {
     await state.modelServer.close();

@@ -50,6 +50,8 @@ def test_baseline_answers_in_one_call_with_a_per_warehouse_breakdown(
         "estimated_route_pair_count": 0,
         "cost_source": "quotes",
         "estimated_cost_lane_count": 0,
+        "cost_rule_evidence": None,
+        "cost_rule_evidence_path": None,
     }
     baseline = structured["baseline"]
     assert baseline["label"] == "actual_current"
@@ -239,6 +241,10 @@ def test_scenario_returns_baseline_scenario_and_comparison_together(
     assert structured["basis"]["estimated_route_pair_count"] > 0
     assert structured["basis"]["cost_source"] == "observed_quote_mean"
     assert structured["basis"]["estimated_cost_lane_count"] > 0
+    evidence = structured["basis"]["cost_rule_evidence"]
+    assert evidence["schema_version"] == "warehouse_quote_mean_calculation.v1"
+    assert {rule["layer"] for rule in evidence["rules"]} == {"last_mile", "linehaul"}
+    assert structured["basis"]["cost_rule_evidence_path"] is None
     assert structured["added_warehouses"] == [
         {
             "warehouse_id": CANDIDATE_ID,

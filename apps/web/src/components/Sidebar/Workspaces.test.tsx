@@ -82,7 +82,7 @@ describe("Web workspace actions", () => {
   it("lists independent Copilot packages and starts the selected package", () => {
     const props = baseProps();
     props.copilots = [
-      { packageId: "warehouse-network", displayName: "Warehouse Network · Multi-Agent" },
+      { packageId: "meeting-action-review", displayName: "Meeting Action Review" },
       {
         packageId: "warehouse-network-single-agent",
         displayName: "Warehouse Network · Single Agent",
@@ -140,7 +140,7 @@ describe("Web workspace actions", () => {
   it("opens the Copilot choice for an external start request", () => {
     const props = baseProps();
     props.copilots = [
-      { packageId: "warehouse-network", displayName: "Warehouse Network · Multi-Agent" },
+      { packageId: "meeting-action-review", displayName: "Meeting Action Review" },
       {
         packageId: "warehouse-network-single-agent",
         displayName: "Warehouse Network · Single Agent",
@@ -161,14 +161,14 @@ describe("Web workspace actions", () => {
     expect(screen.getByRole("dialog", { name: "Choose a Copilot" })).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Create Thread" }));
 
-    expect(props.onStartTask).toHaveBeenCalledWith("ws-1", { packageId: "warehouse-network" });
+    expect(props.onStartTask).toHaveBeenCalledWith("ws-1", { packageId: "meeting-action-review" });
     expect(onStartTaskCancelled).not.toHaveBeenCalled();
   });
 
   it("reports a cancelled Copilot choice", () => {
     const props = baseProps();
     props.copilots = [
-      { packageId: "warehouse-network", displayName: "Warehouse Network · Multi-Agent" },
+      { packageId: "meeting-action-review", displayName: "Meeting Action Review" },
       {
         packageId: "warehouse-network-single-agent",
         displayName: "Warehouse Network · Single Agent",

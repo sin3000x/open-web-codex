@@ -57,7 +57,7 @@ vi.mock("./services/webClient", () => ({
 afterEach(cleanup);
 
 const warehouseCopilotPackages = [
-  { packageId: "warehouse-network-copilot", displayName: "Warehouse Network · Multi-Agent" },
+  { packageId: "meeting-action-review", displayName: "Meeting Action Review" },
   {
     packageId: "warehouse-network-single-agent",
     displayName: "Warehouse Network · Single Agent",
@@ -1204,7 +1204,7 @@ describe("WebApp workspace-first messaging", () => {
 
     await waitFor(() => expect(client.startThread).toHaveBeenCalledWith(
       "workspace-1",
-      expect.objectContaining({ copilot: { packageId: "warehouse-network-copilot" } }),
+      expect.objectContaining({ copilot: { packageId: "meeting-action-review" } }),
     ));
     await waitFor(() => expect(client.sendUserMessage).toHaveBeenCalledWith(
       "workspace-1",
@@ -1287,7 +1287,7 @@ describe("WebApp workspace-first messaging", () => {
 
     await waitFor(() => expect(client.startThread).toHaveBeenCalledTimes(2));
     expect(client.startThread.mock.calls[1][1]).toEqual(expect.objectContaining({
-      copilot: { packageId: "warehouse-network-copilot" },
+      copilot: { packageId: "meeting-action-review" },
     }));
   });
 

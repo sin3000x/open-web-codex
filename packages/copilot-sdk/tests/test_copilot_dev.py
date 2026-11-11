@@ -104,10 +104,6 @@ class CopilotDevProfileTests(unittest.TestCase):
 
         repository = Path(__file__).resolve().parents[3]
         expected = {
-            "warehouse-network": {
-                "data_agent": {"supply_chain_data"},
-                "network_agent": {"supply_chain", "map_utils"},
-            },
             "warehouse-network-single-agent": {
                 "warehouse_single_agent": {"supply_chain_data", "supply_chain", "map_utils"},
             },

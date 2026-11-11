@@ -33,6 +33,7 @@ from supply_chain_planner.network.matrix_models import (
     ExistingOnlyWarehouseScope,
     ExistingPlusCandidatesWarehouseScope,
     HaversineRouteMatrixStats,
+    ObservedQuoteMeanCostEvidence,
     WarehouseScope,
 )
 from supply_chain_planner.network.matrix_models import RouteMatrix as ComposableRouteMatrix
@@ -132,6 +133,8 @@ class AnalysisBasis(StrictModel):
     estimated_route_pair_count: int = Field(ge=0)
     cost_source: Literal["quotes", "explicit", "observed_quote_mean"]
     estimated_cost_lane_count: int = Field(ge=0)
+    cost_rule_evidence: ObservedQuoteMeanCostEvidence | None = None
+    cost_rule_evidence_path: str | None = Field(default=None, max_length=1024)
 
 
 class CostTotals(StrictModel):
@@ -476,6 +479,8 @@ def _prepare_matrices(
             ),
             cost_source=cost_matrix.calculation_rule_source or "quotes",
             estimated_cost_lane_count=sum(row.source == "calculated" for row in cost_matrix.rows),
+            cost_rule_evidence=cost_matrix.calculation_rule_evidence,
+            cost_rule_evidence_path=cost_matrix.calculation_rule_evidence_path,
         ),
     )
 
