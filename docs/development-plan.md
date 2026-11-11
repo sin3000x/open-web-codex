@@ -71,7 +71,7 @@ Atom 1 先建立一个不依赖 Web、Catalog 或安装状态的开发者源码�
 当前验证 reference 是：
 
 ```bash
-./scripts/copilot.sh check copilots/warehouse-network-single-agent --workspace "$PWD"
+./scripts/copilot.sh check copilots/warehouse-network-single-agent --workspace "$(mktemp -d)"
 ```
 
 退出：新源码目录可由单/多 Agent `init` 生成并完成完整 `check`；仓网包从其 source root

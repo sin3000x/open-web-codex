@@ -664,8 +664,10 @@ python3 codex/codex-rs/skills/src/assets/samples/skill-creator/scripts/quick_val
 
 ```bash
 ./scripts/copilot.sh check ./copilots/warehouse-network-single-agent \
-  --workspace "$PWD"
+  --workspace "$(mktemp -d)"
 ```
+
+本地门的确定性测试断言 `discover_workspace_sources` 返回空 `sources`，因此 `--workspace` 必须是一个新建的空目录；把仓库根目录当 Workspace 会因超过 500 个受支持文件而返回 `workspace_source_limit_exceeded`。
 
 这个统一入口会为共享 Tool 注入受信任 registry，并为内部 prepare 同时提供 output 与 build
 store；不要用 `PYTHONPATH` 或缺少 `--build-store-root` 的裸 SDK 命令重建另一条环境链。

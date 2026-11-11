@@ -136,8 +136,10 @@ Platform 不会从最终文字、Tool 显示名或普通 Resource 猜测交付�
 
 ```bash
 ./scripts/copilot.sh check ./copilots/warehouse-network-single-agent \
-  --workspace "$PWD"
+  --workspace "$(mktemp -d)"
 ```
+
+本地门的确定性测试断言 `discover_workspace_sources` 返回空 `sources`，因此 `--workspace` 必须是一个新建的空目录；把仓库根目录当 Workspace 会因超过 500 个受支持文件而返回 `workspace_source_limit_exceeded`。
 
 命令应输出 `passed validate, prepare, dev, and test`。当前 manifest 的本地测试是小而确定的
 正常链，不代替真实模型和三轮业务验收。
@@ -146,7 +148,7 @@ Platform 不会从最终文字、Tool 显示名或普通 Resource 猜测交付�
 
 ```bash
 ./scripts/copilot.sh sync ./copilots/warehouse-network-single-agent \
-  --workspace "$PWD"
+  --workspace "$(mktemp -d)"
 ```
 
 `sync` 每次都会先跑完整 `check`，再冷重启服务。成功信号是包 ID 与健康重启都被确认；失败见
