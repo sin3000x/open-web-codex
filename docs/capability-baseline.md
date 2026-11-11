@@ -581,7 +581,7 @@ malformed Role 和 Indonesia/Thailand native Workspace exact gate 也在删除�
 | Skill 创作 | 阶段一仅支持直接编辑 Profile Skill；公开 SDK/Web 创作后移 | 无阶段一产品流 |
 | Agent/Supervisor Studio | 旧 Settings/Sidebar Studio 已删除；原生 Profile Agent 配置保留 | 无阶段一 authoring 产品流 |
 | Copilot Builder | 没有 Web 创作入口；现有 Profile 安装状态 API 不是 Builder、Catalog 或 Marketplace | E0 |
-| Browser 产品入口 | 生产 `index.html` 只经 `browser-entry.ts` 渲染 `WebApp`；展开 Vite alias 后 production graph 为 75 个本地 non-test 文件，另 466 个不在图内却仍由 `tsconfig` 编译；完整 `PlatformClient` 又把 dead endpoint methods 带入 bundle | E2 单一生产入口；legacy import graph/client 收缩进入后续 backlog，不阻断当前仓网链 |
+| Browser 产品入口 | 生产 `index.html` 只经 `browser-entry.ts` 渲染 `WebApp`；`src`/`browser` 的 non-test 文件都在该入口的 import graph 内，无 `@tauri-apps/*` alias 或 shim；完整 `PlatformClient` 仍把 dead endpoint methods 带入 bundle | E2 单一生产入口；legacy client 收缩进入后续 backlog，不阻断当前仓网链 |
 | Web UI parity | 历史 `check-main-ui-parity`、Git/UI overlay 和手工 SHA 清单已删除 | 已删除第二 UI truth；当前以类型检查、组件/合同测试、生产构建和真实浏览器验收为准 |
 | Browser Terminal | 生产 `/web` WebApp 不调用 Terminal API；旧 App 路径仍保留 Workspace Terminal UI。Server 打开 Terminal 时按 `run.updated_at DESC` 猜一个最新 Run，并把输出投影到该 Run | E1 legacy 残余；多 Task/fork 时会错配会话，待确认旧 App 退出后原子删除，当前不建设新 selector |
 | Browser local usage | 旧 App 的 `/profile/usage` 同时从 `run_events` 近似重算 token/turn，并在完全空时切换到 official `account/usage`；生产 `/web` 未调用 | E1 legacy 双 owner；随旧 App 删除，不建设第二 usage aggregator；`provider_call_metrics` 独立保留真实观测 |
@@ -621,7 +621,7 @@ ADR-018 是阶段一规范裁决，Codex 子树 seam 只由 Patch Map 分类。�
 | `B-PROVIDER-OWNER` | 后续 backlog | `apps/web/crates/provider-service/src/secured.rs` 的 `profile_provider_definitions`、`apps/web/crates/platform-store/src/configuration.rs` 的 global default 与 Profile config/Runtime 重复 | 默认选择、已物化 Thread 实际 pair 和 refresh 被不同 owner 覆盖 | 当前 R2 只补 exact 真实 gate 依赖；全量 owner 收敛仅在仓网 gate 证明会选错 Provider/model 时提前 | Profile config/Runtime 拥有定义、未来 Thread default 和 Thread actual pair；Platform 只留密文 Secret 与必要 audit | 已证实，不阻断当前关键链 |
 | `B-THREAD-HISTORY` | 后续 backlog | `codex-adapter/src/real.rs` 的 history mode/隐藏 Thread，`routes/threads.rs` 的 overlay，`WebApp.tsx`/`webThreadHistory.ts` 的 live/history 启发式合并 | 连续同文本消息误去重，Task/Run status 可以冒充 official Thread/Turn 事实 | 全量 Thread/Run/history/lease 轻纠偏是后续 backlog；只有当前 E2E 证明消息投递错乱才同原子修复 | Codex Runtime 拥有 Thread/Turn/Item/history，Platform 只做授权和 exact Item 投影 | 已证实，不阻断当前关键链 |
 | `B-EVENT-BOUND` | 后续 backlog | `apps/web/server/src/event_projection.rs` 和 Browser item renderer 仍按动态 Tool 名/文本猜 command/diff，unknown event 可进对话，多类 payload 无统一限长/retention owner | 事件污染、过大持久化与未授权内容暴露 | 保留 `run_events` sequence/provenance；普通 RunEvent 不广播 private Resource ref；若仓网真实 gate 证明泄密才成为当前安全门 | Platform 只投影 bounded typed Runtime 事实；unknown 不猜内容 | 已证实，当前仅保留泄密负向门 |
-| `B-BROWSER-LEGACY` | 后续 backlog | 生产只有 `browser-entry.ts`→`WebApp`，但死 `main.tsx`/`App`、全量 client、Terminal/Usage/generation/prompts/preferences/raw Profile writer/记忆 approval routes 仍在 | 继续维护第二 UI/API 表面，其中 generation/规则/整文件写面可创建隐藏 Thread 或绕过 official CAS/approval | 统一收缩已记入 backlog，不再作为仓网前置；只在真实关键链调用到旧入口时前移 | Browser 只保留 WebApp typed surface；Server 路由按 production reachability 原子删除，不建替代子系统 | 已证实，不阻断当前关键链 |
+| `B-BROWSER-LEGACY` | 后续 backlog | 生产只有 `browser-entry.ts`→`WebApp`，入口图外的 Browser 源码已删除，但全量 client、Terminal/Usage/generation/prompts/preferences/raw Profile writer/记忆 approval routes 仍在 | 继续维护第二 UI/API 表面，其中 generation/规则/整文件写面可创建隐藏 Thread 或绕过 official CAS/approval | 统一收缩已记入 backlog，不再作为仓网前置；只在真实关键链调用到旧入口时前移 | Browser 只保留 WebApp typed surface；Server 路由按 production reachability 原子删除，不建替代子系统 | 已证实，不阻断当前关键链 |
 | `B-PROFILE-AUTH` | 后续 backlog | `apps/web/server/src/main.rs::import_file_backed_codex_auth_if_missing` 在单 Profile 过渡模式可从宿主 home 导入 `auth.json` | 未来多用户身份边界不成立 | 当前单 Profile 不阻断；启用多用户前必须删除宿主默认导入并完成隔离矩阵 | Profile 认证由显式用户/Profile owner 提供，不读服务器操作者 home | 已证实，多用户触发 |
 | `D-CONTROL-PLANE` | 已删除 | migration 55 和 fresh-schema gate 证明 Work State/coordination 十表、Supervisor snapshot/binding/continuation 六表及对应 crate/route/MCP/gate 不存在 | 曾与 Codex context/mailbox/scheduler 形成第二控制面 | 不建替代状态机 | Codex 拥有协作；Platform 仅保留 Agent/Approval/Audit 投影 | 已完成，需继续通过 fresh-schema denial |
 | `D-CATALOG-MANIFEST` | 已删除 | Catalog/Studio/Python publish 生产链与无 owner 表已删；migration 56 删 `profile_capabilities`，ProfileHost 只验证 official initialize 四字段 | 曾在 Codex 原生 Skill/Role/MCP discovery 上叠加发布/安装/本地 manifest truth | 阶段一 built-in 只走 Profile seed + Runtime discovery；公开 Studio/SDK 后移 | Codex 拥有 discovery，Platform 不伪造 readiness | 已完成，公开平台另起后续阶段 |
@@ -642,8 +642,8 @@ ADR-018 是阶段一规范裁决，Codex 子树 seam 只由 Patch Map 分类。�
    decisions；历史 Data aliases/wire-shape cluster 已删除，正式 schema 由当前 typed contracts 唯一确定。
 5. Profile Runtime HOME/process cwd 已隔离，但 Server 默认认证导入仍可读取宿主
     `$HOME/.codex/auth.json`。
-6. 历史 `check-main-ui-parity` 第二 UI truth 已删除；legacy
-   `main.tsx`/`App`/hooks/facade 仍在非生产维护面，需按生产调用图另行收缩。
+6. 历史 `check-main-ui-parity` 第二 UI truth 与入口图外的 legacy Browser 源码已删除；全量
+   `PlatformClient` 及其对应 Server 路由仍需按生产调用图另行收缩。
 7. Platform 以 `profile_provider_definitions`、global `models.default_selection` 和启动回放重复
    拥有 Codex Profile 的 Provider 定义、模型目录及未来 Thread 默认选择；Task pair 又被错误用于
    后续 Turn。非当前 Provider 刷新会改变 Profile 默认 Provider，普通 catalog 更新还叠加了一条

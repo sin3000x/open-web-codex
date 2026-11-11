@@ -313,13 +313,11 @@ neutral directory 作为 app-server process cwd，初启与 restart 共用该目
 ## 7. 当前浏览器产品表面
 
 生产构建只有一个浏览器入口：`index.html` 加载 `browser/browser-entry.ts`，入口完成平台会话
-后直接渲染 `WebApp`。仓库没有 desktop/Tauri Runtime；源码中的 `@tauri-apps/*` specifier 由
-Vite 映射到 browser shim。当前 production import graph 在展开该 alias 后只包含 75 个本地
-non-test TS/TSX/CSS 文件，其中 Markdown 外链仍通过一个 opener shim；仓库另有 466 个 non-test
-Browser 文件不在该图内，但 `tsconfig` 仍会把它们全部编译。`src/main.tsx`、`App`、`MainApp`
-及其 hooks/facade/styles/tests 因而仍构成非生产维护面。`PlatformClient` 又以一个完整 class 进入
-生产 bundle，未使用的 legacy methods 和 endpoint 字符串不会被 tree-shake，形成浏览器 API
-第二表面；这些事实不能作为第二产品入口或兼容合同继续扩展。
+后直接渲染 `WebApp`。仓库没有 desktop/Tauri Runtime，源码中也没有 `@tauri-apps/*` specifier
+或对应 browser shim；`src` 与 `browser` 下的 non-test 文件都在该入口的 import graph 内，
+`tsconfig` 只编译这一张图及其测试。`PlatformClient` 仍以一个完整 class 进入生产 bundle，
+未使用的 legacy methods 和 endpoint 字符串不会被 tree-shake，形成浏览器 API 第二表面；
+这一事实不能作为第二产品入口或兼容合同继续扩展。
 历史 `check-main-ui-parity` 字节级第二 UI truth 及其手工 SHA/overlay CI gate 已删除；Web 交付
 使用类型检查、组件/合同测试、生产构建与真实浏览器验收。`check:no-desktop` 继续作为
 browser-only 边界门。

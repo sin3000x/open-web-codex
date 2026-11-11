@@ -1,9 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { METHODS_ROUTED_IN_USE_APP_SERVER_EVENTS } from "../features/app/hooks/useAppServerEvents";
 import type { AppServerEvent } from "../types";
 import {
-  METHODS_HANDLED_OUTSIDE_USE_APP_SERVER_EVENTS,
-  SUPPORTED_APP_SERVER_METHODS,
   getAppServerParams,
   getAppServerRawMethod,
   getAppServerRequestId,
@@ -100,18 +97,5 @@ describe("appServerEvents", () => {
     expect(getAppServerRequestId(nonObjectMessage)).toBeNull();
     expect(getAppServerRequestId(arrayMessage)).toBeNull();
     expect(getAppServerThreadId(arrayMessage)).toBeNull();
-  });
-
-  it("keeps supported methods aligned with useAppServerEvents routing", () => {
-    const methodsHandledOutsideHook = new Set<string>(
-      METHODS_HANDLED_OUTSIDE_USE_APP_SERVER_EVENTS,
-    );
-    const supportedHandledInHook = new Set(
-      SUPPORTED_APP_SERVER_METHODS.filter((method) => !methodsHandledOutsideHook.has(method)),
-    );
-
-    expect([...METHODS_ROUTED_IN_USE_APP_SERVER_EVENTS].sort()).toEqual(
-      [...supportedHandledInHook].sort(),
-    );
   });
 });
