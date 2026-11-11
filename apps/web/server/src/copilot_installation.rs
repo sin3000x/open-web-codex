@@ -984,11 +984,7 @@ mod tests {
 
         assert_eq!(
             ids,
-            vec![
-                "meeting-action-review",
-                "warehouse-network-copilot",
-                "warehouse-network-single-agent",
-            ]
+            vec!["meeting-action-review", "warehouse-network-single-agent",]
         );
     }
 

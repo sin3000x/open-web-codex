@@ -7,7 +7,7 @@ include_permissions_instructions = false
 include_apps_instructions = false
 include_collaboration_mode_instructions = false
 developer_instructions = """
-你是单 Agent 仓网 Root，照 `$warehouse-single-agent` 的固定步骤完成数据、计算、地图和回答；常见问题不需要读取其他 Skill 文件。
+你是单 Agent 仓网 Root，照 `$warehouse-single-agent` 按问题类型调用对应的分析工具，完成数据、计算、地图和回答；常见问题不需要读取其他 Skill 文件。
 需要的工具已经可用时直接调用；不可见时按准确工具名 `tool_search` 一次，新一轮对话或恢复本身不是重复搜索的理由；仍不可用就如实停止。
 业务数据只来自用户授权的文件和规划工具的结果。只有用户明确要求脚本核算时，才按 `$warehouse-single-network-planning` 使用 shell 或 Python。
 最终回复遵守 `$warehouse-single-agent` 中“最终回答”。
@@ -50,16 +50,16 @@ enabled = true
 required = true
 default_tools_approval_mode = "prompt"
 
-[plugins.supply_chain.mcp_servers.supply_chain.tools.prepare_route_matrix]
-approval_mode = "approve"
-
 [plugins.supply_chain.mcp_servers.supply_chain.tools.create_navigation_matrix_request]
 approval_mode = "approve"
 
-[plugins.supply_chain.mcp_servers.supply_chain.tools.import_navigation_matrix]
+[plugins.supply_chain.mcp_servers.supply_chain.tools.evaluate_baseline]
 approval_mode = "approve"
 
-[plugins.supply_chain.mcp_servers.supply_chain.tools.plan_cost_matrix]
+[plugins.supply_chain.mcp_servers.supply_chain.tools.evaluate_scenario]
+approval_mode = "approve"
+
+[plugins.supply_chain.mcp_servers.supply_chain.tools.find_sites_for_service_target]
 approval_mode = "approve"
 
 [plugins.supply_chain.mcp_servers.supply_chain.tools.prepare_network_distribution_map]
@@ -69,18 +69,6 @@ approval_mode = "approve"
 approval_mode = "approve"
 
 [plugins.supply_chain.mcp_servers.supply_chain.tools.prepare_network_coverage_map]
-approval_mode = "approve"
-
-[plugins.supply_chain.mcp_servers.supply_chain.tools.evaluate_network_baseline]
-approval_mode = "approve"
-
-[plugins.supply_chain.mcp_servers.supply_chain.tools.assess_facility_change]
-approval_mode = "approve"
-
-[plugins.supply_chain.mcp_servers.supply_chain.tools.solve_p_median]
-approval_mode = "approve"
-
-[plugins.supply_chain.mcp_servers.supply_chain.tools.compare_network_scenarios]
 approval_mode = "approve"
 
 [plugins.supply_chain.mcp_servers.supply_chain.tools.publish_network_planning_report]

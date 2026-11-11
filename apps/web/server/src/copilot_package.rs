@@ -1660,16 +1660,7 @@ fn is_executable(_metadata: &fs::Metadata) -> bool {
 mod tests {
     use super::*;
 
-    const SUPERVISOR_SKILL: &str =
-        include_str!("../../../../copilots/warehouse-network/skills/warehouse-supervisor/SKILL.md");
-    const DATA_SKILL: &str =
-        include_str!("../../../../copilots/warehouse-network/skills/warehouse-data/SKILL.md");
-    const PLANNING_SKILL: &str = include_str!(
-        "../../../../copilots/warehouse-network/skills/warehouse-network-planning/SKILL.md"
-    );
-    const MAP_DELIVERY_SKILL: &str = include_str!(
-        "../../../../copilots/warehouse-network/skills/warehouse-map-delivery/SKILL.md"
-    );
+    // Product package content pinned by the single-Agent contract tests below.
     const SINGLE_AGENT_MAP_DELIVERY_SKILL: &str = include_str!(
         "../../../../copilots/warehouse-network-single-agent/skills/warehouse-single-map-delivery/SKILL.md"
     );
@@ -1682,16 +1673,17 @@ mod tests {
     const SINGLE_AGENT_ROOT_SKILL: &str = include_str!(
         "../../../../copilots/warehouse-network-single-agent/skills/warehouse-single-agent/SKILL.md"
     );
-    const DATA_ROLE: &str =
-        include_str!("../../../../copilots/warehouse-network/agents/data_agent.toml");
-    const NETWORK_ROLE: &str =
-        include_str!("../../../../copilots/warehouse-network/agents/network_agent.toml");
-    const ROOT_ROLE: &str = include_str!(
-        "../../../../copilots/warehouse-network/agents/warehouse_supervisor_root.toml"
-    );
     const SINGLE_AGENT_ROOT_ROLE: &str = include_str!(
         "../../../../copilots/warehouse-network-single-agent/agents/warehouse_single_agent.toml"
     );
+    // Test-owned sample package with two child Roles. It exercises how the
+    // Platform projects Role-local MCP and Skill policy and is not a product.
+    const FIXTURE_SKILL: &str =
+        "---\nname: fixture\ndescription: Fixture Skill.\n---\n\n# Fixture\n";
+    const DATA_ROLE: &str = include_str!("test_fixtures/role_package/agents/data_agent.toml");
+    const NETWORK_ROLE: &str = include_str!("test_fixtures/role_package/agents/network_agent.toml");
+    const ROOT_ROLE: &str =
+        include_str!("test_fixtures/role_package/agents/warehouse_supervisor_root.toml");
 
     #[test]
     fn root_agent_toml_becomes_flat_app_server_config_overrides() {
@@ -1728,7 +1720,7 @@ mod tests {
         let instructions = role["developer_instructions"]
             .as_str()
             .expect("single-Agent developer instructions");
-        assert!(instructions.contains("照 `$warehouse-single-agent` 的固定步骤"));
+        assert!(instructions.contains("照 `$warehouse-single-agent` 按问题类型调用对应的分析工具"));
         assert!(instructions.contains("只有用户明确要求脚本核算时"));
         assert!(instructions.contains("`$warehouse-single-network-planning`"));
         assert!(SINGLE_AGENT_PLANNING_SKILL.contains("只有用户明确要求时才做"));
@@ -1744,208 +1736,141 @@ mod tests {
     }
 
     #[test]
-    fn single_agent_root_skill_carries_fixed_recipes_for_common_questions() {
+    fn single_agent_root_skill_answers_each_question_with_one_analysis_tool() {
         for anchor in [
             "`query_prepared_network_input`",
-            "`warehouse_scope={\"kind\": \"existing_only\"}`",
-            "`warehouse_scope={\"kind\": \"all_warehouses\"}`",
+            "调用 `evaluate_baseline`",
+            "调用 `evaluate_scenario`",
+            "`find_sites_for_service_target`，只调用一次",
+            "`service_constraints=[{\"target_hours\": 12, \"minimum_coverage\": 0.9}]`",
+            "不要再试其他仓数",
             "`cost_policy={\"kind\": \"observed_quote_mean\"}`",
-            "`opening_policy={\"kind\": \"minimum_feasible\"}`",
-            "`existing_warehouse_policy={\"mode\": \"keep_all_existing\"}`",
-            "用同一组路线和成本算出对比基准",
-            "`solve_p_median`，只调用一次",
+            "`route_policy={\"kind\": \"haversine\"",
+            "原样复制分析结果里的 `plan_comparison_ref`",
             "原样复制上一步返回的整个 `data_ref`",
             "地图卡片成功后立即写最终回答，不再调用任何工具",
-            "`route_method=\"haversine\"`",
+            "`warehouse_unresolved`",
+            "`prepared_unavailable`",
+            "`prepared_selection_required`",
+            "如实说明目前不支持",
             "只调用一次 `tool_search`",
             "`limit=10`",
             "`request_user_input` 是内置工具，不需要搜索",
         ] {
             assert!(
                 SINGLE_AGENT_ROOT_SKILL.contains(anchor),
-                "single-Agent root recipe lost {anchor}"
+                "single-Agent root Skill lost {anchor}"
             );
         }
-    }
-
-    #[test]
-    fn warehouse_roles_separate_base_identity_from_developer_constraints() {
-        for (role_name, contents, expected_base) in [
-            ("warehouse_supervisor_root", ROOT_ROLE, "你是仓网协调助手"),
-            ("data_agent", DATA_ROLE, "你是仓网数据准备专家"),
-            ("network_agent", NETWORK_ROLE, "你是仓网规划专家"),
+        for internal_tool in [
+            "prepare_route_matrix",
+            "plan_cost_matrix",
+            "evaluate_network_baseline",
+            "assess_facility_change",
+            "solve_p_median",
+            "compare_network_scenarios",
+            "import_navigation_matrix",
         ] {
-            let role = parse_role_template(role_name, contents).expect("parse warehouse Role");
-            let instructions = role["instructions"]
-                .as_str()
-                .expect("base Role instructions");
-            let developer_instructions = role["developer_instructions"]
-                .as_str()
-                .expect("Role developer instructions");
-            assert!(instructions.contains(expected_base));
-            assert!(!developer_instructions.contains(expected_base));
+            for (name, contents) in [
+                ("root Skill", SINGLE_AGENT_ROOT_SKILL),
+                ("planning Skill", SINGLE_AGENT_PLANNING_SKILL),
+                ("data Skill", SINGLE_AGENT_DATA_SKILL),
+                ("map Skill", SINGLE_AGENT_MAP_DELIVERY_SKILL),
+                ("Root Role", SINGLE_AGENT_ROOT_ROLE),
+            ] {
+                assert!(
+                    !contents.contains(internal_tool),
+                    "single-Agent {name} must not name internal step {internal_tool}"
+                );
+            }
         }
     }
 
     #[test]
-    fn warehouse_map_delivery_skill_preserves_default_map_visual_hierarchy() {
-        for skill in [MAP_DELIVERY_SKILL, SINGLE_AGENT_MAP_DELIVERY_SKILL] {
-            let has_hex_color = skill.as_bytes().windows(7).any(|window| {
-                window[0] == b'#'
-                    && window[1..]
-                        .iter()
-                        .all(|byte| byte.is_ascii_digit() || (b'A'..=b'F').contains(byte))
-            });
-            assert!(!has_hex_color);
-            assert!(!skill.contains("半径"));
-            assert!(skill.contains("用户没有指定样式"));
-            assert!(skill.contains("中心仓"));
-            assert!(skill.contains("越库仓（XD）"));
-            assert!(skill.contains("候选仓"));
-            assert!(skill.contains("启用/关闭状态"));
-            assert!(skill.contains("时效结果"));
-        }
+    fn single_agent_map_delivery_skill_preserves_default_map_visual_hierarchy() {
+        let skill = SINGLE_AGENT_MAP_DELIVERY_SKILL;
+        let has_hex_color = skill.as_bytes().windows(7).any(|window| {
+            window[0] == b'#'
+                && window[1..]
+                    .iter()
+                    .all(|byte| byte.is_ascii_digit() || (b'A'..=b'F').contains(byte))
+        });
+        assert!(!has_hex_color);
+        assert!(!skill.contains("半径"));
+        assert!(skill.contains("用户没有指定样式"));
+        assert!(skill.contains("中心仓"));
+        assert!(skill.contains("越库仓（XD）"));
+        assert!(skill.contains("候选仓"));
+        assert!(skill.contains("启用/关闭状态"));
+        assert!(skill.contains("时效结果"));
     }
 
     #[test]
-    fn warehouse_supervisor_skill_does_not_retry_terminal_child_failures() {
-        assert!(SUPERVISOR_SKILL.contains("权限拒绝、身份不一致、取消、超时、外部失败或能力不可用"));
-        assert!(SUPERVISOR_SKILL.contains("不自动重试或另建同角色 child"));
-        assert!(SUPERVISOR_SKILL.contains("::codex-inline-vis{artifact=\"...\"}"));
-        assert!(SUPERVISOR_SKILL.contains("逐字复制 child 返回"));
-        assert!(SUPERVISOR_SKILL.contains("不得声称地图已经展示"));
-        assert!(PLANNING_SKILL.contains("在当前候选和假设下无法达到目标"));
+    fn single_agent_role_keeps_minimal_tool_reuse_and_task_boundaries() {
+        let role = SINGLE_AGENT_ROOT_ROLE;
+        assert!(role.contains("需要的工具已经可用时直接调用"));
+        assert!(role.contains("新一轮对话或恢复本身不是重复搜索的理由"));
+        assert!(!role.contains("canonical Thread history"));
+        assert!(!role.contains("ToolSearchOutput"));
+        assert!(!role.contains("projected into the current request"));
+        assert!(!role.contains("Chat adapter"));
+        assert!(!role.contains("ToolRouter"));
+        assert!(role.contains("常见问题不需要读取其他 Skill 文件"));
     }
 
     #[test]
-    fn warehouse_supervisor_skill_selects_the_native_child_continuation_mode() {
-        assert!(SUPERVISOR_SKILL.contains("先 `resume_agent(id)`"));
-        assert!(SUPERVISOR_SKILL.contains("`fork_turns=\"none\"`"));
-        assert!(!SUPERVISOR_SKILL.contains("`list_agents`"));
-        assert!(!SUPERVISOR_SKILL.contains("`followup_task`"));
-        assert!(SUPERVISOR_SKILL.contains("`$warehouse-data`"));
-        assert!(SUPERVISOR_SKILL.contains("`$warehouse-network-planning`"));
-        assert!(SUPERVISOR_SKILL.contains("`$warehouse-map-delivery`"));
-        assert!(SUPERVISOR_SKILL.contains("`agent_type=\"data_agent\"`"));
-        assert!(SUPERVISOR_SKILL.contains("`agent_type=\"network_agent\"`"));
-        assert!(SUPERVISOR_SKILL.contains("`spawn_agent.items`"));
-        assert!(SUPERVISOR_SKILL.contains("完整的用户业务目标"));
-        assert!(SUPERVISOR_SKILL.contains("一次纳入候选仓来源"));
-        assert!(SUPERVISOR_SKILL.contains("用 `send_input.items` 发送本次所需 Skill"));
-        assert!(SUPERVISOR_SKILL.contains("同一任务中的同一角色默认复用原 child"));
-        assert!(SUPERVISOR_SKILL.contains("普通完成后不调用 `close_agent`"));
-        assert!(SUPERVISOR_SKILL
-            .contains("只有找不到原 child、原 child 无法恢复、角色不同或 Workspace 不同时才新建"));
-        assert!(SUPERVISOR_SKILL.contains("只有本次确实缺少所需工具时才执行 `tool_search`"));
-        assert!(SUPERVISOR_SKILL.contains("恢复 child 或开始新一轮对话本身不是重新搜索的理由"));
-        assert!(SUPERVISOR_SKILL.contains("`list_mcp_resources`"));
-        assert!(SUPERVISOR_SKILL.contains("不调用 goal/plan 工具"));
-        assert!(!SUPERVISOR_SKILL.contains("canonical Thread history"));
-        assert!(!SUPERVISOR_SKILL.contains("Chat adapter"));
-        assert!(!SUPERVISOR_SKILL.contains("ToolRouter"));
-    }
-
-    #[test]
-    fn warehouse_roles_keep_minimal_tool_reuse_and_task_boundaries() {
-        for role in [DATA_ROLE, NETWORK_ROLE, SINGLE_AGENT_ROOT_ROLE] {
-            assert!(role.contains("需要的工具已经可用时直接调用"));
-            assert!(role.contains("新一轮对话或恢复本身不是重复搜索的理由"));
-            assert!(!role.contains("canonical Thread history"));
-            assert!(!role.contains("ToolSearchOutput"));
-            assert!(!role.contains("projected into the current request"));
-            assert!(!role.contains("Chat adapter"));
-            assert!(!role.contains("ToolRouter"));
-        }
-        assert!(DATA_ROLE.contains("$warehouse-data"));
-        assert!(NETWORK_ROLE.contains("仓网规划与地图 Skill"));
-        assert!(SINGLE_AGENT_ROOT_ROLE.contains("常见问题不需要读取其他 Skill 文件"));
-    }
-
-    #[test]
-    fn warehouse_data_skill_stops_after_prepared_input_terminal_result() {
-        assert!(DATA_SKILL.contains("已有数据可复用或准备完成"));
-        assert!(DATA_SKILL.contains("返回 `needs_input`"));
-        assert!(DATA_SKILL.contains("返回 `source_changed` 时重新检查一次"));
-        assert!(DATA_SKILL.contains("时效、达标率或成本分析"));
-        assert!(DATA_SKILL.contains("路线或报价"));
-        assert!(DATA_SKILL.contains("首次准备就同时纳入候选仓"));
+    fn single_agent_data_skill_asks_once_on_typed_missing_input() {
         assert!(SINGLE_AGENT_DATA_SKILL.contains("时效、达标率或成本分析"));
         assert!(SINGLE_AGENT_DATA_SKILL.contains("路线或报价"));
-    }
-
-    #[test]
-    fn warehouse_data_skills_stop_and_ask_on_typed_missing_input() {
-        assert!(DATA_SKILL.contains("只交接本次所选数据的真实缺口"));
-        assert!(SUPERVISOR_SKILL.contains("Data 或 Network 返回 `needs_input`"));
-        assert!(SUPERVISOR_SKILL.contains("`request_user_input`"));
-        assert!(SUPERVISOR_SKILL.contains("`id`、标题、问题和选项原样传给"));
-        assert!(SUPERVISOR_SKILL.contains("不得用普通文字假装已经询问"));
         assert!(SINGLE_AGENT_DATA_SKILL.contains("用一次输入卡片询问"));
+        assert!(
+            SINGLE_AGENT_DATA_SKILL.contains("候选仓信息不得因基线只计算现有仓而从准备结果中删除")
+        );
         assert!(SINGLE_AGENT_ROOT_SKILL.contains("`request_user_input`"));
         assert!(SINGLE_AGENT_ROOT_SKILL.contains("`id`、标题、问题和选项原样传给"));
         assert!(SINGLE_AGENT_ROOT_SKILL.contains("不得用普通文字假装已经询问"));
     }
 
     #[test]
-    fn warehouse_map_delivery_skills_require_an_explicit_map_spec_selection() {
-        for skill in [MAP_DELIVERY_SKILL, SINGLE_AGENT_MAP_DELIVERY_SKILL] {
-            assert!(skill.contains("`map_spec_ref`"));
-            assert!(skill.contains("请用户重新选择"));
-        }
-        assert!(SUPERVISOR_SKILL.contains("只使用用户通过“基于此图修改”选中的 `map_spec_ref`"));
+    fn single_agent_map_delivery_skill_uses_the_domain_map_builder() {
+        let skill = SINGLE_AGENT_MAP_DELIVERY_SKILL;
+        assert!(skill.contains("`map_spec_ref`"));
+        assert!(skill.contains("请用户重新选择"));
+        assert!(skill.contains("`create_network_map_card`"));
+        assert!(skill.contains("`prepare_network_coverage_map`"));
+        assert!(skill.contains("`prepare_network_distribution_map`"));
+        assert!(skill.contains("`include_candidates=true`"));
+        assert!(skill.contains("`prepare_network_comparison_map`"));
+        assert!(skill.contains("原样作为 `network_data_ref`"));
+        assert!(skill.contains("`require_polygon=true`"));
+        assert!(skill.contains("用户要求的服务时限"));
+        assert!(skill.contains("地图只展示规划工具已经确认的结果"));
+        assert!(!skill.contains("`create_map_card`"));
+        assert!(skill.contains("不自行拼接 GeoJSON 或图层"));
+        assert!(skill.contains("`create_network_map_card` 成功后立即返回"));
+        assert!(skill.contains("`publish_workspace_geojson`"));
     }
 
     #[test]
-    fn warehouse_map_delivery_skills_use_the_domain_map_builder() {
-        for skill in [MAP_DELIVERY_SKILL, SINGLE_AGENT_MAP_DELIVERY_SKILL] {
-            assert!(skill.contains("`create_network_map_card`"));
-            assert!(skill.contains("`prepare_network_coverage_map`"));
-            assert!(skill.contains("`prepare_network_distribution_map`"));
-            assert!(skill.contains("`include_candidates=true`"));
-            assert!(skill.contains("`prepare_network_comparison_map`"));
-            assert!(skill.contains("原样作为 `network_data_ref`"));
-            assert!(skill.contains("`require_polygon=true`"));
-            assert!(skill.contains("用户要求的服务时限"));
-            assert!(skill.contains("地图只展示规划工具已经确认的结果"));
-            assert!(!skill.contains("`create_map_card`"));
-            assert!(skill.contains("不自行拼接 GeoJSON 或图层"));
-            assert!(skill.contains("`create_network_map_card` 成功后立即返回"));
-            assert!(skill.contains("`publish_workspace_geojson`"));
-        }
-        assert!(DATA_SKILL.contains("候选仓信息不得因基线只计算现有仓而从准备结果中删除"));
-        assert!(SUPERVISOR_SKILL.contains("`prepared_input_relative_path`"));
-        assert!(SUPERVISOR_SKILL.contains("`input_identity`"));
-    }
-
-    #[test]
-    fn warehouse_roots_require_business_language_and_evidence_boundaries() {
-        for skill in [SUPERVISOR_SKILL, SINGLE_AGENT_ROOT_SKILL] {
-            assert!(skill.contains("最终回答面向仓网业务人员"));
-            assert!(skill.contains("先用一句话给出业务结论"));
-            assert!(skill.contains("不超过四个短要点"));
-            assert!(skill.contains("开场句、标题和正文都用中文"));
-            assert!(skill.contains("不要把内部系统名"));
-            assert!(skill.contains("明确区分“结果已确认”“根据结果推断”和“现有结果无法确认”"));
-            assert!(skill.contains("地图上的仓库归属只能证明最终归属"));
-            assert!(skill.contains("当前结果不足以判断具体原因"));
-            assert!(skill.contains("不要生造“成本制分配”"));
-        }
-        assert!(ROOT_ROLE.contains("只使用业务语言"));
-        assert!(ROOT_ROLE.contains("不描述内部协作、角色状态或工具过程"));
-        assert!(!ROOT_ROLE.contains("$warehouse-supervisor"));
+    fn single_agent_root_requires_business_language_and_evidence_boundaries() {
+        let skill = SINGLE_AGENT_ROOT_SKILL;
+        assert!(skill.contains("最终回答面向仓网业务人员"));
+        assert!(skill.contains("先用一句话给出业务结论"));
+        assert!(skill.contains("不超过四个短要点"));
+        assert!(skill.contains("开场句、标题和正文都用中文"));
+        assert!(skill.contains("不要把内部系统名"));
+        assert!(skill.contains("明确区分“结果已确认”“根据结果推断”和“现有结果无法确认”"));
+        assert!(skill.contains("地图上的仓库归属只能证明最终归属"));
+        assert!(skill.contains("当前结果不足以判断具体原因"));
+        assert!(skill.contains("不要生造“成本制分配”"));
         assert!(SINGLE_AGENT_ROOT_ROLE.contains("“最终回答”"));
-        assert!(SINGLE_AGENT_ROOT_SKILL.contains("`$warehouse-data-preparation`"));
-        assert!(SINGLE_AGENT_ROOT_SKILL.contains("`$warehouse-single-network-planning`"));
-        assert!(SINGLE_AGENT_ROOT_SKILL.contains("`$warehouse-single-map-delivery`"));
-        for skill in [PLANNING_SKILL, SINGLE_AGENT_PLANNING_SKILL] {
-            assert!(skill.contains("`route_method=\"provided\"`"));
-            assert!(skill.contains("不得自行填写绕路系数、平均速度或导航费用"));
-        }
-        assert!(PLANNING_SKILL.contains("首次返回 `needs_input`"));
-        assert!(PLANNING_SKILL.contains("不得重调同一工具"));
+        assert!(skill.contains("`$warehouse-data-preparation`"));
+        assert!(skill.contains("`$warehouse-single-network-planning`"));
+        assert!(skill.contains("`$warehouse-single-map-delivery`"));
+        assert!(SINGLE_AGENT_PLANNING_SKILL.contains("不得自行填写绕路系数、平均速度或导航费用"));
         assert!(SINGLE_AGENT_PLANNING_SKILL.contains("不要在用户回答前重复调用同一工具"));
         assert!(SINGLE_AGENT_PLANNING_SKILL.contains("`warehouse_quote_mean_calculation.v1`"));
-        assert!(SINGLE_AGENT_PLANNING_SKILL.contains("`plan_cost_matrix`"));
+        assert!(SINGLE_AGENT_PLANNING_SKILL.contains("`quote_mean_evidence_relative_path`"));
     }
 
     fn write_file(path: &Path, contents: &str, executable: bool) {
@@ -2027,22 +1952,22 @@ runtime = "tools/maps/runtime.toml"
         );
         write_file(
             &package.join("skills/warehouse-supervisor/SKILL.md"),
-            SUPERVISOR_SKILL,
+            FIXTURE_SKILL,
             false,
         );
         write_file(
             &package.join("skills/warehouse-data/SKILL.md"),
-            DATA_SKILL,
+            FIXTURE_SKILL,
             false,
         );
         write_file(
             &package.join("skills/warehouse-network-planning/SKILL.md"),
-            PLANNING_SKILL,
+            FIXTURE_SKILL,
             false,
         );
         write_file(
             &package.join("skills/warehouse-map-delivery/SKILL.md"),
-            MAP_DELIVERY_SKILL,
+            FIXTURE_SKILL,
             false,
         );
         write_file(&package.join("agents/data_agent.toml"), DATA_ROLE, false);

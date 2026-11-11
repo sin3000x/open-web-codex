@@ -86,7 +86,7 @@ struct PreparedEnvironmentBinding {
 
 fn prepared_descriptor_path() -> PathBuf {
     repository_root().join(
-        ".local/open-web-codex/tool-environments/warehouse-network-copilot/copilot-sdk/prepared-tools.v1.json",
+        ".local/open-web-codex/tool-environments/warehouse-network-single-agent/copilot-sdk/prepared-tools.v1.json",
     )
 }
 

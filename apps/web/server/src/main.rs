@@ -1,8 +1,6 @@
 mod browser_assets;
 mod copilot_installation;
 mod copilot_package;
-#[cfg(test)]
-mod copilot_package_runtime_tests;
 mod delivery_artifacts;
 mod delivery_contracts;
 mod event_projection;

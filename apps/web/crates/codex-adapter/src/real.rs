@@ -2602,7 +2602,7 @@ mod tests {
     #[test]
     fn mcp_resource_resume_rejoins_with_selected_copilot_config_without_thread_policy() {
         let execution = RootExecutionConfig {
-            id: "warehouse-network-copilot".to_string(),
+            id: "warehouse-network-single-agent".to_string(),
             skill_config: Vec::new(),
             runtime_config: json!({
                 "agents.network_agent.runtime_mcp_projection": true,
