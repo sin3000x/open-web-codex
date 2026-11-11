@@ -27,7 +27,7 @@ function initialQuestionState(): QuestionState {
 function sourceLabel(request: PendingUserInputSummary): string {
   return request.source.kind === "agent"
     ? `${request.source.displayTitle} needs your input`
-    : "Supervisor needs your input";
+    : "Your input is needed";
 }
 
 function questionIsComplete(question: UserInputQuestionSummary, state: QuestionState | undefined) {

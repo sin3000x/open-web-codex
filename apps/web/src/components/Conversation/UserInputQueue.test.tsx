@@ -45,6 +45,19 @@ describe("UserInputQueue", () => {
     expect(screen.getByRole("group", { name: "Network Agent needs your input" })).toBeTruthy();
   });
 
+  it("labels a root Thread request without naming a role", () => {
+    render(
+      <UserInputQueue
+        requests={[request({ source: { kind: "root" } })]}
+        submittingIds={new Set()}
+        onSubmit={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByRole("group", { name: "Your input is needed" })).toBeTruthy();
+    expect(screen.queryByText(/Supervisor/)).toBeNull();
+  });
+
   it("keeps preset and custom answers mutually exclusive", () => {
     const onSubmit = vi.fn();
     render(<UserInputQueue requests={[request()]} submittingIds={new Set()} onSubmit={onSubmit} />);
