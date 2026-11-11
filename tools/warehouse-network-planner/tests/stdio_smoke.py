@@ -206,19 +206,15 @@ async def smoke() -> None:
                 names = {tool.name for tool in (await session.list_tools()).tools}
                 expected_tools = {
                     "create_navigation_matrix_request",
-                    "prepare_route_matrix",
-                    "import_navigation_matrix",
-                    "plan_cost_matrix",
+                    "evaluate_baseline",
+                    "evaluate_scenario",
+                    "find_sites_for_service_target",
                     "prepare_network_comparison_map",
                     "prepare_network_coverage_map",
                     "prepare_network_distribution_map",
-                    "evaluate_network_baseline",
-                    "assess_facility_change",
-                    "solve_p_median",
-                    "compare_network_scenarios",
                     "publish_network_planning_report",
                 }
-                assert expected_tools <= names, sorted(expected_tools - names)
+                assert names == expected_tools, sorted(expected_tools ^ names)
 
 
 def test_stdio_smoke() -> None:

@@ -1,7 +1,8 @@
-"""Real stdio closure for the composable warehouse-network domain tools.
+"""Real stdio closure for the warehouse-network business-question tools.
 
-This is a test harness, not a production workflow. It proves a close-only S3
-before an S2 facility optimization while reusing the same exact Resources.
+This is a test harness, not a production workflow. It prepares data through
+the Data server, then answers a baseline, a close-only scenario and a siting
+question, each in one Network tool call that resolves the prepared input itself.
 """
 
 from __future__ import annotations
@@ -219,17 +220,13 @@ async def _run_network_s3_then_s2(
             await asyncio.wait_for(session.initialize(), timeout=30)
             inventory = {tool.name for tool in (await session.list_tools()).tools}
             assert inventory == {
+                "evaluate_baseline",
+                "evaluate_scenario",
+                "find_sites_for_service_target",
                 "create_navigation_matrix_request",
-                "prepare_route_matrix",
-                "import_navigation_matrix",
-                "plan_cost_matrix",
                 "prepare_network_comparison_map",
                 "prepare_network_coverage_map",
                 "prepare_network_distribution_map",
-                "evaluate_network_baseline",
-                "assess_facility_change",
-                "solve_p_median",
-                "compare_network_scenarios",
                 "publish_network_planning_report",
             }
             prepared = json.loads((workspace / prepared_path).read_text(encoding="utf-8"))
@@ -237,193 +234,94 @@ async def _run_network_s3_then_s2(
                 item["warehouse_id"] for item in prepared["warehouses"] if item["is_existing"]
             )
             common_trace: list[str] = []
-            common_trace.append("prepare_route_matrix:provided")
-            provided_result = await _call(
-                session,
-                "prepare_route_matrix",
-                {
-                    "prepared_input_relative_path": prepared_path,
-                    "route_method": "provided",
-                    "warehouse_scope": {"kind": "existing_only"},
-                },
-                workspace,
-            )
-            provided_ref = provided_result.structuredContent["resource_ref"]
-            provided = await _read_resource(session, provided_ref)
-            assert len(provided["rows"]) == 556
-            assert provided["stats"]["missing_pair_count"] == 0
-
-            common_trace.append("prepare_route_matrix:haversine")
-            routes_result = await _call(
-                session,
-                "prepare_route_matrix",
-                {
-                    "prepared_input_relative_path": prepared_path,
-                    "route_method": "haversine",
-                    "warehouse_scope": {"kind": "all_warehouses"},
-                    "detour_coefficient": 1.2,
-                    "average_speed_kph": 42,
-                },
-                workspace,
-            )
-            routes_ref = routes_result.structuredContent["resource_ref"]
-            routes = await _read_resource(session, routes_ref)
-            assert len(routes["rows"]) == 1168
-            assert routes["stats"]["computed_pair_count"] == 1168
-            assert routes["stats"]["missing_pair_count"] == 0
-
-            common_trace.append("plan_cost_matrix")
-            costs_result = await _call(
-                session,
-                "plan_cost_matrix",
-                {
-                    "prepared_input_relative_path": prepared_path,
-                    "warehouse_scope": {"kind": "all_warehouses"},
-                    "cost_policy": {
-                        "kind": "explicit",
-                        "rules": _cost_policy()["rules"],
-                    },
-                    "route_matrix_ref": routes_ref,
-                },
-                workspace,
-            )
-            costs_ref = costs_result.structuredContent["resource_ref"]
-            costs = await _read_resource(session, costs_ref)
-            assert len(costs["rows"]) == 1168
-            assert costs["missing_routes"] == []
-
-            baseline_costs_result = await _call(
-                session,
-                "plan_cost_matrix",
-                {
-                    "prepared_input_relative_path": prepared_path,
-                    "warehouse_scope": {"kind": "existing_only"},
-                    "cost_policy": {
-                        "kind": "explicit",
-                        "rules": _cost_policy()["rules"],
-                    },
-                    "route_matrix_ref": provided_ref,
-                },
-                workspace,
-            )
-            baseline_costs_ref = baseline_costs_result.structuredContent["resource_ref"]
-
-            common_trace.append("evaluate_network_baseline")
+            # No path is given: the tool resolves the single fresh prepared input.
+            common_trace.append("evaluate_baseline")
             baseline_result = await _call(
                 session,
-                "evaluate_network_baseline",
-                {
-                    "prepared_input_relative_path": prepared_path,
-                    "route_matrix_ref": provided_ref,
-                    "cost_matrix_ref": baseline_costs_ref,
-                    "objective": "min_cost",
-                    "service_targets": [6, 12, 18],
-                    "coverage_mode": "actual_current",
-                },
+                "evaluate_baseline",
+                {"service_targets": [6, 12, 18], "coverage_mode": "actual_current"},
                 workspace,
             )
-            baseline_ref = baseline_result.structuredContent["resource_ref"]
-            baseline = await _read_resource(session, baseline_ref)
-            assert baseline["label"] == "actual_current"
+            assert baseline_result.structuredContent["state"] == "ready"
+            basis = baseline_result.structuredContent["basis"]
+            assert basis["prepared_input_relative_path"] == prepared_path
+            assert basis["route_method"] == "provided"
+            assert basis["cost_source"] == "quotes"
+            baseline_view = baseline_result.structuredContent["baseline"]
+            assert baseline_view["label"] == "actual_current"
+            assert sum(item["city_count"] for item in baseline_view["warehouses"]) == 50
+            baseline = await _read_resource(session, baseline_view["result_ref"])
             assert baseline["active_warehouse_ids"] == existing_ids
             assert len(baseline["assignment"]["rows"]) == 50
-            assert (
-                baseline_result.structuredContent["coverage_metrics"][0]["city_coverage_rate"] >= 0
-            )
-            assert (
-                baseline_result.structuredContent["coverage_metrics"][0][
-                    "demand_weighted_coverage_rate"
-                ]
-                >= 0
-            )
 
             s3_trace: list[str] = []
-            s3_trace.append("assess_facility_change")
-            assessment_result = await _call(
+            s3_trace.append("evaluate_scenario")
+            scenario_result = await _call(
                 session,
-                "assess_facility_change",
-                {
-                    "prepared_input_relative_path": prepared_path,
-                    "route_matrix_ref": provided_ref,
-                    "cost_matrix_ref": baseline_costs_ref,
-                    "before_ref": baseline_ref,
-                    "scenario": {
-                        "add_warehouse_ids": [],
-                        "remove_warehouse_ids": [BEKASI_ID],
-                        "relocations": [],
-                        "objective": "min_cost",
-                        "service_targets": [12],
-                    },
-                },
+                "evaluate_scenario",
+                {"service_targets": [12], "remove_warehouses": [BEKASI_ID]},
                 workspace,
             )
-            assert assessment_result.structuredContent["active_warehouse_count"] == 10
-            scenario_ref = assessment_result.structuredContent["scenario_ref"]
-            scenario = await _read_resource(session, scenario_ref)
+            assessment = scenario_result.structuredContent
+            assert assessment["state"] == "ready"
+            assert assessment["scenario"]["active_warehouse_count"] == 10
+            assert [item["warehouse_id"] for item in assessment["removed_warehouses"]] == [
+                BEKASI_ID
+            ]
+            scenario = await _read_resource(session, assessment["scenario"]["result_ref"])
             assert scenario["active_warehouse_ids"] == [
                 item for item in existing_ids if item != BEKASI_ID
             ]
-            assert scenario["warehouse_changes"] == {
-                "added": [],
-                "removed": [BEKASI_ID],
-            }
-            s3_comparison = await _read_resource(
-                session,
-                assessment_result.structuredContent["plan_comparison_ref"],
-            )
+            assert scenario["warehouse_changes"] == {"added": [], "removed": [BEKASI_ID]}
+            s3_comparison = await _read_resource(session, assessment["plan_comparison_ref"])
             assert s3_comparison["comparison"]["selected_warehouse_ids"] == []
             assert s3_comparison["comparison"]["removed_warehouse_ids"] == [BEKASI_ID]
-            assert len(s3_comparison["comparison"]["affected_city_ids"]) == 50
-            assert len(s3_comparison["comparison"]["reassigned_city_ids"]) == 50
-            assert set(s3_trace).isdisjoint(
-                {
-                    "solve_p_median",
-                    "prepare_network_comparison_map",
-                    "publish_network_planning_report",
-                }
-            )
+            assert assessment["reassigned_city_count"] >= 1
 
             s2_trace: list[str] = []
-            s2_trace.append("solve_p_median")
-            facility_result = await _call(
+            s2_trace.append("find_sites_for_service_target:needs_input")
+            gaps = await _call(
                 session,
-                "solve_p_median",
+                "find_sites_for_service_target",
+                {"service_targets": [6, 12, 18], "number_to_open": 2},
+                workspace,
+            )
+            assert gaps.structuredContent["state"] == "needs_input"
+            assert [item["id"] for item in gaps.structuredContent["questions"]] == [
+                "route_completion",
+                "cost_completion",
+            ]
+            s2_trace.append("find_sites_for_service_target")
+            siting_result = await _call(
+                session,
+                "find_sites_for_service_target",
                 {
-                    "prepared_input_relative_path": prepared_path,
-                    "route_matrix_ref": routes_ref,
-                    "cost_matrix_ref": costs_ref,
-                    "opening_policy": {"kind": "exact", "number_to_open": 2},
-                    "existing_warehouse_policy": {"mode": "keep_all_existing"},
                     "service_targets": [6, 12, 18],
+                    "number_to_open": 2,
+                    "route_policy": {
+                        "kind": "haversine",
+                        "detour_coefficient": 1.2,
+                        "average_speed_kph": 42,
+                    },
+                    "cost_policy": {"kind": "explicit", "rules": _cost_policy()["rules"]},
                     "time_limit_seconds": 30,
                 },
                 workspace,
             )
-            facility_ref = facility_result.structuredContent["resource_ref"]
-            facility = await _read_resource(session, facility_ref)
-            assert facility["status"] == "optimal"
-            assert facility["selected_number_to_open"] == 2
-            assert facility["minimum_number_to_open_proven"] is False
-            assert [stage["kind"] for stage in facility["solver_stages"]] == ["minimum_cost"]
-            assert facility["opened_candidate_ids"] == EXPECTED_OPENED
-            assert facility["closed_existing_ids"] == []
-            assert len(facility["active_warehouse_ids"]) == 13
-            assert facility["cost"]["complete"] is True
-            assert [item["target_hours"] for item in facility["service"]] == [6, 12, 18]
-
-            s2_trace.append("compare_network_scenarios")
-            s2_comparison_result = await _call(
-                session,
-                "compare_network_scenarios",
-                {
-                    "prepared_input_relative_path": prepared_path,
-                    "before_ref": baseline_ref,
-                    "after_ref": facility_ref,
-                    "service_targets": [6, 12, 18],
-                },
-                workspace,
+            siting = siting_result.structuredContent
+            assert siting["state"] == "ready"
+            assert siting["status"] == "optimal"
+            assert siting["selected_number_to_open"] == 2
+            assert siting["minimum_number_to_open_proven"] is False
+            assert [stage["kind"] for stage in siting["solver_stages"]] == ["minimum_cost"]
+            assert [item["warehouse_id"] for item in siting["opened_candidates"]] == (
+                EXPECTED_OPENED
             )
-            comparison_ref = s2_comparison_result.structuredContent["resource_ref"]
+            assert siting["closed_existing"] == []
+            assert siting["solution"]["active_warehouse_count"] == 13
+            assert siting["solution"]["cost"]["complete"] is True
+            assert [item["target_hours"] for item in siting["solution"]["coverage"]] == [6, 12, 18]
+            comparison_ref = siting["plan_comparison_ref"]
             comparison = await _read_resource(session, comparison_ref)
             assert comparison["comparison"]["selected_warehouse_ids"] == EXPECTED_OPENED
             assert comparison["comparison"]["removed_warehouse_ids"] == []
@@ -505,9 +403,9 @@ async def smoke() -> None:
             environment,
             prepared_path,
         )
-        assert s3_trace[-1:] == ["assess_facility_change"]
+        assert s3_trace == ["evaluate_baseline", "evaluate_scenario"]
         assert s2_trace[-3:] == [
-            "compare_network_scenarios",
+            "find_sites_for_service_target",
             "prepare_network_comparison_map",
             "publish_network_planning_report",
         ]

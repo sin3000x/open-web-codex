@@ -72,8 +72,6 @@ from supply_chain_planner.shared.planning_input import (
 )
 
 from .tool_runtime import (
-    BOUNDED_LOCAL_COMPUTE_TOOL,
-    CONTENT_ADDRESSED_RESOURCE_TOOL,
     McpResourceContractError,
     _bounded_id_summary,
     _cost_metric_summary,
@@ -627,10 +625,3 @@ def solve_p_median(
     )
     published.structuredContent = result.model_dump(mode="json")
     return published
-
-
-def register_tools(mcp, *, phase: str = "all") -> None:
-    if phase in ("all", "all"):
-        mcp.tool(structured_output=True, annotations=CONTENT_ADDRESSED_RESOURCE_TOOL)(assess_facility_change)
-    if phase in ("all", "all"):
-        mcp.tool(structured_output=True, annotations=BOUNDED_LOCAL_COMPUTE_TOOL)(solve_p_median)

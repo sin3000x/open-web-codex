@@ -7,15 +7,11 @@ from supply_chain_planner.network import server, tool_runtime
 
 NETWORK_ROOT = Path(__file__).parents[1] / "src" / "network"
 EXPECTED_TOOLS = [
-    "compare_network_scenarios",
-    "prepare_network_distribution_map",
+    "evaluate_baseline",
+    "evaluate_scenario",
+    "find_sites_for_service_target",
     "create_navigation_matrix_request",
-    "prepare_route_matrix",
-    "import_navigation_matrix",
-    "plan_cost_matrix",
-    "evaluate_network_baseline",
-    "assess_facility_change",
-    "solve_p_median",
+    "prepare_network_distribution_map",
     "prepare_network_comparison_map",
     "prepare_network_coverage_map",
     "publish_network_planning_report",
@@ -43,6 +39,7 @@ def test_server_is_registration_only_and_owner_modules_have_no_second_mcp() -> N
         "route_tools.py",
         "cost_tools.py",
         "facility_tools.py",
+        "question_tools.py",
         "delivery_tools.py",
         "tool_runtime.py",
     ):

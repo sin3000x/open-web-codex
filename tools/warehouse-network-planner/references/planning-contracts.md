@@ -72,11 +72,14 @@ selected source returns `prepared_input_stale` with `next_action="reinspect"` an
 fact questions are answered by this Tool directly on a discovered prepared candidate, without a prior
 inspection, and never by inspection preview rows. Each group carries its exact record count.
 
-`prepare_route_matrix` returns a discriminated `ready | needs_input` result. `ready` always has
-zero missing pairs and the exact `route_matrix.v3` reference. An incomplete provided scope returns
-bounded missing-pair evidence and executable completion choices without publishing a consumable
-route reference. Baseline, facility-change and location Tools independently reject incomplete
-route matrices. Only Root may turn the child handoff into the native `request_user_input` card.
+`evaluate_baseline`, `evaluate_scenario` and `find_sites_for_service_target` each answer one
+business question in a single call and return a discriminated result. `ready` carries the bounded
+baseline, plan and comparison together with the `basis` that names the prepared input and the route
+and cost assumptions. `needs_input` carries every open route or quote completion question at once
+and publishes no Resource. `prepared_unavailable` and `prepared_selection_required` report that no
+single reusable prepared input exists for the question's roles. Route and cost matrices are
+internal steps: they are never returned as references, and the internal evaluation functions
+independently reject incomplete matrices.
 
 `prepare_network_coverage_map` requires one `service_target_hours` value already present in the
 source result. Planner assigns `attained`, `missed` or `unassigned` to every demand point and the

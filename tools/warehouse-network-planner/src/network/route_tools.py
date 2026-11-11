@@ -59,7 +59,6 @@ from supply_chain_planner.shared.workspace_outputs import (
 )
 
 from .tool_runtime import (
-    CONTENT_ADDRESSED_RESOURCE_TOOL,
     WORKSPACE_REQUEST_TOOL,
     McpResourceContractError,
     _load_ready_network,
@@ -412,10 +411,7 @@ def _scope_summary(scope: WarehouseScope, warehouse_count: int) -> str:
     return f"{scope.kind} ({warehouse_count} warehouses)"
 
 
-def register_tools(mcp, *, phase: str = "all") -> None:
-    if phase in ("all", "all"):
-        mcp.tool(structured_output=True, annotations=WORKSPACE_REQUEST_TOOL)(create_navigation_matrix_request)
-    if phase in ("all", "all"):
-        mcp.tool(structured_output=True, annotations=CONTENT_ADDRESSED_RESOURCE_TOOL)(prepare_route_matrix)
-    if phase in ("all", "all"):
-        mcp.tool(structured_output=True, annotations=CONTENT_ADDRESSED_RESOURCE_TOOL)(import_navigation_matrix)
+def register_tools(mcp) -> None:
+    mcp.tool(structured_output=True, annotations=WORKSPACE_REQUEST_TOOL)(
+        create_navigation_matrix_request
+    )

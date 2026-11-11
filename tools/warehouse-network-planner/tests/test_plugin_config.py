@@ -76,18 +76,14 @@ DATA_TOOLS = {
     "resolve_prepared_network_input",
 }
 NETWORK_TOOLS = {
-    "assess_facility_change",
-    "compare_network_scenarios",
     "create_navigation_matrix_request",
-    "evaluate_network_baseline",
-    "import_navigation_matrix",
-    "plan_cost_matrix",
-    "prepare_route_matrix",
+    "evaluate_baseline",
+    "evaluate_scenario",
+    "find_sites_for_service_target",
     "prepare_network_comparison_map",
     "prepare_network_coverage_map",
     "prepare_network_distribution_map",
     "publish_network_planning_report",
-    "solve_p_median",
 }
 
 

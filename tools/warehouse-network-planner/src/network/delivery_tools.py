@@ -448,12 +448,13 @@ def publish_network_planning_report(
     )
 
 
-def register_tools(mcp, *, phase: str = "all") -> None:
-    if phase in ("all", "distribution"):
-        mcp.tool(structured_output=True, annotations=CONTENT_ADDRESSED_RESOURCE_TOOL)(prepare_network_distribution_map)
-    if phase in ("all", "final"):
-        mcp.tool(structured_output=True, annotations=CONTENT_ADDRESSED_RESOURCE_TOOL)(prepare_network_comparison_map)
-    if phase in ("all", "final"):
-        mcp.tool(structured_output=True, annotations=CONTENT_ADDRESSED_RESOURCE_TOOL)(prepare_network_coverage_map)
-    if phase in ("all", "final"):
-        mcp.tool(structured_output=True, annotations=FINAL_WORKSPACE_DELIVERY_TOOL)(publish_network_planning_report)
+def register_tools(mcp) -> None:
+    for tool in (
+        prepare_network_distribution_map,
+        prepare_network_comparison_map,
+        prepare_network_coverage_map,
+    ):
+        mcp.tool(structured_output=True, annotations=CONTENT_ADDRESSED_RESOURCE_TOOL)(tool)
+    mcp.tool(structured_output=True, annotations=FINAL_WORKSPACE_DELIVERY_TOOL)(
+        publish_network_planning_report
+    )

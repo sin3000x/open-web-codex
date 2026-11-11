@@ -56,7 +56,6 @@ from supply_chain_planner.shared.planning_input import (
 )
 
 from .tool_runtime import (
-    CONTENT_ADDRESSED_RESOURCE_TOOL,
     McpResourceContractError,
     _bounded_id_summary,
     _cost_metric_summary,
@@ -297,10 +296,3 @@ def evaluate_network_baseline(
         }
     )
     return result
-
-
-def register_tools(mcp, *, phase: str = "all") -> None:
-    if phase in ("all", "compare"):
-        mcp.tool(structured_output=True, annotations=CONTENT_ADDRESSED_RESOURCE_TOOL)(compare_network_scenarios)
-    if phase in ("all", "baseline"):
-        mcp.tool(structured_output=True, annotations=CONTENT_ADDRESSED_RESOURCE_TOOL)(evaluate_network_baseline)

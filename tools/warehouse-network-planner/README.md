@@ -15,29 +15,36 @@
 | `supply_chain_data` | 发现和检查授权 Workspace 的 CSV/JSON/XLSX，发布来源画像、映射、标准化输入和行政区结果，并在准备好的输入上回答只读事实查询 |
 | `supply_chain` | 构建路线/成本矩阵，计算覆盖、成本、场景、p-median、服务约束选址、比较地图和报告 |
 
-`network/server.py` 只负责创建 FastMCP、按固定顺序注册一个 Resource template 与 12 个公开 Tool、
-解析 transport 和初始化 Runtime。Network Tool 的 owner 分别位于 `tool_runtime.py`、`route_tools.py`、
-`cost_tools.py`、`analysis_tools.py`、`facility_tools.py` 与 `delivery_tools.py`；它们共享同一个
+`network/server.py` 只负责创建 FastMCP、按固定顺序注册一个 Resource template 与 8 个公开 Tool、
+解析 transport 和初始化 Runtime。公开的分析 Tool 由 `question_tools.py` 拥有，它在一次调用内串联 `route_tools.py`、
+`cost_tools.py`、`analysis_tools.py` 与 `facility_tools.py` 中不再注册为 MCP Tool 的内部函数；
+地图数据与报告由 `delivery_tools.py` 拥有。它们共享同一个
 Workspace/Profile-scoped ResourceStore accessor，不各自创建 MCP 或业务缓存。
 没有独立的 Indonesia 或 Demo MCP。国家由用户问题确定，行政区能力属于 `supply_chain_data`；地图由 Network Agent 使用 Planner 的确定性地图工具生成。示例数据只能由用户显式放入 Workspace，工具不会在失败时自动回退到 Demo fixture。
 
 ## 当前网络工具
 
-Network Agent 的主要工具是：
+公开的网络 Tool 是：
 
 ```text
-prepare_route_matrix
+evaluate_baseline
+evaluate_scenario
+find_sites_for_service_target
 create_navigation_matrix_request
-import_navigation_matrix
-plan_cost_matrix
 prepare_network_distribution_map
-evaluate_network_baseline
-assess_facility_change
-solve_p_median
-compare_network_scenarios
 prepare_network_comparison_map
+prepare_network_coverage_map
 publish_network_planning_report
 ```
+
+三个分析 Tool 各回答一类业务问题：现有网络的时效与成本、新增和/或关闭一组指定仓库后的变化、
+达到服务目标所需的最少新增仓。它们共用服务时限、可选的 `route_policy` 与 `cost_policy`、可选的
+`prepared_input_relative_path`。未给路径时，Tool 按该问题固定需要的数据角色解析 Workspace 中唯一
+可复用的准备输入，并在 `basis` 中写明所用路径；没有或存在多份不同输入时返回
+`prepared_unavailable` 或 `prepared_selection_required`。路线或报价有缺口且未给口径时返回一次
+`needs_input`，其中包含全部待选问题。路线矩阵、成本矩阵与方案对比是内部步骤，结果只链接基线、
+方案、求解结果与对比这几个可供地图和报告使用的 Resource，并附带按服务仓拆分的城市数、需求量、
+达标量与末端成本。
 
 Data Tool 先以 `workspace_source_profile.v3` inline `source_profile`、exact source units 与覆盖全部记录的有界字段统计（不返回原始行）、`inspection_identity` 和 `inspected_relative_paths` 返回有界检查结果，再重新检查完整文件并以 create-new 语义写入用户可见的 `outputs/warehouse-network/prepared/` Workspace JSON；Data/Network Agent 只交接精确相对路径、内容身份、roles/role_counts 和有界 warnings。检查只接受原始来源；已准备输入由 `resolve_prepared_network_input` 按本次所需 roles 的规范化记录比较复用：记录相同即 `prepared_ready` 直接交接，记录不同才 `prepared_selection_required` 请求一次选择，没有 fresh 文件返回 `prepared_unavailable` 后再检查原始来源；`source_changed` 最多重检一次。Data 不注册 Resource template，也不要求读取 source profile Resource。导航请求只写入 `outputs/warehouse-network/requests/`，单 Agent 经 Skill 授权的有界全量统计脚本与结果只写入 `outputs/warehouse-network/calculations/`，最终地图/报告文件只写入 `outputs/warehouse-network/deliverables/`，所有输入源保持原位。路线、成本、方案与比较等 Network 计算结果写入 Resource Store，并都绑定同一输入身份。Agent 不传原始文件、整张矩阵或完整工具结果。缺失数据、矩阵不完整、求解器不可用和超时都是显式状态；不会自动加载 Mock、填零或切换旧实现。
 
@@ -55,22 +62,20 @@ Data Tool 会把用户输入中完整的起点、终点、距离、时长与来�
 加权的覆盖指标，并以 typed Resource 支持实际基线、优化基线或场景之间的比较；模型只负责解释，
 不自行汇总这些数值。
 
-`plan_cost_matrix` 的 `cost_policy` 是当前唯一成本 fallback 选择：`kind=explicit` 接受显式分层数值规则；`kind=observed_quote_mean` 由 Planner 直接读取完整 prepared input，对当前所需层的全部标准化报价按 `price_per_vehicle / vehicle_capacity` 求算术均值，并把 `warehouse_quote_mean_calculation.v1` 的 prepared input identity、完整报价总数、分层报价数、币种、公式、均值和 Tool 版本作为 bounded provenance 返回并绑定到 `cost_matrix.v3`。用户明确要求脚本时，必须把同一 typed evidence 写入 calculations 目录并传 `quote_mean_evidence_relative_path`；Planner 会从完整输入重算并校验，脚本 JSON 不是第二份业务真相。该计算不读取 preview，也不把完整报价行送入模型上下文。
+分析 Tool 的 `cost_policy` 是当前唯一成本 fallback 选择：`kind=explicit` 接受显式分层数值规则；`kind=observed_quote_mean` 由 Planner 直接读取完整 prepared input，对当前所需层的全部标准化报价按 `price_per_vehicle / vehicle_capacity` 求算术均值，并把 `warehouse_quote_mean_calculation.v1` 的 prepared input identity、完整报价总数、分层报价数、币种、公式、均值和 Tool 版本作为 bounded provenance 返回并绑定到 `cost_matrix.v3`。用户明确要求脚本时，必须把同一 typed evidence 写入 calculations 目录并传 `quote_mean_evidence_relative_path`；Planner 会从完整输入重算并校验，脚本 JSON 不是第二份业务真相。该计算不读取 preview，也不把完整报价行送入模型上下文。
 
-`solve_p_median` 的 `opening_policy` 支持 `exact` 和一次有界的 `minimum_feasible` 两阶段求解。后者在一个总 `time_limit_seconds` 内先最小化新增仓数，再在该仓数下最小化成本，返回最多两个 typed `solver_stages`、`selected_number_to_open` 和最终 coverage，避免由 Agent 循环调用多个求解 Tool。报价均值外推且距离成本为零只是敏感性方案；没有仓租、建设、容量或吞吐成本时，结果不得称为经济意义上的全局最优。
+`find_sites_for_service_target` 在给出 `number_to_open` 时按固定仓数求解，否则执行一次有界的两阶段求解：在一个总 `time_limit_seconds` 内先最小化新增仓数，再在该仓数下最小化成本，返回最多两个 typed `solver_stages`、`selected_number_to_open` 和最终 coverage，避免由 Agent 循环调用多个求解 Tool。报价均值外推且距离成本为零只是敏感性方案；没有仓租、建设、容量或吞吐成本时，结果不得称为经济意义上的全局最优。
 
 地图数据合同发布仓库、需求城市、分配关系、逐城市距离、时长、成本以及相对用户所选服务目标的
 `attained/missed/unassigned` 状态，不包含标题、颜色、大小、标签、悬浮信息或图例。
 `prepare_network_coverage_map` 要求确切 `service_target_hours` 并验证该目标存在于计算结果；高层
 `map_utils/create_network_map_card` 只按这些 Planner 事实生成默认仓网图层和图例，不重新计算 SLA。
 
-`assess_facility_change` 接受精确的标准化输入、路线、可选成本以及任意合法的
-baseline/scenario/facility-location `before_ref`，以引用中的活动仓集合为起点，一次完成增仓、关仓或迁仓后的分配求解和前后比较。
-它发布完整的 `network_scenario.v2` 与绑定输入、前后方案和比较结果的
-`network_plan_comparison.v2` Resource，同时只把
-有界的仓库变化、成本、两种覆盖率和最多 10 个重点受影响/重分配城市返回给 Agent；
-`compare_network_scenarios` 与 `assess_facility_change` 均发布同一 before/after 合同。
-单仓增加、关闭或搬迁统一由 `assess_facility_change` 完成计算与比较；不再向 Agent 暴露重复的独立场景入口。
+`evaluate_scenario` 以基线的活动仓集合为起点，一次完成增仓和/或关仓后的分配求解与前后比较。
+仓库以精确 ID 或与准备输入完全一致的名称给出；名称没有对应或对应多个仓库时返回
+`warehouse_unresolved`，不做模糊匹配。它发布完整的 `network_scenario.v2` 与绑定输入、前后方案和
+比较结果的 `network_plan_comparison.v2` Resource，同时只把有界的仓库变化、成本、两种覆盖率和最多
+10 个重点受影响城市返回给 Agent。本阶段不公开搬迁仓库。
 
 ## Tool 审批
 

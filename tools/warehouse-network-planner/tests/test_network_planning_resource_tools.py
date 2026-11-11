@@ -225,46 +225,36 @@ def _pmedian_fixture(tmp_path: Path, monkeypatch):
     return workspace, ctx, prepared_path, routes, costs
 
 
-def test_network_planning_tools_use_workspace_input_and_keep_compute_results_as_resources() -> None:
+def test_analysis_tools_hide_internal_matrices_and_declare_every_outcome() -> None:
     tools = {tool.name: tool for tool in asyncio.run(server.mcp.list_tools())}
-    for name in (
-        "prepare_route_matrix",
-        "create_navigation_matrix_request",
-        "import_navigation_matrix",
-        "plan_cost_matrix",
-        "prepare_network_distribution_map",
-        "prepare_network_coverage_map",
-        "evaluate_network_baseline",
-        "assess_facility_change",
-        "solve_p_median",
-        "compare_network_scenarios",
-    ):
+    expected_outcomes = {
+        "evaluate_baseline": {"BaselineReady"},
+        "evaluate_scenario": {"ScenarioReady", "WarehouseUnresolved"},
+        "find_sites_for_service_target": {"SitingReady"},
+    }
+    for name, outcomes in expected_outcomes.items():
         schema = tools[name].inputSchema
-        assert "prepared_input_relative_path" in schema["required"]
-        assert "normalized_input_ref" not in schema["properties"]
-
-    route_output = tools["prepare_route_matrix"].outputSchema
-    route_variants = route_output["oneOf"]
-    assert len(route_variants) == 2
-    assert {variant["$ref"].rsplit("/", 1)[-1] for variant in route_variants} == {
-        "RouteMatrixNeedsInput",
-        "RouteMatrixReady",
-    }
-    assert "prepared_input_relative_path" in tools["prepare_route_matrix"].inputSchema["properties"]
-    assert "cost_policy" in tools["plan_cost_matrix"].inputSchema["properties"]
-    assert "calculation_policy" not in tools["plan_cost_matrix"].inputSchema["properties"]
-    cost_output = tools["plan_cost_matrix"].outputSchema
-    assert {variant["$ref"].rsplit("/", 1)[-1] for variant in cost_output["oneOf"]} == {
-        "CostMatrixNeedsInput",
-        "CostMatrixReady",
-    }
-    cost_ready = cost_output["$defs"]["CostMatrixReady"]["properties"]
-    assert "calculation_rule_evidence" in cost_ready
-    assert "calculation_rule_evidence_path" in cost_ready
-    assert "coverage" in tools["solve_p_median"].outputSchema["properties"]
-    assert "opening_policy" in tools["solve_p_median"].inputSchema["properties"]
-    assert "number_to_open" not in tools["solve_p_median"].inputSchema["properties"]
-    assert "solver_stages" in tools["solve_p_median"].outputSchema["properties"]
+        assert schema["required"] == ["service_targets"]
+        for internal in ("route_matrix_ref", "cost_matrix_ref", "before_ref", "warehouse_scope"):
+            assert internal not in schema["properties"]
+        for optional in ("prepared_input_relative_path", "route_policy", "cost_policy"):
+            assert optional in schema["properties"]
+        variants = {
+            variant["$ref"].rsplit("/", 1)[-1] for variant in tools[name].outputSchema["oneOf"]
+        }
+        assert variants == outcomes | {
+            "NetworkAnalysisNeedsInput",
+            "PreparedInputSelectionRequired",
+            "PreparedInputUnavailable",
+        }
+    scenario = tools["evaluate_scenario"].inputSchema["properties"]
+    assert "relocations" not in scenario
+    assert {"add_warehouses", "remove_warehouses"} <= set(scenario)
+    siting = tools["find_sites_for_service_target"].inputSchema["properties"]
+    assert {"service_constraints", "number_to_open", "closable_existing_warehouses"} <= set(siting)
+    assert "opening_policy" not in siting
+    for name in ("prepare_network_distribution_map", "create_navigation_matrix_request"):
+        assert "prepared_input_relative_path" in tools[name].inputSchema["required"]
 
 
 def test_provided_candidate_route_gap_returns_typed_needs_input_without_resource(

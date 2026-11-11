@@ -15,7 +15,7 @@ from pathlib import Path
 from mcp.server.fastmcp import FastMCP
 from mcp.server.stdio import stdio_server
 
-from . import analysis_tools, cost_tools, delivery_tools, facility_tools, route_tools
+from . import delivery_tools, question_tools, route_tools
 from .tool_runtime import (
     SANDBOX_STATE_META_CAPABILITY,
     configure_runtime,
@@ -33,15 +33,10 @@ mcp = FastMCP(
     json_response=True,
 )
 
-# Keep this sequence identical to the historical public Tool registration order.
 register_resources(mcp)
-analysis_tools.register_tools(mcp, phase="compare")
-delivery_tools.register_tools(mcp, phase="distribution")
+question_tools.register_tools(mcp)
 route_tools.register_tools(mcp)
-cost_tools.register_tools(mcp)
-analysis_tools.register_tools(mcp, phase="baseline")
-facility_tools.register_tools(mcp)
-delivery_tools.register_tools(mcp, phase="final")
+delivery_tools.register_tools(mcp)
 
 
 def main() -> None:

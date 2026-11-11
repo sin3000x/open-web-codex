@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import inspect
 import json
 from pathlib import Path
 from types import SimpleNamespace
@@ -154,28 +155,19 @@ def _result_ref(result) -> ResourceRef:
 
 def test_network_tools_accept_only_prepared_workspace_inputs() -> None:
     tools = {tool.name: tool for tool in asyncio.run(server.mcp.list_tools())}
+    for tool in tools.values():
+        assert "normalized_input_ref" not in tool.inputSchema["properties"]
     for name in (
-        "prepare_route_matrix",
+        "evaluate_baseline",
+        "evaluate_scenario",
+        "find_sites_for_service_target",
         "create_navigation_matrix_request",
-        "import_navigation_matrix",
-        "plan_cost_matrix",
         "prepare_network_distribution_map",
-        "evaluate_network_baseline",
-        "assess_facility_change",
-        "solve_p_median",
-        "compare_network_scenarios",
-        "prepare_network_coverage_map",
     ):
-        schema = tools[name].inputSchema
-        assert "prepared_input_relative_path" in schema["required"]
-        assert "normalized_input_ref" not in schema["properties"]
+        assert "prepared_input_relative_path" in tools[name].inputSchema["properties"]
 
-    route = tools["prepare_route_matrix"].inputSchema
-    assert "prior_route_matrix_ref" in route["properties"]
-    assert (
-        "both detour_coefficient and average_speed_kph"
-        in route["properties"]["route_method"]["description"]
-    )
+    route = inspect.signature(route_tools.prepare_route_matrix).parameters
+    assert "prior_route_matrix_ref" in route
 
 
 def test_network_rejects_matrix_from_another_prepared_workspace_input(

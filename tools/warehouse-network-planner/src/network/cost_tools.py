@@ -57,7 +57,6 @@ from supply_chain_planner.shared.planning_input import (
 )
 
 from .tool_runtime import (
-    CONTENT_ADDRESSED_RESOURCE_TOOL,
     McpResourceContractError,
     _load_ready_network,
     _runtime,
@@ -358,8 +357,3 @@ def _prior_route_facts_match(
         ):
             return False
     return True
-
-
-def register_tools(mcp, *, phase: str = "all") -> None:
-    if phase in ("all", "all"):
-        mcp.tool(structured_output=True, annotations=CONTENT_ADDRESSED_RESOURCE_TOOL)(plan_cost_matrix)
