@@ -1,4 +1,4 @@
-import { useEffect, useId, useMemo, useRef, useState } from "react";
+import { Suspense, lazy, useEffect, useId, useMemo, useRef, useState } from "react";
 import type { ChangeEvent, DragEvent } from "react";
 import { createPortal } from "react-dom";
 import ChevronRight from "lucide-react/dist/esm/icons/chevron-right";
@@ -12,10 +12,13 @@ import X from "lucide-react/dist/esm/icons/x";
 import type { GitFileStatus } from "../../types";
 import { Markdown } from "../../features/messages/components/Markdown";
 import { getFileTypeIconUrl } from "../../utils/fileTypeIcons";
-import { languageFromPath } from "../../utils/syntax";
-import { CodePreview } from "./CodePreview";
+import { languageFromPath } from "../../utils/languageFromPath";
 import { DelimitedTablePreview } from "./DelimitedTablePreview";
 import { delimiterForPath } from "./delimitedText";
+
+// Syntax highlighting pulls in Prism and its grammars; load it only when a
+// code file is actually previewed.
+const CodePreview = lazy(() => import("./CodePreview"));
 
 type Props = {
   workspaceId: string | null;
@@ -487,7 +490,11 @@ export default function FileManager({ workspaceId, selectedPath, onSelectedPathC
             showFilePath={false}
             onOpenFileLink={(location) => onSelectedPathChange(resolveMarkdownLink(selectedPath, location.path))}
           />
-        ) : <CodePreview path={selectedPath} content={content} truncated={truncated} formatted={formattedView} /> : <div className="web-file-empty">Select a file to preview</div>}
+        ) : (
+          <Suspense fallback={<div className="web-file-empty">Loading…</div>}>
+            <CodePreview path={selectedPath} content={content} truncated={truncated} formatted={formattedView} />
+          </Suspense>
+        ) : <div className="web-file-empty">Select a file to preview</div>}
       </div>
     </aside>
     {pendingDeletePath ? createPortal(

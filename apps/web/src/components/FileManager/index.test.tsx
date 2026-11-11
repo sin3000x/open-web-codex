@@ -447,7 +447,7 @@ describe("FileManager", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Raw" }));
     expect(table.isConnected).toBe(false);
-    expect(screen.getByText(/S1,"Jakarta, ID",1200/)).toBeTruthy();
+    expect(await screen.findByText(/S1,"Jakarta, ID",1200/)).toBeTruthy();
   });
 
   it("formats and highlights JSON files and switches to the raw text", async () => {

@@ -1,5 +1,6 @@
 import { useMemo } from "react";
-import { highlightLine, languageFromPath } from "../../utils/syntax";
+import { languageFromPath } from "../../utils/languageFromPath";
+import { highlightLine } from "../../utils/syntax";
 import { MAX_HIGHLIGHT_CHARS, formatJsonPreview } from "./jsonFormat";
 
 type Props = {
@@ -9,7 +10,7 @@ type Props = {
   formatted: boolean;
 };
 
-export function CodePreview({ path, content, truncated, formatted }: Props) {
+export default function CodePreview({ path, content, truncated, formatted }: Props) {
   const language = languageFromPath(path);
   const json = language === "json" && formatted ? formatJsonPreview(content, truncated) : null;
   const text = json?.ok ? json.text : content;
