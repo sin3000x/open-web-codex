@@ -5,8 +5,8 @@
 | 文档性质 | 当前与下一里程碑的执行计划 |
 | 更新日期 | 2026-08-21 |
 | 当前阶段 | 阶段二：公开 SDK 与 Web 创作体验 |
-| 当前状态 | 多 Agent 仓网正常业务主链完成；目录发现、Task 显式选包、独立单 Agent 仓网包与根级共享 Tool 已落地 focused gate |
-| 当前阶段裁决 | Codex 原生协作与 MCP Resource + Workspace 文件 + 最终 Artifact 混合边界；ADR-018/019/024/025 为当前基线 |
+| 当前状态 | 仓网按 ADR-026 只保留单 Agent Copilot，分析 Tool 以业务问题为粒度；目录发现、Task 显式选包与根级共享 Tool 已落地 focused gate；确定性端到端门与真实 Provider 门待在新合同下复跑 |
+| 当前阶段裁决 | Codex 原生协作与 MCP Resource + Workspace 文件 + 最终 Artifact 混合边界；ADR-018/019/024/025/026 为当前基线 |
 | 当前事实 | [Architecture](architecture.md) 与 [Capability Baseline](capability-baseline.md) |
 | 阶段二后续 | Web Studio、Marketplace、生产模型质量与真实产品 E2E；多用户产品流程属于阶段三 |
 
@@ -29,8 +29,8 @@ Atom 1 先建立一个不依赖 Web、Catalog 或安装状态的开发者源码�
    Runtime Role identity/reference 与 Tool package 引用，并输出有界摘要或 typed failure；
    它不证明完整 Role 可被 Runtime 加载，该 Runtime 门属于 Atom 2。
 3. Copilot-owned Skill/Role 路径都相对于显式 package root；一个 package 只有一个 `[root]`。
-   `copilots/warehouse-network` 与 `copilots/warehouse-network-single-agent` 是两个独立 package，
-   分别拥有多 Agent Supervisor 和关闭 multi-agent 的单 Root Agent。
+   `copilots/warehouse-network-single-agent` 是唯一的仓网 package，拥有关闭 multi-agent 的单 Root
+   Agent；`copilots/meeting-action-review` 是带一个 child Role 的业务中性样例。
 4. Atom 2a 的 `copilot dev` 在隔离 Profile 中复制完整 Skill 树和 child Role TOML；Tool 保持独立
    source owner。Copilot 可用 `{id, package}` 引用显式根级 Tool registry 的严格 `tool.toml`；
    仓网 Planner/Maps 当前位于根 `tools/`，不通过另一个 Copilot 引用。Tool 只声明直接项目 manifest、hash lock、
@@ -71,12 +71,11 @@ Atom 1 先建立一个不依赖 Web、Catalog 或安装状态的开发者源码�
 当前验证 reference 是：
 
 ```bash
-./scripts/copilot.sh check copilots/warehouse-network --workspace "$PWD"
 ./scripts/copilot.sh check copilots/warehouse-network-single-agent --workspace "$PWD"
 ```
 
-退出：新源码目录可由单/多 Agent `init` 生成并完成完整 `check`；两个独立仓网包从各自 source root
-并通过同一根级 Tool registry 静态通过；runtime parser、hash lock、Python/Node provisioner、prepared descriptor 与
+退出：新源码目录可由单/多 Agent `init` 生成并完成完整 `check`；仓网包从其 source root
+并通过根级 Tool registry 静态通过；runtime parser、hash lock、Python/Node provisioner、prepared descriptor 与
 临时 Plugin projection 有 focused tests；fake transcript 覆盖 official RPC 顺序、参数、inventory
 与 cleanup，真实 app-server fresh init→dev gate 证明 SDK-managed preparation 与同一 discovery 链；fresh init→test gate
 证明本地确定性 Provider 下的 Root/child Role/MCP 正常链。仓网参考工程与 generated package 使用

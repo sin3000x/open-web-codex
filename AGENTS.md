@@ -313,6 +313,8 @@ seams.
   `docs/adr/018-built-in-network-copilot-runtime-closure.md`
 - Accepted Task-selected package and shared-Tool baseline:
   `docs/adr/019-task-selected-copilot-packages-and-shared-tools.md`
+- Accepted single-agent warehouse Copilot and business-question Tool baseline:
+  `docs/adr/026-single-agent-warehouse-copilot-and-business-question-tools.md`
 - Deferred phase-two public Copilot platform implementation input:
   `docs/agent-capability-lifecycle-plan.md`
 - Frozen warehouse Supervisor prototype migration input:

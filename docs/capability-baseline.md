@@ -6,22 +6,34 @@
 | 观察日期 | 2026-08-23 |
 | 代码快照 | ADR-025 source-unit/prepared v2 合同；真实 Web + DeepSeek Flash 三段业务验收已通过 |
 | 当前阶段 | 阶段二已进入；阶段一仓网 Copilot 正常业务闭环作为已通过基线 |
-| 接受基线 | [ADR-018](adr/018-built-in-network-copilot-runtime-closure.md) + [ADR-019](adr/019-task-selected-copilot-packages-and-shared-tools.md) + [ADR-024](adr/024-warehouse-copilot-contract-simplification.md) + [ADR-025](adr/025-source-unit-prepared-v2-reuse.md) |
+| 接受基线 | [ADR-018](adr/018-built-in-network-copilot-runtime-closure.md) + [ADR-019](adr/019-task-selected-copilot-packages-and-shared-tools.md) + [ADR-024](adr/024-warehouse-copilot-contract-simplification.md) + [ADR-025](adr/025-source-unit-prepared-v2-reuse.md) + [ADR-026](adr/026-single-agent-warehouse-copilot-and-business-question-tools.md) |
 
 本文回答“当前构建能证明什么”。源码存在、局部测试通过、真实 Runtime 运行和从阶段一
 业务 Task/Web 开始的产品 E2E 是不同证据，不能互相替代。
 
 ## 1. 结论
 
-当前 checkout 已从 clean DB/Profile、真实 Web Task 入口、真实 Codex Runtime 和真实 Provider
-完成多 Agent 仓网 Copilot 的阶段一正常业务闭环。这个结论不代表 Web Studio、Marketplace、
-多用户产品或完整 hardening 矩阵已经完成。独立单 Agent 包已有静态组合、共享 Tool、package-keyed
-Root config 和 Web 显式选择的 E1/E2 证据；本轮将真实 DeepSeek 入口拆为多 Agent 业务、单 Agent
-业务和独立 Tool capability 三个门，并将成本证据收敛为 typed schema、选址收敛为
-`minimum_feasible` 有界求解。此前 ADR-024 的自然语言多 Agent 与单 Agent 业务门曾用
-`deepseek-v4-flash` 完成真实付费复跑。2026-08-22 又从 Web 新建 Workspace、上传 Downloads 的
-6 个 mock data 文件，并在同一多 Agent Task 中完成 ADR-025 的 source-unit/prepared v2 三段验收；
-该证据仍不扩大成 clean Profile E4。
+按 [ADR-026](adr/026-single-agent-warehouse-copilot-and-business-question-tools.md)，仓网只保留
+单 Agent Copilot `warehouse-network-single-agent`，Planner 以 `evaluate_baseline`、
+`evaluate_scenario`、`find_sites_for_service_target` 三个分析 Tool 回答业务问题；多 Agent 仓网包
+及其运行门禁、真实 Provider 多 Agent 场景和 `tool_search → spawn_agent` 诊断门已删除。
+
+当前合同的证据分为两类，不能互相替代：
+
+- **已运行**：Planner 221 项单元测试（含三个分析 Tool 的 ready、`needs_input`、准备输入解析、
+  名称未解析与不可行结果）；真实 stdio transport 的领域闭环 `tests/stdio_domain_e2e.py`，从 Data
+  准备到基线、关仓方案、选址、对比地图与报告，分析 Tool 自行解析新鲜准备输入；Copilot SDK
+  `validate` 与 126 项 SDK 测试；Platform Server 与 Adapter 的 Rust 单元测试；Browser 相关测试；
+  真实 Provider 门的本地自测模式。
+- **尚未在当前合同下运行**：确定性端到端门 `real-platform-e2e.mjs`（已改为单 Agent 剧本）与真实
+  Provider 单 Agent 门 `test:e2e:real-deepseek-single-agent`（已改为断言
+  `find_sites_for_service_target` 的 typed 结果与 `basis` 中的报价均值证据）。两者都需要独立的真实
+  Server，在复跑通过前不计为当前合同的 E2E 证据。
+
+本文第 2 至 4 节中日期早于 ADR-026 的记录，是在已删除的多 Agent 包和由模型逐步串联路线、成本、
+基线、求解 Tool 的旧合同下取得的；它们说明 Platform、Runtime 与 Provider 边界当时的行为，不是
+当前仓网合同的通过证据。多 Agent 协作现阶段没有任何门禁，Platform 中的原生协作投影不计为已验证
+能力。这些结论同样不代表 Web Studio、Marketplace、多用户产品或完整 hardening 矩阵已经完成。
 
 阶段二 Copilot SDK 已提供 `copilot init` 源码脚手架和 `copilot validate` 静态组合
 验证；`copilot dev` 提供隔离 discovery probe：通过官方 app-server 握手、
@@ -74,8 +86,8 @@ unknown Tool、stream disconnected、权限扩大或浏览器控制台错误。
 
 | 维度 | 当前等级 |
 | --- | --- |
-| 真实多 Agent 运行 | 多 Agent 仓网包的阶段一 normal path 已通过真实 Web E2E |
-| 单 Agent 仓网运行 | 独立 package、Root config、共享 Tool 与 Web 选择合同已通过静态/focused gate；自然语言真实门已完成 580 条报价 evidence 绑定与 `minimum_feasible` 90% 覆盖，clean Profile E4 未运行 |
+| 多 Agent 协作 | 无当前门禁；多 Agent 仓网包已按 ADR-026 删除，原生协作投影未验证 |
+| 单 Agent 仓网运行 | 唯一仓网 Copilot；package validate、Root config、三个分析 Tool 与真实 stdio 领域闭环已通过；确定性端到端门与真实 Provider 门尚未在 ADR-026 合同下复跑，clean Profile E4 未运行 |
 | Root 用户输入与 execution projection | 阶段一 normal path 可用；pending approval 刷新恢复已通过 |
 | Tool/Skill SDK 与 Studio | Copilot 源码 `init`/`validate`、通用环境 `prepare`、隔离 `dev` 与本地 fixture `test` 存在；旧 Web Studio 已删除 |
 | Agent/Supervisor 创作 | 旧 Web authoring 已删除；阶段一仅直接编辑 Profile Skill/Role |
@@ -95,9 +107,9 @@ unknown Tool、stream disconnected、权限扩大或浏览器控制台错误。
 
 ADR-023/024/025 已将 Data→Network 输入、source-unit 选择、prepared provenance、导航执行和地图装配合同切换到新的 Tool 实现。ADR-025 当前已有
 Planner/Maps、stdio、确定性 Copilot 和真实 Web + DeepSeek Flash 证据。下方旧 E4 记录适用于被替代的 Data Resource/手工导航路径，不能作为当前
-合同的 E4 声明。单 Agent 与多 Agent 仍需按新的 Workspace 输入、导航确认、地图和报告路径持续复验。多用户、完整失败/竞态矩阵、a11y 和视觉细节仍属于后续 hardening。
+合同的 E4 声明。单 Agent 仍需按新的 Workspace 输入、导航确认、地图和报告路径持续复验。多用户、完整失败/竞态矩阵、a11y 和视觉细节仍属于后续 hardening。
 
-### 2026-08-22 ADR-025 真实 Web 三段验收
+### 2026-08-22 ADR-025 真实 Web 三段验收（早于 ADR-026，针对已删除的多 Agent 包）
 
 Root 在 Web 新建 `DeepSeek Flash 仓网验收` Workspace，从 Downloads/mock_data 上传 6 个业务文件，
 选择 `warehouse-network-copilot`、DeepSeek E2E Provider、`deepseek-v4-flash`，并确认 Tool search 开启。
@@ -118,7 +130,7 @@ Root 丢失地图 embed、以及 90% 求解前的一次必要参数输入。前�
 推导、current-request Tool search/路线依赖、Root exact map embed 转发修复；Provider 使用用户更新的
 有效凭据；最后一项以显式估算口径继续，没有把默认值伪装成原始事实。
 
-### 2026-08-20 ADR-024 真实 DeepSeek 生产门记录（不作为 ADR-025 v2 验收证据）
+### 2026-08-20 ADR-024 真实 DeepSeek 生产门记录（早于 ADR-026；其中多 Agent 门与 Tool capability 诊断门已删除）
 
 `apps/web/scripts/real-deepseek-e2e.mjs` 只运行多 Agent 业务门，默认使用 `observe` 模式，不改写任何
 `tool_choice`；`real-deepseek-single-agent-e2e.mjs` 只运行单 Agent 业务门；
@@ -267,7 +279,7 @@ schema 推断 Runtime inventory。该回归不把 fixture 结果计作外部地�
 本地 Web 原任务在冷服务重启后已恢复真实 `map_utils/batch_geocode` 调用，
 不再返回 `unsupported call`；更换凭据后的外部 Mapbox 调用与地图渲染证据见上一节。
 平台 Rust 默认测试、三项隔离 PostgreSQL 边界测试及
-`check:no-desktop` 通过。另行扩展的 `copilot_package_clean_profile_runtime_gate` 未通过：
+`check:no-desktop` 通过。当时另行扩展的 `copilot_package_clean_profile_runtime_gate`（已按 ADR-026 删除）未通过：
 其当前 Skill description 预期与源码不一致，临时对齐描述后又停在旧 collaboration Tool
 surface 断言；该扩展 fixture 未纳入本修复，不计为完整多 Agent 通过证据。
 
@@ -323,7 +335,7 @@ Network route/baseline/coverage → create_network_map_card(completed) → close
 deterministic multi-agent gate 在 clean service restart 后连续两次通过，未发现 shell/tool loop 或
 残留 Run/Workspace 冲突。
 
-#### D7：真实 DeepSeek 单 Agent 全量报价与 90% 选址门（当前合同已通过）
+#### D7：真实 DeepSeek 单 Agent 全量报价与 90% 选址门（ADR-026 之前的合同；新合同下尚未复跑）
 
 `test:e2e:real-deepseek-single-agent` 固定选择 `warehouse-network-single-agent`，不运行或允许
 `spawn_agent`。当前自然语言门在一次 Root Turn 中完成 `discover_workspace_sources → inspect_workspace_sources →
@@ -487,14 +499,12 @@ Slice 3A 只审计 Codex 原生路径并运行定向测试，没有修改 `codex
 这些证据把 Skill/MCP 热刷新与 Role 应用语义提升到 E1。Slice 3B.1 已进一步实现启动前
 Profile seed 与显式应用资产 composition：
 
-- checked-in `copilots/warehouse-network` 提供 Supervisor、Data、Network planning、Map delivery
-  四项 Skill 默认内容和 `data_agent`、`network_agent` 两项原生 Role 默认配置；
-- checked-in `copilots/warehouse-network-single-agent` 是不同 package ID 的独立 Copilot；它用
-  一个 Root Agent 直接启用相同仓网 Tool policy 并关闭 multi-agent。该 Root Agent 配置不会作为
+- checked-in `copilots/warehouse-network-single-agent` 是唯一的仓网 Copilot；它用
+  一个 Root Agent 直接启用仓网 Tool policy 并关闭 multi-agent。该 Root Agent 配置不会作为
   child Role 安装；当前证据为 package validate、Root config projection 和 focused contract；
 - Profile Host 只接受 native Skill/Role 两种 typed startup destination，并显式区分普通
   `Seed` 与 package-managed `Managed`。普通 seed 仍只在缺失时 create-new 并保留已存在内容；
-  多 Agent 仓网包使用其四项 Skill 和两项 Role 声明 ID，部署升级在 Runtime 启动前只在
+  package-managed 资产按包声明的 Skill 与 Role ID 管理，部署升级在 Runtime 启动前只在
   内容漂移时原子更新。duplicate spec 在任何写入前拒绝；symlink、目录、逃逸和非法输入失败；
   `config.toml`、用户其他 Skill/Role 与 Workspace 不受影响。6 项单测通过；
 - 仓网验收 Profile 通过 Codex 官方进程级 feature override，在首次请求前关闭
@@ -596,7 +606,7 @@ malformed Role 和 Indonesia/Thailand native Workspace exact gate 也在删除�
 | Final Artifact 与地图卡片 | durable `artifacts` 只接受 active Copilot `[[deliveries]]` 声明的 exact producer、固定 typed kind/schema/MIME/verifier 与 Workspace-relative descriptor，并有 Task grant、exact Run/Thread/Turn/Item provenance、物化字节和授权读取；Platform 不理解包或业务字段，也不把任意 Resource 升为 Artifact。仓网 `map.v3` 另有 provider-owned immutable `map_card_spec.v1`：Platform 只保存 renderer、exact spec ref 和卡片 provenance，Maps 保留 parent revision 链；纯样式 revision 复用 GeoJSON，新增覆盖线须先由 Network 产生新 GeoJSON。关闭 producing child 后，inline source 读取以授权 Task 的固定 Copilot package config 第一次 cold-resume child Role/MCP，再走 official `mcpServer/resource/read`；浏览器不能选择 config，Platform 不复制 GeoJSON。紧凑 GeoJSON profile 声明无值的字段类型，Maps 拒绝全空/类型不匹配表达式与未声明 image asset | focused Adapter/Server 回归覆盖首次 resume config；原失败地图 URL 已从 502 修复为 200/129 features，真实浏览器卡片状态 Ready 且控制台无错误 |
 | Data Intake | SourceAsset、session/draft/mapping/gate、Dataset Release、Task binding/snapshot/projection 生产路径与当前 schema 已删除 | 不再是当前能力；阶段一无替代状态机 |
 | 旧数据引用 | Platform 文件面只接受 Workspace 相对路径；Data/Network active surface 只使用 strict `ResourceRef`，Case/NetworkSnapshot、ArtifactRef、taskEvidence hashes 和双重 ref 旧 tail 已删除 | 已完成 Stage E tail deletion；继续保持单一 ResourceStore owner |
-| 仓网算法 | Data4 标准化保留完整的用户路线 pair facts；Network12 通过一个 `prepare_route_matrix` 入口物化 provided/haversine 路线矩阵或给出 navigation 请求估算，计算成本、场景、求解、交互地图卡片数据和 Markdown 简报，并返回城市数量与需求量加权两种时效达标指标；`prepare_network_coverage_map` 从 exact assignment 生成通用覆盖 LineString。单次设施变更评估从 exact before result 的活动仓集合起算，一次求解并直接比较，返回 scenario ref、绑定标准化输入与前后方案的单一 `plan_comparison_ref` 及有界指标 | 路线规划/构建/显式重复验证和独立场景入口已从模型可见面删除；真实 Web 计时待复测 |
+| 仓网算法 | Data4 标准化保留完整的用户路线 pair facts；Network 公开 8 个 Tool：三个分析 Tool 各在一次调用内物化 provided/haversine/navigation 路线矩阵、计算成本、评估基线并完成场景或求解与前后比较，另有导航请求、三类交互地图卡片数据和 Markdown 简报，并返回城市数量与需求量加权两种时效达标指标；`prepare_network_coverage_map` 从 exact assignment 生成通用覆盖 LineString。单次设施变更评估从 exact before result 的活动仓集合起算，一次求解并直接比较，返回 scenario ref、绑定标准化输入与前后方案的单一 `plan_comparison_ref` 及有界指标 | 路线规划/构建/显式重复验证和独立场景入口已从模型可见面删除；真实 Web 计时待复测 |
 | Provider 定义与选择 | Profile `config.toml` 和 Runtime 已能持久化 Provider/模型及未来 Thread 默认选择；已物化 Thread 的实际 pair 由 official Thread settings 拥有。Runtime Provider catalog 必填返回 `supportsFunctionTools`；Platform 对可编辑 Provider 按 Wire API 归一化：Chat 强制 true、Responses 为 false，并在 `profile_provider_definitions.supports_function_tools` 精确持久化。Web 不展示 Function tools 复选框；模型级 `supportsSearchTool` 保持独立选择。已有 Chat Provider 由数据库迁移自动改为 true，数据库约束阻止再次写回 false。Runtime typed error 仍保护 Platform 外配置 | 第二/第三 owner 与 Task pair 全量收敛进入后续 backlog；当前交互只保留 Wire API 与模型级 Tool search 两个独立选择面 |
 | Provider 模型刷新 | Codex 的 provider-scoped `modelProvider/models/list` 对 exact 目标 Provider 执行 fresh `/models`，不切换 current Provider；Platform 只在非空 typed success 后持久化该 Profile 的完整模型目录。由于 `modelProvider/list` 不回显自定义模型目录，单模型 capability/context 修改与启动恢复必须先从数据库完整目录合并目标模型，再一次性原子写入 Runtime `models`；禁止逐模型更新覆盖兄弟模型。启动恢复完成后安排一次安全边界 Runtime 重启，防止 live ModelsManager 继续使用恢复前快照 | focused 回归覆盖 Runtime catalog 为空时一次写入 flash+pro、修改 flash 保留 pro；真实重启同时核验 config 双模型和 Data child ToolSearch |
 | Provider Secret | Profile/provider scoped Secret 以平台密文保存，只把稳定 env ref 写入 Codex config，并在 owned Profile process 注入 | E2；重启与零明文负向门保留 |
@@ -615,8 +625,8 @@ ADR-018 是阶段一规范裁决，Codex 子树 seam 只由 Patch Map 分类。�
 | `P1-R2-CHAT` | 当前关键链 | pinned official Codex 的 Chat transport 与 Platform `PUT/list` 依赖保留在 `codex/codex-rs/codex-api/src/{chat_translate.rs,chat_translate_history.rs,endpoint/chat.rs,sse/chat.rs}`、`core/src/client/chat.rs` 和 app-server catalog processor；Chat bridge 将 Runtime 原生 client ToolSearch 映射为普通 function call；canonical Thread history 中的 completed/client ToolSearch call-output 对贡献 exact namespace/name 的 request-scoped reverse target 与对应 function schema，稳定去重相同 target/schema，并对 identity/schema 冲突返回 typed failure；projection 不改写 canonical `Prompt.tools`、Platform 状态或 Core ToolRouter registry，Responses transport 不变。业务 child 恢复后，Root 以 `send_input.items` 重新注入当前任务 Skill；Skill item 重新注入与 Tool schema 历史复用是独立事实；同一 Task、同一业务 Role 默认复用稳定 child target，只有所需 Tool 不在当前 request 时才调用原生 `tool_search`。Runtime 仍拥有搜索、deferred registry、Tool identity、审批与分派，Role MCP server scope 仍是搜索边界；历史可见但已被当前 Runtime 移除的 Tool 仍由 Core typed 拒绝。Chat Provider 的 function-tool 能力来自 `ModelProviderInfo.supports_function_tools` 的显式 typed 配置/目录事实，缺失时在 Core tool planning 返回 `ProviderFunctionToolsUnsupported`；ToolSearch 仍只由模型级 `ModelInfo.supports_search_tool` 决定；Runtime 不按 `wire_api`、模型名或错误文本推断，Platform 只在可编辑 Provider 保存边界按 Chat 类型写入 function-tools 总闸门。 | 自定义历史 schema 缓存、Platform 回放或 Core authorization snapshot 会制造第二个工具生命周期 owner；纯文本 `send_input.message` 又会使恢复 child 丢失任务 Skill | 仅保留 Chat wire 适配、Provider capability/catalog 和真实仓网 gate 所需的最小 typed seam；历史 Tool schema 仅通过 canonical history 与当前 request 投影复用，ToolRouter 仍是最终权限 owner；Role/Skill 只规定 missing-tool search 与 stable child continuation，不建缓存、调度器或重试。2026-08-22 Web 真实 DeepSeek Flash 门已通过：同一 multi-agent Task 恰好 Root/Data/Network 三个 Agent，同一 child 跨后续任务复用；三轮结果分别为 12h 需求加权 81.5%（城市 66.0%）、Balikpapan 后 86.5%（+5.0pp，城市 +8.0pp）、`minimum_feasible` proven 的最少新增 2 仓/总 13 仓、需求加权 90.1%，均 map Ready。ToolSearch 只为此前未加载的 facility/cost Tools 搜索；正式成功 Task 的 unknown tool、`provider_tool_call_not_visible`、`stream disconnected` 与 Runtime WARN/ERROR 均为 0。8 次 typed 可恢复失败保留为后续效率/鲁棒性问题 | Codex 拥有 wire/app-server typed 执行、deferred registry、搜索与 Provider capability gate；Supervisor Skill 只拥有 structured continuation 方法；Platform 只拥有 CRUD、授权与密文注入 | 已验证：Chat request/stream/history 基础 round-trip、history-loaded schema/reverse-target replay、resume-shaped input、相同 schema 去重、failed/cancelled/orphan handling、collision/schema rejection、ToolSearch schema 不进入 `Prompt.tools`、Chat unsupported/function-only Core 回归；2A Role/Skill/SDK/Web 文本合同、focused copilot_package/SDK CLI tests 和 2026-08-22 Web DeepSeek Flash 三轮真实验收通过 |
 | `P1-SC-REF` | 当前关键链 | Network `server.py` 的 decorated active tools 使用一个 logical `supply_chain` provider、Workspace-scoped ResourceStore 和 strict `ResourceRef`；Data inspection 不发布 Resource，只由 Workspace authority 返回 inline typed identity。通用 ref/schema/codec/bounds/store/runtime/Workspace primitives 已迁到独立 provider SDK，仓网旧模块和 import 已删除 | 跨 provider 越权、Resource 不可达、同一内容多个身份 | Network 保持单一 provider ResourceStore 与 strict typed refs；Data 保持 inline inspection identity，不建 Broker/新表或路径 fallback | Network MCP provider 拥有中间内容；Data Tool 拥有文件 inspection identity；provider SDK 拥有通用 primitives | Provider SDK 11/11、Planner full 123/123 与 Data/Network stdio normal/domain gates 通过 |
 | `P1-SC-DATA4` | 当前关键链 | `data_server.py` active path 的 inspect 只接受原始来源，返回 bounded inline `workspace_source_profile.v3`、exact source units 与 `record_count`、覆盖全部记录的有界字段统计（不含原始行）、`inspection_identity` 与 `inspected_relative_paths`；角色评估不构成全局业务缺口，只有选中 unit 的语义、单位、值或冲突无法确定时才询问。`prepare_network_input` 使用 `source_selections` 和显式 mapping，重检变化返回 `source_changed` 且不写 output；ready prepared 绑定 selected raw/admin provenance、roles、role_counts 与 `selected_source_identity`，`resolve_prepared_network_input` 只考虑显式给出的 fresh candidate，所需 roles 的规范化记录相同即复用，记录不同才一次选择，无 fresh 时 typed `prepared_unavailable`。| 预览样本曾被模型误认为完整正文，且生成输入曾落在 Workspace 根目录或源数据目录；缺字段曾使 Data Agent 在 mapping 与 schema 错误之间重复调用而不询问；旧 source profile Resource 使 Data/Network 产生不必要的 read 链 | strict surface：discover→inspect→prepare，fresh prepared 为 discover→resolve→handoff；`needs_input` 一次询问并终止，`source_changed` 最多一次重检；Data `list_resources`/templates 为空；目录截断时不得断言候选仓不存在；Indonesia built-in asset 只属于验收 fixture，其他国家无 provider 时 typed unavailable | Data Tool 拥有格式/映射/inspection identity/标准化、typed 数据缺口和生成目录；Skill 只把业务终态转为一次询问，不建重试状态机；复用 `workspace_intake.py`、`mapping.py`、`normalization.py` 中纯函数与 `geography.py`，不建 source/revision/CAS 包装 | focused Data tests 覆盖全列统计与 record_count、等价 prepared 自动复用、`warehouse_type` 缺失 no-write、非标准表头、multi-sheet/nested JSON、order-independent identity、fresh reuse、selected raw/admin change、Balikpapan 不出现在检查统计代表值中仍完整准备、Data Resource surface empty 与两套 stdio domain gates |
-| `P1-SC-COST-MEAN` | 当前关键链 | `plan_cost_matrix` 的 discriminated `cost_policy` 区分显式数值与 `observed_quote_mean`；后者在 Planner owner 内读取 exact ready prepared input 的完整标准化报价，按层计算 `arithmetic_mean(price_per_vehicle / vehicle_capacity)`，把 `warehouse_quote_mean_calculation.v1` 的 prepared identity、完整总数、分层计数、币种、公式、均值和 Tool 版本写入 bounded result 与 `cost_matrix.v3`。单 Agent Role 显式保留 shell，但 Skill 只允许用户明确要求的同口径脚本读取 exact prepared input，并把 agent 创建的 typed script/result create-new 写入 calculations 目录；Planner 重新计算并校验脚本证据 | 旧 Skill 把 preview 上下文限制扩大成禁止执行端完整计算；Planner 又只收显式数值，导致用户已授权“按全量报价均值外推”仍被错误终止 | preview 继续只用于映射；普通均值外推由 Planner Tool 完成，脚本只作为用户明确要求的可审计证据，不修改 prepared/raw 数据或替代求解 | Planner 拥有业务聚合和 cost matrix；单 Agent Skill 拥有何时创建并执行脚本，Workspace 拥有计算证据文件 | focused cost/Tool tests 已覆盖 580 条完整报价、550/30 分层计数、均值、缺层失败、evidence mismatch、bounded structured output 与 exact input identity；Role/Copilot 合同测试覆盖 shell 开启、multi-agent 关闭和 calculations 目录约束；2026-08-20 真实 DeepSeek 单 Agent typed evidence/one-call gate 已通过 |
-| `P1-SC-NET9` | 当前关键链 | `server.py` 的 active Resource/final tools 使用 strict `ResourceRef`；`prepare_route_matrix` 统一 provided/haversine 入口并返回 discriminated `ready/needs_input`，只有零缺失矩阵才发布 `route_matrix.v3`；导航继续走显式 request/import 合同。baseline、设施变化和选址 Tool 独立拒绝不完整路线或成本。`assess_facility_change` 组合一次 scenario solve 与直接 before/after compare，并返回 scenario ref、单一 provenance-bound comparison ref 和最多 10 个重点城市。`prepare_network_coverage_map` 要求结果中存在的确切 `service_target_hours`，发布 `network_coverage_geojson.v2`，在需求点和末程线上携带 `attained/missed/unassigned` 状态；Maps 只按该状态生成红绿灰图层，不重算 SLA。 | Data/Network 必须继续保持单一 provider ResourceStore 与 strict typed refs，不能恢复旧 Case 状态、Demo 入口或 Platform workflow；数据缺口不得冒充零影响，普通文字不得冒充输入卡片 | 路线/cost 由 pair/lane fact 自主部分复用；child 把 typed `needs_input` 交 Root，只有 Root 调用 Runtime 原生 `request_user_input`；模型不再选择重复的 plan/build/validate、standalone scenario 或四引用交付拼装路径 | Network Tool 拥有算法、pair facts、缺口终态与业务地图状态；Root Skill 拥有输入卡片调用；Maps 拥有展示样式；Provider ResourceStore 拥有中间内容和统一 GeoJSON ref/profile | Planner 188/188、Maps 38/38、stdio 双门、Copilot/Skill validate、Web 1348/1348、deterministic multi-agent 2/2 通过；真实 DeepSeek 复验需恢复 Provider 凭据后完成 |
+| `P1-SC-COST-MEAN` | 当前关键链 | 分析 Tool 的 discriminated `cost_policy` 区分显式数值与 `observed_quote_mean`；后者在 Planner owner 内读取 exact ready prepared input 的完整标准化报价，按层计算 `arithmetic_mean(price_per_vehicle / vehicle_capacity)`，把 `warehouse_quote_mean_calculation.v1` 的 prepared identity、完整总数、分层计数、币种、公式、均值和 Tool 版本写入分析结果的 `basis` 与内部 `cost_matrix.v3`。单 Agent Role 显式保留 shell，但 Skill 只允许用户明确要求的同口径脚本读取 exact prepared input，并把 agent 创建的 typed script/result create-new 写入 calculations 目录；Planner 重新计算并校验脚本证据 | 旧 Skill 把 preview 上下文限制扩大成禁止执行端完整计算；Planner 又只收显式数值，导致用户已授权“按全量报价均值外推”仍被错误终止 | preview 继续只用于映射；普通均值外推由 Planner Tool 完成，脚本只作为用户明确要求的可审计证据，不修改 prepared/raw 数据或替代求解 | Planner 拥有业务聚合和 cost matrix；单 Agent Skill 拥有何时创建并执行脚本，Workspace 拥有计算证据文件 | focused cost/Tool tests 已覆盖 580 条完整报价、550/30 分层计数、均值、缺层失败、evidence mismatch、bounded structured output 与 exact input identity；Role/Copilot 合同测试覆盖 shell 开启、multi-agent 关闭和 calculations 目录约束；2026-08-20 真实 DeepSeek 单 Agent typed evidence/one-call gate 已通过 |
+| `P1-SC-NET9` | 当前关键链 | `server.py` 的 active Resource/final tools 使用 strict `ResourceRef`；三个分析 Tool 返回 discriminated `ready/needs_input/prepared_unavailable/prepared_selection_required`，路线与报价缺口在一次 `needs_input` 中全部给出；路线与成本矩阵是内部步骤，只有零缺失矩阵才进入评估，内部的 baseline、设施变化和选址函数独立拒绝不完整路线或成本；导航请求仍是显式 Tool，导入并入路线口径。`evaluate_scenario` 组合一次 scenario solve 与直接 before/after compare，并返回 scenario ref、单一 provenance-bound comparison ref 和最多 10 个重点城市。`prepare_network_coverage_map` 要求结果中存在的确切 `service_target_hours`，发布 `network_coverage_geojson.v2`，在需求点和末程线上携带 `attained/missed/unassigned` 状态；Maps 只按该状态生成红绿灰图层，不重算 SLA。 | Data/Network 必须继续保持单一 provider ResourceStore 与 strict typed refs，不能恢复旧 Case 状态、Demo 入口或 Platform workflow；数据缺口不得冒充零影响，普通文字不得冒充输入卡片 | 路线/cost 由 pair/lane fact 自主部分复用；child 把 typed `needs_input` 交 Root，只有 Root 调用 Runtime 原生 `request_user_input`；模型不再选择重复的 plan/build/validate、standalone scenario 或四引用交付拼装路径 | Network Tool 拥有算法、pair facts、缺口终态与业务地图状态；Root Skill 拥有输入卡片调用；Maps 拥有展示样式；Provider ResourceStore 拥有中间内容和统一 GeoJSON ref/profile | Planner 188/188、Maps 38/38、stdio 双门、Copilot/Skill validate、Web 1348/1348、deterministic multi-agent 2/2 通过；真实 DeepSeek 复验需恢复 Provider 凭据后完成 |
 | `P1-ART-FINAL` | 当前关键链 | generic ResourceLink→Artifact、Run-scoped通用 inline 表、Artifact 输入回流和旧 `report.v1` JSON inline 卡片已删除；durable delivery 只认 active Copilot `[[deliveries]]` 的 exact producer、固定 typed kind/schema/MIME/verifier 与 Workspace-relative descriptor。Platform 只理解通用 delivery kind，不理解仓网、地图或会议字段。Artifact 持久化 producer-time verifier snapshot，恢复和读取不依赖当前 active registry。仓网报告/地图文件/地图卡片与 meeting Markdown 报告是当前声明实例；Resource 字节仍由 provider 持有 | 把展示卡片误写成文件会触发不必要审批并制造交付物；把任意 Resource 升为 Artifact 会形成第二数据面；依赖模型文本或 active package 猜既有 Artifact 合同会在刷新、改写或切包时丢失交付 | producer 只返回其声明 kind 的固定 structuredContent envelope；Platform 按 producing Item provenance 与 verifier snapshot 物化/恢复。原生 inline-vis 通过授权 Profile/Thread 文件端点读取 HTML 或签名验证后的 PNG/JPEG/GIF/WebP；完成的 Agent Message 可用严格 `workspace_file` 指令请求 Platform 以权威 Workspace no-follow reader 快照 HTML，再投影为官方 native `file` 引用 | Platform 拥有通用交付授权投影、verifier snapshot、原生文件授权读取、Workspace HTML→Thread snapshot 与 Artifact 物化；Copilot 包拥有 producer 声明；Codex 拥有原生 visualize；MCP provider 拥有 Resource 内容 | 原生 Workspace HTML 快照定向 Rust tests 已通过；仓网自然语言案例已通过；meeting package/Tool delivery gate 已通过，真实 Web 交付未运行 |
 | `B-PROVIDER-OWNER` | 后续 backlog | `apps/web/crates/provider-service/src/secured.rs` 的 `profile_provider_definitions`、`apps/web/crates/platform-store/src/configuration.rs` 的 global default 与 Profile config/Runtime 重复 | 默认选择、已物化 Thread 实际 pair 和 refresh 被不同 owner 覆盖 | 当前 R2 只补 exact 真实 gate 依赖；全量 owner 收敛仅在仓网 gate 证明会选错 Provider/model 时提前 | Profile config/Runtime 拥有定义、未来 Thread default 和 Thread actual pair；Platform 只留密文 Secret 与必要 audit | 已证实，不阻断当前关键链 |
 | `B-THREAD-HISTORY` | 后续 backlog | `codex-adapter/src/real.rs` 的 history mode/隐藏 Thread，`routes/threads.rs` 的 overlay，`WebApp.tsx`/`webThreadHistory.ts` 的 live/history 启发式合并 | 连续同文本消息误去重，Task/Run status 可以冒充 official Thread/Turn 事实 | 全量 Thread/Run/history/lease 轻纠偏是后续 backlog；只有当前 E2E 证明消息投递错乱才同原子修复 | Codex Runtime 拥有 Thread/Turn/Item/history，Platform 只做授权和 exact Item 投影 | 已证实，不阻断当前关键链 |

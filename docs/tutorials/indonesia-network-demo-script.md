@@ -8,7 +8,7 @@
 
 1. 新建一个 Workspace，上传[示例数据](../../apps/web/scripts/fixtures/warehouse-network/mock_data/)中除 `manifest.json` 以外的六个文件。
 2. 先**不要**上传 `current-coverage.csv`（当前实际分配关系），它留到第 4 步再补，用来体验“中途补充数据”。文件位于 [current-coverage-extension](../../tools/warehouse-network-planner/examples/indonesia-network/current-coverage-extension/)。
-3. 新建任务，选择 **Warehouse Network · Multi-Agent**。
+3. 新建任务，选择 **Warehouse Network · Single Agent**。
 4. 以下全部问题都在**同一个任务**中依次发送，后面的问题依赖前面的结果。
 
 遇到输入卡片时，按每步“提示”里的建议选择；没有建议时选第一个默认项。
@@ -194,7 +194,6 @@
   用真实导航路线代替估算距离，重新计算 12 小时达标率，看看和估算结果差多少。
   ```
 
-- **单 Agent 对照**：新建任务选择 **Warehouse Network · Single Agent**，重复第 3、7、10 步。两者使用同一套计算规则，结论和地图类型应一致。
 
 ## 主持建议
 

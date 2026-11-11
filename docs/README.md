@@ -54,7 +54,7 @@
 - [Skills、MCP 与自定义 UI 扩展](custom-skills-mcp-ui-guide.md)
 - [仓网 Copilot 新手教程](multi-agent-development-tutorial.md)：从上传数据开始，完成
   12 小时时效、指定新增仓和最少新增仓三类业务分析；教程使用当前的 Workspace、Task、
-  两个独立仓网 Copilot 包和地图交付合同，不要求使用者理解内部协作或工具名称。
+  单 Agent 仓网 Copilot 包和地图交付合同，不要求使用者理解内部工具名称。
   - [10 分钟跑通完整示例](tutorials/indonesia-network-quickstart.md)
   - [认识要上传的数据](tutorials/indonesia-network-01-data.md)
   - [查看 12 小时时效和地图](tutorials/indonesia-network-02-service-baseline.md)

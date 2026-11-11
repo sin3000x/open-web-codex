@@ -663,7 +663,7 @@ python3 codex/codex-rs/skills/src/assets/samples/skill-creator/scripts/quick_val
 仓网参考门：
 
 ```bash
-./scripts/copilot.sh check ./copilots/warehouse-network \
+./scripts/copilot.sh check ./copilots/warehouse-network-single-agent \
   --workspace "$PWD"
 ```
 

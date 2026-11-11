@@ -3,11 +3,11 @@
 > **适合谁**：从旧链接进入的仓网开发者
 > **预计时间**：1 分钟
 > **前置条件**：已能运行仓库统一 Copilot CLI
-> **完成结果**：进入当前 4 Skills / 3 Agents、共享 Tool registry 的唯一教程
+> **完成结果**：进入当前单 Agent 仓网包、共享 Tool registry 的唯一教程
 
 请继续阅读[开发仓网 Copilot](../developers/copilot/warehouse-copilot.md)。当前教程明确覆盖：
 
-- 先维护独立单 Agent 包，再维护独立多 Agent 包；
+- 维护单 Agent 仓网包，每类业务问题对应一个分析 Tool；
 - 复用根级 `warehouse-network-planner` 与 `warehouse-network-maps`，不复制算法；
 - 精确 Role、delivery 和 registry 合同；
 - 12 小时 → Balikpapan → 90% 三轮真实地图验收。

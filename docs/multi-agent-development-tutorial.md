@@ -26,5 +26,5 @@
 - [仓网 Copilot 是什么](tutorials/supply-chain-agent-tutorial.md)：用业务语言介绍它能做什么。
 - [审批与故障恢复](tutorials/approvals-and-recovery.md)：任务等待、审批或失败时怎么处理。
 - [Copilot 开发者中心](developers/copilot/README.md)：开发与维护 Copilot 的唯一入口。
-- [开发仓网 Copilot](developers/copilot/warehouse-copilot.md)：共享领域 Tool、单/多 Agent 包、Role、
+- [开发仓网 Copilot](developers/copilot/warehouse-copilot.md)：共享领域 Tool、单 Agent 仓网包、Role、
   delivery 与三轮 Web 地图验收。

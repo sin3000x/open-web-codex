@@ -26,6 +26,8 @@ Server 只接收部署者配置的 `--copilots-root` 和 `--copilot-prepared-roo
 
 ### 3. 单 Agent 和多 Agent 是两个独立 Copilot
 
+> 本节的“两个仓网 Copilot 并存”已被 [ADR-026](026-single-agent-warehouse-copilot-and-business-question-tools.md) 替代：仓网只保留单 Agent 包。“一个包只有一种 Root 拓扑”的原则继续有效。
+
 - `copilots/warehouse-network` 是多 Agent 仓网 Copilot：Root Supervisor 只协调原生 Data/Network child Role，Root 不持有仓网 MCP。
 - `copilots/warehouse-network-single-agent` 是单 Agent 仓网 Copilot：一个 Root Agent 直接拥有 Data、Network、Maps MCP policy，并显式关闭 `multi_agent`，不安装或调用 child Role。
 

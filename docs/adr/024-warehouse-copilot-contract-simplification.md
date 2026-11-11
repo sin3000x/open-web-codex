@@ -9,6 +9,8 @@
 Resource 和跨输入 pair 复用的实现形态。ADR-018/019/023 的 Workspace、Runtime、MCP、Artifact 与
 权限所有权继续有效。
 
+> [ADR-026](026-single-agent-warehouse-copilot-and-business-question-tools.md) 删除了多 Agent 仓网包，并把本文中由模型逐步串联的路线、成本、基线与求解 Tool 改为三个分析 Tool 的内部步骤。共享构建、安装状态、精确路线范围与两阶段求解的决定继续有效。
+
 ## 背景
 
 单 Agent 与多 Agent 仓网 Copilot 已共享同一组 Data、Planner 和 Maps Tool，但运行闭环仍有五类

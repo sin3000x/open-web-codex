@@ -119,60 +119,38 @@ PostgreSQL integration tests use `TEST_DATABASE_URL` and are ignored by default.
 The real app-server smoke additionally requires a built Codex binary.
 
 With an isolated real Server already running and the Codex/MCP test binaries
-built, run the reproducible third-party Provider journey with a key file:
+built, run the deterministic single-agent acceptance gate:
 
 ```bash
 E2E_BASE_URL=http://127.0.0.1:4810 \
-DEEPSEEK_API_KEY_FILE=/absolute/path/to/deepseek-key \
 npm run test:e2e:real-platform
 ```
 
-The harness creates its own managed Project and two Threads, then checks live
-event timing, code execution, file preview, Provider add/switch/context updates,
-real stdio MCP invocation, approval resolution, delayed Turn state, history
-restoration and durable/live event ordering. It never prints the Provider key.
+The harness starts its own deterministic Chat model server, registers it as a
+Provider, creates a managed Project, Workspace and Task for
+`warehouse-network-single-agent`, uploads the six fixtures and drives one Root
+Turn: data preparation, one `evaluate_baseline` call with no route, cost or
+prepared-input arguments, the coverage map data and the map card. It asserts the
+exact Tool sequence, completed MCP Items, Resource provenance for the baseline
+and map data only (route and cost matrices are internal and must not be linked),
+the persisted prepared file, the standalone map embed, and that no collaboration
+Item or child Agent is projected.
 
-The real DeepSeek checks are split into two business gates and one independent
-diagnostic gate. They share the bounded Provider proxy, fixture upload, Task/Run
-wait, timeline projection and terminal cleanup in
-`scripts/real-deepseek/harness.mjs`; the scenario prompts live in
-`scripts/real-deepseek/scenarios.mjs`. All three are opt-in and their
-`E2E_REAL_DEEPSEEK_SELF_TEST=1` mode is local-only (no network).
+The real Provider gate is opt-in and shares the bounded Provider proxy, fixture
+upload, Task/Run wait, timeline projection and terminal cleanup in
+`scripts/real-deepseek/harness.mjs`; its prompt and typed acceptance helpers live
+in `scripts/real-deepseek/single-agent.mjs`. `E2E_REAL_DEEPSEEK_SELF_TEST=1` runs
+its local-only self tests without any network access.
 
-The multi-agent business gate uses the natural warehouse request below. It
-accepts only typed business evidence: Data and Network child Roles, the typed
-prepared-input handoff, a 12h baseline, Balikpapan's city-count and
-demand-weighted deltas, and completed map delivery. It does not prescribe or
-assert an exact model Tool count/order. Protocol failures (invalid wire Tool,
-accepted Tool followed by a disconnected stream, permission/identity/server
-failure, or cleanup failure) remain typed terminal failures; the script does
-not retry a prompt variant or fabricate a result:
-
-```bash
-E2E_REAL_DEEPSEEK=1 \
-E2E_REAL_DEEPSEEK_TOOL_CHOICE_MODE=observe \
-E2E_BASE_URL=http://127.0.0.1:4810 \
-E2E_REAL_DEEPSEEK_SOURCE_PROVIDER_ID=deepseek \
-npm run test:e2e:real-deepseek
-```
-
-The original native Tool capability diagnostic is separate and is never run by
-the business gate. It checks only the real `tool_search → spawn_agent` path:
-
-```bash
-E2E_REAL_DEEPSEEK=1 \
-E2E_REAL_DEEPSEEK_TOOL_CHOICE_MODE=observe \
-E2E_BASE_URL=http://127.0.0.1:4810 \
-E2E_REAL_DEEPSEEK_SOURCE_PROVIDER_ID=deepseek \
-npm run test:e2e:real-deepseek-tool-capability
-```
-
-单 Agent 使用同一真实 Provider、Task、Workspace 和 Runtime 边界，但固定选择
-`warehouse-network-single-agent`，不运行 Tool capability diagnostic。它要求 Agent 对完整 prepared
-input 创建并执行 calculations 脚本，由 Planner 用完整报价的分层单位成本均值构建经校验并绑定证据的成本矩阵，再求解满足
-12h 需求加权覆盖至少 90% 的最少新增仓方案。门禁直接断言 completed `plan_cost_matrix`、
-typed `solve_p_median` 的 minimum-feasible 结果、无 child 协作事件，以及 prepared/calculations
-文件全部位于 package-owned 输出目录；同样不要求模型遵循固定 Tool 次数或顺序：
+单 Agent 门固定选择 `warehouse-network-single-agent`。它要求 Agent 对完整 prepared input 创建并执行
+calculations 脚本，由 Planner 用完整报价的分层单位成本均值构建经校验并绑定证据的成本，再求解满足
+12h 需求加权覆盖至少 90% 的最少新增仓方案。门禁直接断言 completed
+`find_sites_for_service_target` 的 typed 结果（两阶段求解与 90% 覆盖）、其 `basis` 中绑定的
+`observed_quote_mean` 证据与证据路径、无 child 协作事件，以及 prepared/calculations 文件全部位于
+package-owned 输出目录；不要求模型遵循固定 Tool 次数或顺序。Protocol failures (invalid wire Tool,
+accepted Tool followed by a disconnected stream, permission/identity/server failure, or cleanup
+failure) remain typed terminal failures; the script does not retry a prompt variant or fabricate a
+result:
 
 ```bash
 E2E_REAL_DEEPSEEK=1 \

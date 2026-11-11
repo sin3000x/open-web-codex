@@ -24,7 +24,7 @@ route-quotes.csv
 ## 2. 创建任务
 
 1. 在这个 Workspace 中点击 **New task**。
-2. 选择 **Warehouse Network · Multi-Agent**。
+2. 选择 **Warehouse Network · Single Agent**。
 3. 发送下面这句话：
 
    ```text
@@ -70,9 +70,5 @@ route-quotes.csv
 - 显示仓库和城市覆盖情况的地图。
 
 如果当前候选仓无法达到 90%，系统会明确告诉你“无法达到”，而不会给出看似成功的方案。
-
-## 6. 想用单 Agent 再跑一次？
-
-在另一个新任务中选择 **Warehouse Network · Single Agent**，上传相同文件，发送相同的三句话。它没有额外的专业角色，但同样会先检查数据、完成计算并展示地图。不要在同一个任务中比较两种模式的内部过程；业务上只需要比较最终结果是否满足你的目标。
 
 下一步：[认识要上传的数据](indonesia-network-01-data.md)。

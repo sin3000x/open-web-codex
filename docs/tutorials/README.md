@@ -26,11 +26,7 @@
 
 1. 创建或选择一个 Workspace。它就是本次分析的文件夹。
 2. 上传你的仓网数据。首次体验可用仓库里的[印尼示例数据](../../apps/web/scripts/fixtures/warehouse-network/mock_data/)。
-3. 新建任务时选择一个仓网 Copilot。
-
-通常选择 **Warehouse Network · Multi-Agent**。它会把“检查数据”和“规划仓网”交给不同的专业步骤处理，适合完整分析和连续追问。
-
-如果只想快速完成一件小任务，也可选择 **Warehouse Network · Single Agent**。两者使用同一套计算规则，交付的数字、报告和地图类型相同；区别只是内部的分工方式。一个任务开始后不需要、也不能在中途切换。
+3. 新建任务时选择仓网 Copilot **Warehouse Network · Single Agent**。它由一个助手完成数据检查、仓网计算和地图交付，适合完整分析和连续追问。
 
 ## 你只需要这样提问
 
