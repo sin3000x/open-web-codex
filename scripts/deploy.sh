@@ -444,7 +444,9 @@ persist_database_url() {
 validate_database_url_file_permissions() {
   local path="$1" mode
   [[ -f "$path" && -r "$path" ]] || return 1
-  mode="$(stat -f '%Lp' "$path" 2>/dev/null || stat -c '%a' "$path" 2>/dev/null || true)"
+  # GNU first: GNU `stat -f` reports file-system status instead of failing
+  # cleanly, while BSD `stat -c` prints nothing before it fails.
+  mode="$(stat -c '%a' "$path" 2>/dev/null || stat -f '%Lp' "$path" 2>/dev/null || true)"
   [[ "$mode" =~ ^[0-7]{3,4}$ ]] || return 1
   (( (8#$mode & 077) == 0 ))
 }

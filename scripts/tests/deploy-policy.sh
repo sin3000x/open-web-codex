@@ -133,4 +133,44 @@ kill -0 "$old_pid" 2>/dev/null || {
   exit 1
 }
 
+# The managed database URL file must pass the permission gate with both stat
+# dialects. GNU `stat -f` prints file-system status and fails instead of
+# rejecting the option, so its output must never be mixed into the mode.
+real_stat="$(command -v stat)"
+stat_bin="$fixture_root/stat-bin"
+mkdir -p "$stat_bin"
+write_fake_stat() {
+  local dialect="$1"
+  cat >"$stat_bin/stat" <<STAT
+#!/usr/bin/env bash
+mode="\$("$real_stat" -c '%a' "\$3" 2>/dev/null || "$real_stat" -f '%Lp' "\$3")"
+case "$dialect:\$1" in
+  gnu:-c|bsd:-f) printf '%s\n' "\$mode" ;;
+  gnu:-f) printf '  File: "%s"\n    ID: 0 Namelen: 255 Type: ext2/ext3\n' "\$3"; exit 1 ;;
+  *) printf 'stat: illegal option\n' >&2; exit 1 ;;
+esac
+STAT
+  chmod +x "$stat_bin/stat"
+}
+check_managed_url_file() {
+  PATH="$stat_bin:$fake_bin:$PATH" \
+  OPEN_WEB_CODEX_DATA_DIR="$data_dir" \
+    "$fixture_root/scripts/deploy.sh" --check
+}
+printf 'postgresql://tester:secret@127.0.0.1:5432/open_web_codex\n' >"$data_dir/database-url"
+for dialect in gnu bsd; do
+  write_fake_stat "$dialect"
+  chmod 600 "$data_dir/database-url"
+  check_managed_url_file >/dev/null || {
+    printf 'private database URL file was rejected with %s stat\n' "$dialect" >&2
+    exit 1
+  }
+  chmod 644 "$data_dir/database-url"
+  if check_managed_url_file >/dev/null 2>&1; then
+    printf 'group/other-readable database URL file was accepted with %s stat\n' "$dialect" >&2
+    exit 1
+  fi
+done
+rm -f "$data_dir/database-url"
+
 printf 'deploy policy tests passed\n'
